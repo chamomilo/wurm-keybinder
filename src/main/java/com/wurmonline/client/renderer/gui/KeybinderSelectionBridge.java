@@ -9,4 +9,8 @@ public final class KeybinderSelectionBridge {
     public static void select(SelectBar bar, PickableUnit unit) {
         bar.setSelected(unit);
     }
+
+    public static boolean isSelected(SelectBar bar, long unitId) {
+        return bar != null && bar.selectedUnit != null && bar.selectedUnit.getId() == unitId;
+    }
 }

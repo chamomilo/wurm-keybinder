@@ -1,6 +1,7 @@
 package org.keybinder.wurm.model;
 
 public final class KeybindConflict {
+    public static final String VANILLA_OWNER = "keybinder.owner:vanilla";
     private final String key;
     private final String owner;
     private final String command;
@@ -25,4 +26,6 @@ public final class KeybindConflict {
     public String getCommand() { return command; }
     public String getCreatedByUser() { return createdByUser; }
     public String getCreatedOnServer() { return createdOnServer; }
+
+    public boolean isVanillaOwner() { return VANILLA_OWNER.equals(owner); }
 }

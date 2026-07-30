@@ -2,6 +2,7 @@ package com.wurmonline.client.renderer.gui;
 
 import com.wurmonline.client.renderer.backend.Queue;
 import org.keybinder.wurm.KeybinderMod;
+import org.keybinder.wurm.catalog.VanillaCatalogStepFactory;
 import org.keybinder.wurm.catalog.VanillaKeybindCatalog;
 import org.keybinder.wurm.catalog.InputKeyCatalog;
 import org.keybinder.wurm.command.ExactObjectTarget;
@@ -18,7 +19,9 @@ import org.keybinder.wurm.model.StepKind;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.ui.KeybindEditorController;
+import org.keybinder.wurm.ui.LocalizedLayout;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
+import org.keybinder.wurm.i18n.Messages;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,7 +36,6 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     static final int MIN_WIDTH = 760;
     private static final int WINDOW_CHROME = 32;
     private static final int ACTION_NAME_MIN_WIDTH = 145;
-    private static final int TYPE_WIDTH = 126;
     private static final int HELP_WIDTH = 22;
     private static final int CAPTURE_WIDTH = 24;
     private static final int SEPARATOR_WIDTH = 9;
@@ -46,16 +48,19 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             "toolbelt", "equipment", "exact object", "nearby", "nearby by type"
     };
     private static final VanillaKeybindCatalog VANILLA_CATALOG = new VanillaKeybindCatalog();
+    private static final VanillaCatalogStepFactory VANILLA_STEPS =
+            new VanillaCatalogStepFactory();
     private static final int VANILLA_TYPE_OFFSET = 4;
-    private static final String[] STEP_TYPE_OPTIONS = stepTypeOptions();
     private static final String[] ACTIVATE_TARGET_OPTIONS = {
-            "hand", "toolbelt", "equipment", "exact object"
+            "hand", "hover", "toolbelt", "equipment", "exact object"
+    };
+    private static final String[] VANILLA_ACTIVATE_TARGET_OPTIONS = {
+            "hover", "hand", "toolbelt", "equipment", "exact object"
     };
     private static final String[] SMART_IMPROVE_TARGET_OPTIONS = {
             "hover", "tool", "selected", "toolbelt", "equipment", "exact object"
     };
     private static final InputKeyCatalog KEY_CATALOG = InputKeyCatalog.system();
-    private static final String[] KEY_OPTIONS = KEY_CATALOG.displayOptions();
     private static final String[] MOD_OPTIONS = {
             "", "SHIFT", "CTRL", "ALT", "CTRL+SHIFT", "CTRL+ALT", "SHIFT+ALT",
             "CTRL+SHIFT+ALT"
@@ -65,18 +70,21 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private static String[] stepTypeOptions() {
         List<VanillaKeybindCatalog.Category> categories = VANILLA_CATALOG.getCategories();
         String[] options = new String[VANILLA_TYPE_OFFSET + categories.size()];
-        options[0] = "Activate tool";
-        options[1] = "Smart improve";
-        options[2] = "Console command";
-        options[3] = "Custom action";
+        options[0] = Messages.text("editor.step_type.activate");
+        options[1] = Messages.text("editor.step_type.improve");
+        options[2] = Messages.text("editor.step_type.console");
+        options[3] = Messages.text("editor.step_type.custom");
         for (int i = 0; i < categories.size(); i++)
             options[VANILLA_TYPE_OFFSET + i] =
-                    "Vanilla: " + categories.get(i).getDisplayName();
+                    Messages.text("editor.step_type.vanilla", categories.get(i).getDisplayName());
         return options;
     }
 
+    static int stepTypeWidth() { return maximumOptionWidth(stepTypeOptions()); }
+
     private final KeybindEditorController controller;
     private final String recordId;
+    private final String[] keyOptions;
     private final WurmInputField nameField;
     private final WurmArrayPanel<FlexComponent> keySelectors;
     private final WurmArrayPanel<FlexComponent> creationFields;
@@ -122,7 +130,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         super("keybinder.editor", true);
         this.controller = controller;
         this.recordId = recordId;
-        setTitle("Keybind constructor");
+        this.keyOptions = KEY_CATALOG.displayOptions();
+        setTitle(Messages.text("window.editor.title"));
         KeybindRecord record = controller.getRecord(recordId);
         createdByUser = record == null ? controller.currentUser() : record.getCreatedByUser();
         createdOnServer = record == null ? controller.currentServer() : record.getCreatedOnServer();
@@ -131,14 +140,14 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         top = new WurmArrayPanel<>("keybinder.editor.top", WurmArrayPanel.DIR_VERTICAL, true);
         top.addComponent(verticalSpacer(3));
         top.addComponent(new WurmLabel(
-                "Build the default action below. Add an alternative action to make this keybind multi-purpose."));
+                Messages.text("editor.instructions")));
         top.addComponent(new WurmLabel(
-                "Tap the key to run the active action; hold it for more than 1 second to pick and run another."));
+                Messages.text("editor.long_press")));
         top.addComponent(verticalSpacer(SECTION_GAP));
-        top.addComponent(new WurmLabel("Keybind name"));
+        top.addComponent(new WurmLabel(Messages.text("editor.name")));
         nameField = new WurmInputField("keybinder.editor.name", this);
         nameField.prompt = "";
-        nameField.setText(record == null ? "New keybind" : record.getName());
+        nameField.setText(record == null ? Messages.text("editor.new") : record.getName());
         nameField.setMaxInput(80);
         top.addComponent(nameField);
         top.addComponent(verticalSpacer(SECTION_GAP));
@@ -148,11 +157,11 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         createdByValue = new MetadataValueField("keybinder.editor.createdBy", createdByUser);
         createdOnValue = new MetadataValueField("keybinder.editor.createdOn", createdOnServer);
         refreshCreatedBy = new KeybinderGlyphButton(KeybinderGlyphButton.Kind.REFRESH, this,
-                "Replace with the current user");
+                Messages.text("editor.current_user"));
         refreshCreatedOn = new KeybinderGlyphButton(KeybinderGlyphButton.Kind.REFRESH, this,
-                "Replace with the current server");
-        createdByCaption = new WurmLabel("Created by user:");
-        createdOnCaption = new WurmLabel("Created on server:");
+                Messages.text("editor.current_server"));
+        createdByCaption = new WurmLabel(Messages.text("editor.created_user"));
+        createdOnCaption = new WurmLabel(Messages.text("editor.created_server"));
         creationFields.addComponent(createdByCaption);
         creationFields.addComponent(refreshCreatedBy);
         creationFields.addComponent(createdByValue);
@@ -164,17 +173,18 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         keySelectors = new WurmArrayPanel<>("keybinder.editor.key", WurmArrayPanel.DIR_HORIZONTAL);
         keySelectors.componentWidthOffset = COLUMN_GAP;
-        keyLabel = new WurmLabel("Key");
-        modifierLabel = new WurmLabel("Mod");
+        keyLabel = new WurmLabel(Messages.text("editor.key"));
+        modifierLabel = new WurmLabel(Messages.text("editor.modifier"));
         keyDropDown = new WurmDropDown("keybinder.editor.key.value",
-                optionFor(KEY_OPTIONS, KEY_CATALOG.displayName(baseKey(
-                        record == null ? "" : record.getKey()))), KEY_OPTIONS);
+                optionFor(keyOptions, KEY_CATALOG.displayName(baseKey(
+                        record == null ? "" : record.getKey()))), keyOptions);
         modifierDropDown = new WurmDropDown("keybinder.editor.key.modifier",
                 optionFor(MOD_OPTIONS, modifier(record == null ? "" : record.getKey())), MOD_OPTIONS);
-        keySelectorWidth = maximumOptionWidth(KEY_OPTIONS);
+        keySelectorWidth = maximumOptionWidth(keyOptions);
         modifierSelectorWidth = maximumOptionWidth(MOD_OPTIONS);
         String storedKey = record == null ? "" : record.getKey();
-        keyDropDown.setValue(optionFor(KEY_OPTIONS, KEY_CATALOG.displayName(baseKey(storedKey))));
+        keyDropDown.setValue(optionFor(
+                keyOptions, KEY_CATALOG.displayName(baseKey(storedKey))));
         modifierDropDown.setValue(optionFor(MOD_OPTIONS, modifier(storedKey)));
         keySelectors.addComponent(keyLabel);
         keySelectors.addComponent(keyDropDown);
@@ -182,11 +192,11 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         keySelectors.addComponent(modifierDropDown);
         top.addComponent(keySelectors);
         top.addComponent(verticalSpacer(SECTION_GAP));
-        addVariant = new WButton("Add alternative action", this);
+        addVariant = new WButton(Messages.text("editor.add_variant"), this);
 
         actions = new WurmArrayPanel<>("keybinder.editor.actions", WurmArrayPanel.DIR_VERTICAL, true);
-        done = new WButton("Done", this);
-        cancel = new WButton("Cancel", this);
+        done = new WButton(Messages.text("common.done"), this);
+        cancel = new WButton(Messages.text("common.cancel"), this);
         footer = new WurmArrayPanel<>("keybinder.editor.footer", WurmArrayPanel.DIR_HORIZONTAL);
         footer.componentWidthOffset = COLUMN_GAP;
         footer.addComponent(done);
@@ -267,8 +277,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
         if (button == addVariant) {
             if (zones.size() >= MAX_VARIANTS) {
-                controller.showEditorError("A keybind can contain at most "
-                        + MAX_VARIANTS + " action variants.");
+                controller.showEditorError(Messages.text("editor.max_variants", MAX_VARIANTS));
                 return;
             }
             VariantZone zone = new VariantZone(new KeybindVariant(null, "", null), zones.size());
@@ -348,8 +357,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     variants,
                     activeVariantId, createdByUser, createdOnServer);
         } catch (RuntimeException e) {
-            controller.showEditorError("Cannot save keybind: "
-                    + (e.getMessage() == null ? "invalid value" : e.getMessage()));
+            controller.showEditorError(Messages.text("editor.cannot_save",
+                    e.getMessage() == null ? Messages.text("editor.invalid_value") : e.getMessage()));
         }
     }
 
@@ -388,10 +397,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if (row.isVanilla()) {
                 int value = row.vanillaAction.getValue();
                 if (value != row.lastVanillaValue) {
+                    selectedRow = row;
                     row.lastVanillaValue = value;
+                    row.createTarget();
+                    row.rebuildPanel();
+                    applyActionLayout(Math.max(300, width - WINDOW_CHROME));
                     row.zone.updateActionLimit();
+                    continue;
                 }
-                continue;
+                if (!row.vanillaUsesTarget()) continue;
             }
             int value = row.target.getValue();
             if (value == row.lastDropdownValue) continue;
@@ -481,7 +495,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     @Override public void handleEscape(WurmInputField field) {}
 
     private String selectedKey() {
-        String key = KEY_CATALOG.persistedName(KEY_OPTIONS[keyDropDown.getValue()]);
+        String key = KEY_CATALOG.persistedName(keyOptions[keyDropDown.getValue()]);
         String mod = MOD_OPTIONS[modifierDropDown.getValue()];
         if (key.isEmpty()) return "";
         return InputKeyCatalog.normalizeChord(mod.isEmpty() ? key : mod + "+" + key);
@@ -556,9 +570,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     }
 
     private static int maximumOptionWidth(String[] options) {
-        int width = 0;
-        for (String option : options) width = Math.max(width, new WurmLabel(option).width);
-        return width + 30;
+        return LocalizedLayout.maximumOptionWidth(
+                options, 30, text -> new WurmLabel(text).width);
     }
 
     private static boolean concreteTarget(String target) {
@@ -650,21 +663,45 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     }
 
     private static String targetDisplay(String target) {
-        if (target.startsWith("@tb")) return "toolbelt slot " + target.substring(3);
-        if (target.startsWith("@eq")) return "equipment slot " + target.substring(3);
+        if (target.startsWith("@tb"))
+            return Messages.text("target.slot.toolbelt", target.substring(3));
+        if (target.startsWith("@eq"))
+            return Messages.text("target.slot.equipment", target.substring(3));
         if (ExactObjectTarget.isExact(target)) return ExactObjectTarget.display(target);
         if (NearbyTypeTarget.isNearbyType(target)) return target;
-        if (target.equals("tile")) return "tile C";
-        if (target.startsWith("tile_")) return "tile " + target.substring(5).toUpperCase();
-        if (target.equals("area")) return "whole 3x3 area";
-        return target;
+        if (target.equals("tile")) return Messages.text("target.tile", "C");
+        if (target.startsWith("tile_"))
+            return Messages.text("target.tile", target.substring(5).toUpperCase());
+        if (target.equals("area")) return Messages.text("target.area");
+        return targetLabel(target);
+    }
+
+    private static String targetLabel(String token) {
+        if ("hover".equals(token)) return Messages.text("target.hover");
+        if ("body".equals(token)) return Messages.text("target.body");
+        if ("tool".equals(token)) return Messages.text("target.tool");
+        if ("selected".equals(token)) return Messages.text("target.selected");
+        if ("current ride".equals(token)) return Messages.text("target.current_ride");
+        if ("tiles".equals(token)) return Messages.text("target.tiles");
+        if ("toolbelt".equals(token)) return Messages.text("target.toolbelt");
+        if ("equipment".equals(token)) return Messages.text("target.equipment");
+        if ("exact object".equals(token)) return Messages.text("target.exact_object");
+        if ("nearby".equals(token)) return Messages.text("target.nearby");
+        if ("nearby by type".equals(token)) return Messages.text("target.nearby_type");
+        if ("hand".equals(token)) return Messages.text("target.hand");
+        return token;
     }
 
     private static String[] targetOptions(String target, String[] baseOptions) {
-        if (!concreteTarget(target)) return baseOptions;
+        if (!concreteTarget(target)) {
+            String[] labels = new String[baseOptions.length];
+            for (int i = 0; i < baseOptions.length; i++) labels[i] = targetLabel(baseOptions[i]);
+            return labels;
+        }
         String[] options = new String[baseOptions.length + 1];
         options[0] = targetDisplay(target);
-        System.arraycopy(baseOptions, 0, options, 1, baseOptions.length);
+        for (int i = 0; i < baseOptions.length; i++)
+            options[i + 1] = targetLabel(baseOptions[i]);
         return options;
     }
 
@@ -676,15 +713,16 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 new WurmArrayPanel<>("keybinder.variant.title", WurmArrayPanel.DIR_HORIZONTAL);
         private final KeybinderGlyphButton collapse = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.MINUS_BOX, KeybinderEditorWindow.this,
-                "Collapse this action variant");
+                Messages.text("editor.variant.collapse"));
         private final ZoneDragLabel title = new ZoneDragLabel("");
         private final WurmLabel titleToSubNameGap = horizontalSpacer(TITLE_TO_SUBNAME_GAP);
-        private final ZoneDragLabel subNameLabel = new ZoneDragLabel("Action sub name");
+        private final ZoneDragLabel subNameLabel =
+                new ZoneDragLabel(Messages.text("editor.variant.subname"));
         private final WurmInputField subName =
                 new WurmInputField("keybinder.variant.subname", KeybinderEditorWindow.this);
         private final KeybinderGlyphButton remove = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.CLOSE_BOX, KeybinderEditorWindow.this,
-                "Remove this action variant");
+                Messages.text("editor.variant.remove"));
         private final WurmLabel actionLimit = new WurmLabel("");
         private final HeaderRow header;
         private final List<ActionRow> rows = new ArrayList<ActionRow>();
@@ -715,9 +753,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     ? KeybinderGlyphButton.Kind.PLUS_BOX
                     : KeybinderGlyphButton.Kind.MINUS_BOX);
             collapse.setHoverString(collapsed
-                    ? "Expand this action variant"
-                    : "Collapse this action variant");
-            String titleText = defaultZone ? "Default action" : "Action " + displayIndex;
+                    ? Messages.text("editor.variant.expand")
+                    : Messages.text("editor.variant.collapse"));
+            String titleText = defaultZone ? Messages.text("editor.variant.default")
+                    : Messages.text("editor.variant.number", displayIndex);
             title.setLabel(titleText);
             WurmLabel titleMeasure = new WurmLabel(titleText);
             title.setSize(titleMeasure.width, titleMeasure.height);
@@ -801,12 +840,13 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             QueueCost cost = controller.getKeybindCost(preview);
             String length = cost.getKind() == QueueCost.Kind.FIXED
                     ? String.valueOf(cost.getValue())
-                    : cost.getKind() == QueueCost.Kind.DYNAMIC ? "runtime" : "unknown";
-            actionLimit.setLabel("Action limit: " + controller.getQueueLimit()
-                    + "    Keybind length: " + length
+                    : cost.getKind() == QueueCost.Kind.DYNAMIC
+                    ? Messages.text("editor.queue.runtime") : Messages.text("editor.queue.unknown");
+            actionLimit.setLabel(Messages.text(
+                    "editor.queue.summary", controller.getQueueLimit(), length)
                     + (cost.getKind() == QueueCost.Kind.FIXED
                     && cost.getValue() > controller.getQueueLimit()
-                    ? "    WARNING: exceeds current character limit" : ""));
+                    ? Messages.text("editor.queue.warning") : ""));
         }
 
         private KeybindVariant toVariant() {
@@ -888,12 +928,12 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 new WurmArrayPanel<>("keybinder.action.header", WurmArrayPanel.DIR_HORIZONTAL);
         private final WurmLabel controls = new WurmLabel("");
         private final VerticalSeparator controlsSeparator = new VerticalSeparator();
-        private final WurmLabel type = new WurmLabel("Step type");
+        private final WurmLabel type = new WurmLabel(Messages.text("editor.step_type"));
         private final WurmLabel help = new WurmLabel("");
         private final WurmLabel capture = new WurmLabel("");
-        private final WurmLabel action = new WurmLabel("Action");
+        private final WurmLabel action = new WurmLabel(Messages.text("editor.action"));
         private final VerticalSeparator targetSeparator = new VerticalSeparator();
-        private final WurmLabel target = new WurmLabel("Target");
+        private final WurmLabel target = new WurmLabel(Messages.text("editor.target"));
 
         private final VariantZone zone;
 
@@ -913,12 +953,12 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private void resize(int contentWidth) {
             int controlsWidth = zone.rows.isEmpty() ? 100 : zone.rows.get(0).controls.width;
             int remaining = Math.max(240,
-                    contentWidth - controlsWidth - TYPE_WIDTH - HELP_WIDTH - CAPTURE_WIDTH
+                    contentWidth - controlsWidth - stepTypeWidth() - HELP_WIDTH - CAPTURE_WIDTH
                             - SEPARATOR_WIDTH * 2 - COLUMN_GAP * 7);
             int actionWidth = Math.max(ACTION_NAME_MIN_WIDTH, remaining * 2 / 5);
             controls.setSize(controlsWidth, controls.height);
             controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
-            type.setSize(TYPE_WIDTH, type.height);
+            type.setSize(stepTypeWidth(), type.height);
             help.setSize(HELP_WIDTH, help.height);
             capture.setSize(CAPTURE_WIDTH, capture.height);
             action.setSize(actionWidth, action.height);
@@ -934,18 +974,19 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private final WurmArrayPanel<FlexComponent> controls =
                 new WurmArrayPanel<>("keybinder.action.controls", WurmArrayPanel.DIR_HORIZONTAL);
         private final WButton add = new KeybinderGlyphButton(
-                KeybinderGlyphButton.Kind.PLUS_BOX, KeybinderEditorWindow.this, "Add step below");
+                KeybinderGlyphButton.Kind.PLUS_BOX, KeybinderEditorWindow.this,
+                Messages.text("editor.add_step"));
         private final WButton remove = new KeybinderGlyphButton(
-                KeybinderGlyphButton.Kind.CLOSE_BOX, KeybinderEditorWindow.this, "Remove step");
+                KeybinderGlyphButton.Kind.CLOSE_BOX, KeybinderEditorWindow.this,
+                Messages.text("editor.remove_step"));
         private final VerticalSeparator controlsSeparator = new VerticalSeparator();
         private final WurmDropDown type;
         private final WButton help = new WButton("?", KeybinderEditorWindow.this);
         private final WButton capture = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.RECORD_DOT, KeybinderEditorWindow.this,
-                "Capture action for this step");
+                Messages.text("editor.capture_step"));
         private final WurmLabel captureGap = horizontalSpacer(CAPTURE_WIDTH);
-        private final WurmInputField id =
-                new WurmInputField("keybinder.action.id", KeybinderEditorWindow.this);
+        private String actionIdValue = "";
         private final WurmInputField command =
                 new WurmInputField("keybinder.command.value", KeybinderEditorWindow.this);
         private final SelectableActionLabel actionName;
@@ -963,27 +1004,28 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             this.zone = zone;
             panel = new SelectableActionPanel(this);
             actionName = new SelectableActionLabel(this);
+            String selectedVanillaCommand = step instanceof VanillaActionStep
+                    ? ((VanillaActionStep) step).getCommand()
+                    : step instanceof ActionStep
+                    ? vanillaCommandFor(((ActionStep) step).getActionId()) : null;
             int initialType = step instanceof ActivateToolStep ? 0
                     : step instanceof SmartImproveStep ? 1
                     : step instanceof ConsoleCommandStep ? 2
-                    : step instanceof VanillaActionStep
-                    ? vanillaTypeFor(((VanillaActionStep) step).getCommand()) : 3;
-            type = new WurmDropDown("keybinder.step.type", initialType, STEP_TYPE_OPTIONS);
+                    : selectedVanillaCommand != null
+                    ? vanillaTypeFor(selectedVanillaCommand) : 3;
+            type = new WurmDropDown("keybinder.step.type", initialType, stepTypeOptions());
             lastTypeValue = initialType;
             controls.componentWidthOffset = 1;
             controls.addComponent(add);
             controls.addComponent(remove);
-            id.prompt = "";
-            id.setMaxInput(4);
             command.prompt = "";
             command.setMaxInput(500);
-            if (step instanceof ActionStep) id.setText(String.valueOf(((ActionStep) step).getActionId()));
-            else id.setText("");
+            if (step instanceof ActionStep)
+                actionIdValue = String.valueOf(((ActionStep) step).getActionId());
             if (step instanceof ConsoleCommandStep)
                 command.setText(((ConsoleCommandStep) step).getCommand());
             else command.setText("");
-            createVanillaAction(step instanceof VanillaActionStep
-                    ? ((VanillaActionStep) step).getCommand() : null);
+            createVanillaAction(selectedVanillaCommand);
             selectedTarget = step instanceof ActionStep
                     ? TargetCodec.encode(((ActionStep) step).getTarget())
                     : step instanceof ActivateToolStep
@@ -1016,6 +1058,24 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             return categories.get(index);
         }
 
+        private String vanillaCommandFor(short actionId) {
+            VanillaKeybindCatalog.Entry entry = VANILLA_CATALOG.findByActionId(actionId);
+            return entry == null ? null : entry.getCommand();
+        }
+
+        private VanillaKeybindCatalog.Entry vanillaEntry() {
+            VanillaKeybindCatalog.Category category = vanillaCategory();
+            if (category == null || category.getEntries().isEmpty() || vanillaAction == null)
+                return null;
+            int selected = vanillaAction.getValue();
+            return selected < 0 || selected >= category.getEntries().size()
+                    ? null : category.getEntries().get(selected);
+        }
+
+        private boolean vanillaUsesTarget() {
+            return VANILLA_STEPS.usesTarget(vanillaCategory(), vanillaEntry());
+        }
+
         private void createVanillaAction(String selectedCommand) {
             VanillaKeybindCatalog.Category category = vanillaCategory();
             if (category == null) {
@@ -1039,7 +1099,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private void createTarget() {
             String[] base = baseTargetOptions();
-            if (kind() == StepKind.CONSOLE_COMMAND || isVanilla()) {
+            if (kind() == StepKind.CONSOLE_COMMAND
+                    || (isVanilla() && !vanillaUsesTarget())) {
                 hasConcreteTarget = false;
                 lastDropdownValue = 0;
                 target = new SelectableTargetDropDown(this, 0, new String[]{""});
@@ -1070,6 +1131,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if (isVanilla()) {
                 panel.addComponent(captureGap);
                 panel.addComponent(vanillaAction);
+                if (vanillaUsesTarget()) {
+                    panel.addComponent(targetSeparator);
+                    panel.addComponent(target);
+                }
                 return;
             }
             panel.addComponent(capture);
@@ -1087,7 +1152,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private void setActionStep(ActionStep step) {
-            id.setText(String.valueOf(step.getActionId()));
+            actionIdValue = String.valueOf(step.getActionId());
             lastIdText = null;
             // Capture identifies the action the player performed. It must not
             // replace an explicit portable target already chosen in the editor.
@@ -1096,16 +1161,16 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private void updateActionName() {
             if (kind() == StepKind.ACTIVATE_TOOL) {
-                actionName.setLabel("Activate item as a tool");
+                actionName.setLabel(Messages.text("editor.activate_label"));
                 return;
             }
             if (kind() == StepKind.SMART_IMPROVE) {
-                actionName.setLabel("Smart improve");
+                actionName.setLabel(Messages.text("editor.step_type.improve"));
                 return;
             }
             if (kind() == StepKind.CONSOLE_COMMAND) return;
             if (isVanilla()) return;
-            String value = id.getText().trim();
+            String value = actionIdValue.trim();
             if (value.equals(lastIdText)) return;
             lastIdText = value;
             if (value.isEmpty()) {
@@ -1115,20 +1180,20 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             try {
                 int parsed = Integer.parseInt(value);
                 if (parsed < Short.MIN_VALUE || parsed > Short.MAX_VALUE)
-                    actionName.setLabel("Invalid ID");
+                    actionName.setLabel(Messages.text("editor.invalid_id"));
                 else
                     actionName.setLabel(nonEmpty(controller.getActionName((short) parsed),
-                            "Unknown action (" + parsed + ")"));
+                            Messages.text("editor.unknown_action", parsed)));
             } catch (NumberFormatException e) {
-                actionName.setLabel("Invalid ID");
+                actionName.setLabel(Messages.text("editor.invalid_id"));
             }
         }
 
         private void resize(int contentWidth) {
-            type.setSize(TYPE_WIDTH, type.height);
+            type.setSize(stepTypeWidth(), type.height);
             help.setSize(HELP_WIDTH, help.height);
             if (kind() == StepKind.CONSOLE_COMMAND) {
-                int commandWidth = Math.max(160, contentWidth - controls.width - TYPE_WIDTH
+                int commandWidth = Math.max(160, contentWidth - controls.width - stepTypeWidth()
                         - HELP_WIDTH - CAPTURE_WIDTH - SEPARATOR_WIDTH - COLUMN_GAP * 5);
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 capture.setSize(CAPTURE_WIDTH, capture.height);
@@ -1139,18 +1204,30 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 return;
             }
             if (isVanilla()) {
-                int actionWidth = Math.max(160, contentWidth - controls.width - TYPE_WIDTH
-                        - HELP_WIDTH - CAPTURE_WIDTH - SEPARATOR_WIDTH - COLUMN_GAP * 5);
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
-                vanillaAction.setSize(actionWidth, vanillaAction.height);
+                if (vanillaUsesTarget()) {
+                    int remaining = Math.max(240,
+                            contentWidth - controls.width - stepTypeWidth() - CAPTURE_WIDTH
+                                    - HELP_WIDTH - SEPARATOR_WIDTH * 2 - COLUMN_GAP * 7);
+                    int actionWidth = Math.max(ACTION_NAME_MIN_WIDTH, remaining * 2 / 5);
+                    vanillaAction.setSize(actionWidth, vanillaAction.height);
+                    targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
+                    target.setSize(remaining - actionWidth, target.height);
+                } else {
+                    int actionWidth = Math.max(160,
+                            contentWidth - controls.width - stepTypeWidth()
+                                    - HELP_WIDTH - CAPTURE_WIDTH
+                                    - SEPARATOR_WIDTH - COLUMN_GAP * 5);
+                    vanillaAction.setSize(actionWidth, vanillaAction.height);
+                }
                 capture.setEnabled(false);
                 updateControlStates();
                 panel.componentResized();
                 return;
             }
             int remaining = Math.max(240,
-                    contentWidth - controls.width - TYPE_WIDTH - CAPTURE_WIDTH
+                    contentWidth - controls.width - stepTypeWidth() - CAPTURE_WIDTH
                             - HELP_WIDTH - SEPARATOR_WIDTH * 2 - COLUMN_GAP * 7);
             int actionWidth = Math.max(ACTION_NAME_MIN_WIDTH, remaining * 2 / 5);
             controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
@@ -1174,25 +1251,26 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 return new SmartImproveStep(TargetCodec.decode(selectedTarget));
             if (kind() == StepKind.CONSOLE_COMMAND) {
                 if (command.getText().trim().isEmpty())
-                    throw new IllegalArgumentException("Console command is missing");
+                    throw new IllegalArgumentException(Messages.text("validation.console_missing"));
                 return new ConsoleCommandStep(command.getText());
             }
             if (isVanilla()) {
                 VanillaKeybindCatalog.Category category = vanillaCategory();
                 if (category == null || category.getEntries().isEmpty())
-                    throw new IllegalArgumentException("Vanilla category has no commands");
+                    throw new IllegalArgumentException(
+                            Messages.text("validation.vanilla_category_empty"));
                 int selected = vanillaAction.getValue();
                 if (selected < 0 || selected >= category.getEntries().size())
-                    throw new IllegalArgumentException("Vanilla command is missing");
-                return new VanillaActionStep(
-                        category.getEntries().get(selected).getCommand());
+                    throw new IllegalArgumentException(Messages.text("validation.vanilla_missing"));
+                return VANILLA_STEPS.create(category, category.getEntries().get(selected),
+                        TargetCodec.decode(selectedTarget));
             }
-            String valueText = id.getText().trim();
+            String valueText = actionIdValue.trim();
             if (valueText.isEmpty())
-                throw new IllegalArgumentException("Capture an action before saving this step");
+                throw new IllegalArgumentException(Messages.text("validation.capture_required"));
             int value = Integer.parseInt(valueText);
             if (value < Short.MIN_VALUE || value > Short.MAX_VALUE)
-                throw new IllegalArgumentException("Action ID is outside short range");
+                throw new IllegalArgumentException(Messages.text("validation.action_id_range"));
             return new ActionStep((short) value, TargetCodec.decode(selectedTarget));
         }
 
@@ -1207,6 +1285,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private String[] baseTargetOptions() {
+            if (isVanilla() && vanillaEntry() != null && vanillaEntry().isActivateTool())
+                return VANILLA_ACTIVATE_TARGET_OPTIONS;
             if (kind() == StepKind.ACTIVATE_TOOL) return ACTIVATE_TARGET_OPTIONS;
             if (kind() == StepKind.SMART_IMPROVE) return SMART_IMPROVE_TARGET_OPTIONS;
             return BASE_TARGET_OPTIONS;
@@ -1226,18 +1306,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private void updateHelpText() {
             String text;
             if (kind() == StepKind.ACTIVATE_TOOL) {
-                text = "Activate tool: activates the selected item as the tool used by following actions.";
+                text = Messages.text("editor.help.activate");
             } else if (kind() == StepKind.SMART_IMPROVE) {
-                text = "Smart improve: improves the target using tools from your toolbelt. "
-                        + "Make sure every required tool is present.";
+                text = Messages.text("editor.help.improve");
             } else if (kind() == StepKind.CONSOLE_COMMAND) {
-                text = "Console command: runs the exact console command entered in the text field.";
+                text = Messages.text("editor.help.console");
             } else if (isVanilla()) {
-                text = "Vanilla command: runs the selected command from Wurm's own "
-                        + vanillaCategory().getDisplayName() + " keybind category.";
+                text = Messages.text("editor.help.vanilla", vanillaCategory().getDisplayName());
             } else {
-                text = "Custom action: performs any available action. Press Capture, then perform "
-                        + "the action in game to capture its command number.";
+                text = Messages.text("editor.help.custom");
             }
             help.setHoverString(text);
         }
@@ -1306,10 +1383,19 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     private final class SelectableActionLabel extends WurmLabel {
         private final ActionRow owner;
+        private String currentLabel = "";
 
         private SelectableActionLabel(ActionRow owner) {
             super("");
             this.owner = owner;
+        }
+
+        @Override
+        void setLabel(String label) {
+            String next = label == null ? "" : label;
+            if (next.equals(currentLabel)) return;
+            currentLabel = next;
+            super.setLabel(next);
         }
 
         @Override

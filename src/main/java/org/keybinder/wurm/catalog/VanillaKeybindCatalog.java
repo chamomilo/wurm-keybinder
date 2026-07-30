@@ -2,18 +2,26 @@ package org.keybinder.wurm.catalog;
 
 import com.wurmonline.client.options.keybinding.PlayerKeybind;
 import com.wurmonline.client.options.keybinding.PlayerKeybindCategory;
+import com.wurmonline.shared.constants.PlayerAction;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Defensive, ordered snapshot of the vanilla client's own keybind catalog.
  * No command names or category membership are duplicated in Keybinder.
  */
 public final class VanillaKeybindCatalog {
+    private static final Logger LOGGER = Logger.getLogger("Chamomilo.Keybinder");
+
     public static final class Category {
         private final String id;
         private final String displayName;
@@ -28,25 +36,41 @@ public final class VanillaKeybindCatalog {
         public String getId() { return id; }
         public String getDisplayName() { return displayName; }
         public List<Entry> getEntries() { return entries; }
+        public boolean usesNativeCompatibility() {
+            return PlayerKeybindCategory.HUD.name().equals(id)
+                    || PlayerKeybindCategory.MOVEMENT.name().equals(id);
+        }
     }
 
     public static final class Entry {
         private final String displayName;
         private final String command;
+        private final Short actionId;
+        private final boolean activateTool;
 
-        private Entry(String displayName, String command) {
+        private Entry(String displayName, String command, Short actionId,
+                      boolean activateTool) {
             this.displayName = displayName;
             this.command = command;
+            this.actionId = actionId;
+            this.activateTool = activateTool;
         }
 
         public String getDisplayName() { return displayName; }
         public String getCommand() { return command; }
+        public Short getActionId() { return actionId; }
+        public boolean isActivateTool() { return activateTool; }
     }
 
     private final List<Category> categories;
     private final Map<String, Entry> byCommand;
+    private final Map<Short, Entry> byActionId;
 
     public VanillaKeybindCatalog() {
+        this(currentActionIdsByBind());
+    }
+
+    VanillaKeybindCatalog(Map<String, Short> actionIdsByBind) {
         Map<PlayerKeybindCategory, List<Entry>> grouped =
                 new LinkedHashMap<PlayerKeybindCategory, List<Entry>>();
         for (PlayerKeybindCategory category : PlayerKeybindCategory.values()) {
@@ -58,9 +82,12 @@ public final class VanillaKeybindCatalog {
             if (entries == null) continue;
             String command = keybind.getCommand();
             if (command == null || command.trim().isEmpty()) continue;
-            Entry entry = new Entry(keybind.getDisplayName(), command);
+            String actionBind = actionBindFor(keybind);
+            Entry entry = new Entry(keybind.getDisplayName(), command,
+                    actionBind == null ? null : actionIdsByBind.get(normalize(actionBind)),
+                    keybind == PlayerKeybind.ACTIVATE);
             entries.add(entry);
-            commands.put(command.toUpperCase(java.util.Locale.ENGLISH), entry);
+            commands.put(normalize(command), entry);
         }
         List<Category> snapshot = new ArrayList<Category>();
         for (Map.Entry<PlayerKeybindCategory, List<Entry>> group : grouped.entrySet()) {
@@ -71,6 +98,7 @@ public final class VanillaKeybindCatalog {
         }
         categories = Collections.unmodifiableList(snapshot);
         byCommand = Collections.unmodifiableMap(commands);
+        byActionId = uniqueEntriesByActionId(snapshot);
     }
 
     public List<Category> getCategories() {
@@ -79,7 +107,7 @@ public final class VanillaKeybindCatalog {
 
     public Entry find(String command) {
         if (command == null) return null;
-        return byCommand.get(command.trim().toUpperCase(java.util.Locale.ENGLISH));
+        return byCommand.get(normalize(command));
     }
 
     public Category categoryFor(String command) {
@@ -88,5 +116,85 @@ public final class VanillaKeybindCatalog {
         for (Category category : categories)
             if (category.getEntries().contains(entry)) return category;
         return null;
+    }
+
+    public Entry findByActionId(short actionId) {
+        return byActionId.get(actionId);
+    }
+
+    static Map<String, Short> uniqueActionIds(Map<String, List<Short>> candidates) {
+        Map<String, Short> result = new LinkedHashMap<String, Short>();
+        for (Map.Entry<String, List<Short>> candidate : candidates.entrySet()) {
+            Short unique = null;
+            boolean ambiguous = false;
+            for (Short actionId : candidate.getValue()) {
+                if (actionId == null) continue;
+                if (unique == null) unique = actionId;
+                else if (!unique.equals(actionId)) {
+                    ambiguous = true;
+                    break;
+                }
+            }
+            if (!ambiguous && unique != null) result.put(normalize(candidate.getKey()), unique);
+        }
+        return result;
+    }
+
+    private static Map<String, Short> currentActionIdsByBind() {
+        Map<String, List<Short>> candidates = new LinkedHashMap<String, List<Short>>();
+        try {
+            for (PlayerAction action : new PlayerActionCatalog().snapshot()) {
+                if (action == null || action.getBind() == null
+                        || action.getBind().trim().isEmpty()) continue;
+                String bind = normalize(action.getBind());
+                List<Short> ids = candidates.get(bind);
+                if (ids == null) {
+                    ids = new ArrayList<Short>();
+                    candidates.put(bind, ids);
+                }
+                ids.add(action.getId());
+            }
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    "Unable to match vanilla keybind commands to PlayerAction IDs; "
+                            + "compatibility mode will be used", e);
+        }
+        return uniqueActionIds(candidates);
+    }
+
+    /**
+     * Uses the same command-to-action aliases as this client build's
+     * PlayerObj.toggleKey switch. The values remain live PlayerAction binds,
+     * never display names or copied numeric IDs.
+     */
+    private static String actionBindFor(PlayerKeybind keybind) {
+        if (keybind == PlayerKeybind.PLANT_SIGN) return PlayerAction.PLANT_SIGN.getBind();
+        if (keybind == PlayerKeybind.SIT) return PlayerAction.SIT_ANY.getBind();
+        if (keybind == PlayerKeybind.PICK_FLOWERS) return PlayerAction.PICK_SPROUT.getBind();
+        if (keybind == PlayerKeybind.MINE_SURFACE) return PlayerAction.MINE_FORWARD.getBind();
+        if (keybind == PlayerKeybind.FUNGUS_SPELL) return PlayerAction.FUNGUS.getBind();
+        return keybind == PlayerKeybind.ACTIVATE ? null : keybind.getCommand();
+    }
+
+    private static Map<Short, Entry> uniqueEntriesByActionId(List<Category> categories) {
+        Map<Short, Entry> result = new LinkedHashMap<Short, Entry>();
+        Set<Short> ambiguous = new HashSet<Short>();
+        for (Category category : categories) {
+            if (category.usesNativeCompatibility()) continue;
+            for (Entry entry : category.getEntries()) {
+                Short actionId = entry.getActionId();
+                if (actionId == null || ambiguous.contains(actionId)) continue;
+                Entry previous = result.put(actionId, entry);
+                if (previous != null && previous != entry) {
+                    result.remove(actionId);
+                    ambiguous.add(actionId);
+                }
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ENGLISH);
     }
 }

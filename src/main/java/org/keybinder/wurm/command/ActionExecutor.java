@@ -11,6 +11,7 @@ import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
 import org.keybinder.wurm.integration.ClientAccess;
+import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.catalog.VanillaPlayerActionCatalog;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.TargetKind;
@@ -26,26 +27,41 @@ public final class ActionExecutor {
     private final ActionRangeResolver ranges;
     private final ActionNameResolver names;
     private final VanillaPlayerActionCatalog vanillaActions;
+    private final PushSelectionRetention pushSelection;
 
     public ActionExecutor(ClientAccess access) {
-        this(access, ActionExecutor::defaultActionName);
+        this(access, ActionExecutor::defaultActionName, new PushSelectionRetention());
     }
 
     public ActionExecutor(ClientAccess access, ActionNameResolver names) {
-        this(access, new ActionRangeResolver(), names);
+        this(access, names, new PushSelectionRetention());
+    }
+
+    public ActionExecutor(ClientAccess access, ActionNameResolver names,
+                          PushSelectionRetention pushSelection) {
+        this(access, new ActionRangeResolver(), names, new VanillaPlayerActionCatalog(),
+                pushSelection);
     }
 
     ActionExecutor(ClientAccess access, ActionRangeResolver ranges,
                    ActionNameResolver names) {
-        this(access, ranges, names, new VanillaPlayerActionCatalog());
+        this(access, ranges, names, new VanillaPlayerActionCatalog(),
+                new PushSelectionRetention());
     }
 
     ActionExecutor(ClientAccess access, ActionRangeResolver ranges,
                    ActionNameResolver names, VanillaPlayerActionCatalog vanillaActions) {
+        this(access, ranges, names, vanillaActions, new PushSelectionRetention());
+    }
+
+    ActionExecutor(ClientAccess access, ActionRangeResolver ranges,
+                   ActionNameResolver names, VanillaPlayerActionCatalog vanillaActions,
+                   PushSelectionRetention pushSelection) {
         this.access = access;
         this.ranges = ranges;
         this.names = names;
         this.vanillaActions = vanillaActions;
+        this.pushSelection = pushSelection;
     }
 
     public int runtimeQueueCost(ActionStep step, HeadsUpDisplay hud)
@@ -72,15 +88,15 @@ public final class ActionExecutor {
             case HOVER: hud.getWorld().sendHoveredAction(action); return;
             case BODY:
                 InventoryMetaItem body = access.bodyItem(hud.getPaperDollInventory());
-                if (body == null) throw unavailable("Character body target is unavailable");
+                if (body == null) throw unavailable(Messages.text("unavailable.body"));
                 sendObjectAction(action, body.getId(), hud); return;
             case ACTIVE_TOOL:
                 InventoryMetaItem tool = access.activeTool(hud);
-                if (tool == null) throw unavailable("No active tool was found");
+                if (tool == null) throw unavailable(Messages.text("unavailable.active_tool"));
                 sendObjectAction(action, tool.getId(), hud); return;
             case SELECTED:
                 PickableUnit selected = access.selected(hud.getSelectBar());
-                if (selected == null) throw unavailable("No selected target was found");
+                if (selected == null) throw unavailable(Messages.text("unavailable.selected"));
                 sendObjectAction(action, selected.getId(), hud); return;
             case TILE:
                 sendTile(action, hud, target.getDx(), target.getDy());
@@ -92,15 +108,17 @@ public final class ActionExecutor {
             case TOOLBELT_SLOT:
                 InventoryMetaItem beltItem = hud.getToolBelt().getItemInSlot(target.getSlot() - 1);
                 if (beltItem == null)
-                    throw unavailable("Toolbelt slot " + target.getSlot() + " is empty");
+                    throw unavailable(Messages.text("unavailable.toolbelt_empty", target.getSlot()));
                 sendObjectAction(action, beltItem.getId(), hud);
                 return;
             case EQUIPMENT_SLOT:
                 byte slot = (byte) target.getSlot();
                 PaperDollSlot frame = access.equipmentSlot(hud.getPaperDollInventory(), slot);
-                if (frame == null) throw unavailable("Equipment slot " + target.getSlot() + " is unavailable");
+                if (frame == null)
+                    throw unavailable(Messages.text(
+                            "unavailable.equipment_unavailable", target.getSlot()));
                 if (frame.getEquippedItem() == null)
-                    throw unavailable("Equipment slot " + target.getSlot() + " is empty");
+                    throw unavailable(Messages.text("unavailable.equipment_empty", target.getSlot()));
                 sendObjectAction(action, frame.getEquippedItem().getId(), hud);
                 return;
             case NEARBY_RADIUS:
@@ -115,19 +133,20 @@ public final class ActionExecutor {
                 return;
             case EXACT_OBJECT:
                 if (!exactObjectAvailable(target, hud))
-                    throw unavailable("Exact object " + exactName(target) + " was not found");
+                    throw unavailable(Messages.text("unavailable.exact_object", exactName(target)));
                 sendObjectAction(action, target.getObjectId(), hud);
                 return;
             case CURRENT_RIDE:
                 CreatureCellRenderable ride = currentRide(hud);
                 if (ride == null)
-                    throw unavailable("Character is not currently riding a creature or vehicle");
+                    throw unavailable(Messages.text("unavailable.current_ride"));
                 sendObjectAction(action, ride.getId(), hud);
                 return;
             case UNRESOLVED:
-                throw unavailable("Target is unresolved");
+                throw unavailable(Messages.text("unavailable.unresolved"));
             default:
-                throw new IllegalArgumentException("Unsupported action target " + target.getKind());
+                throw new IllegalArgumentException(
+                        Messages.text("unavailable.unsupported_action_target", target.getKind()));
         }
     }
 
@@ -141,9 +160,16 @@ public final class ActionExecutor {
         // Vanilla Pull/Pull gently asks the client to retain SelectBar state before
         // the server removes and re-adds the moved object. Push/Push gently omit
         // that server notification, so compensate only for those two action IDs.
-        if (action.getId() == 99 || action.getId() == 696)
+        if (keepsSelectedTarget(action.getId())) {
+            pushSelection.arm(targetId);
             hud.getSelectBar().keepSelectedItem(targetId);
+        }
         hud.sendAction(action, targetId);
+    }
+
+    static boolean keepsSelectedTarget(short actionId) {
+        return actionId == PlayerAction.PUSH.getId()
+                || actionId == PlayerAction.PUSH_GENTLY.getId();
     }
 
     private List<Long> nearbyTargets(ActionStep step, HeadsUpDisplay hud)
@@ -211,24 +237,25 @@ public final class ActionExecutor {
         switch (target.getKind()) {
             case BODY:
                 if (access.bodyItem(hud.getPaperDollInventory()) == null)
-                    throw unavailable("Character body target is unavailable");
+                    throw unavailable(Messages.text("unavailable.body"));
                 return;
             case ACTIVE_TOOL:
-                if (access.activeTool(hud) == null) throw unavailable("No active tool was found");
+                if (access.activeTool(hud) == null)
+                    throw unavailable(Messages.text("unavailable.active_tool"));
                 return;
             case SELECTED:
                 if (access.selected(hud.getSelectBar()) == null)
-                    throw unavailable("No selected target was found");
+                    throw unavailable(Messages.text("unavailable.selected"));
                 return;
             case TOOLBELT_SLOT:
                 if (hud.getToolBelt().getItemInSlot(target.getSlot() - 1) == null)
-                    throw unavailable("Toolbelt slot " + target.getSlot() + " is empty");
+                    throw unavailable(Messages.text("unavailable.toolbelt_empty", target.getSlot()));
                 return;
             case EQUIPMENT_SLOT:
                 PaperDollSlot frame = access.equipmentSlot(
                         hud.getPaperDollInventory(), (byte) target.getSlot());
                 if (frame == null || frame.getEquippedItem() == null)
-                    throw unavailable("Equipment slot " + target.getSlot() + " is empty");
+                    throw unavailable(Messages.text("unavailable.equipment_empty", target.getSlot()));
                 return;
             case NEARBY_RADIUS:
                 nearbyTargets(step, hud);
@@ -238,14 +265,14 @@ public final class ActionExecutor {
                 return;
             case EXACT_OBJECT:
                 if (!exactObjectAvailable(target, hud))
-                    throw unavailable("Exact object " + exactName(target) + " was not found");
+                    throw unavailable(Messages.text("unavailable.exact_object", exactName(target)));
                 return;
             case CURRENT_RIDE:
                 if (currentRide(hud) == null)
-                    throw unavailable("Character is not currently riding a creature or vehicle");
+                    throw unavailable(Messages.text("unavailable.current_ride"));
                 return;
             case UNRESOLVED:
-                throw unavailable("Target is unresolved");
+                throw unavailable(Messages.text("unavailable.unresolved"));
             default:
         }
     }
@@ -280,11 +307,9 @@ public final class ActionExecutor {
     private StepUnavailableException tooFar(
             ActionStep step, CellRenderable nearest, float actionRange) {
         double distance = Math.sqrt(nearest.getSquaredLengthFromPlayer());
-        return unavailable("Command " + actionName(step.getActionId())
-                + " skipped as player is too far from nearest "
-                + nearbyDisplayName(nearest) + " (" + formatDistance((float) distance)
-                + ", action range " + formatDistance(actionRange)
-                + "). Come closer.");
+        return unavailable(Messages.text("event.nearby_too_far",
+                actionName(step.getActionId()), nearbyDisplayName(nearest),
+                formatDistance((float) distance), formatDistance(actionRange)));
     }
 
     String actionName(short actionId) {
@@ -298,7 +323,7 @@ public final class ActionExecutor {
         PlayerAction registered = PlayerAction.getByActionId(actionId);
         if (registered == null || registered.getName() == null
                 || registered.getName().trim().isEmpty())
-            return "Action " + actionId;
+            return Messages.text("event.action_number", actionId);
         return registered.getName().trim().replaceFirst("\\s+\\(-?\\d+\\)$", "");
     }
 
@@ -307,7 +332,8 @@ public final class ActionExecutor {
         try {
             return NearbyTypeTarget.normalizeType(name);
         } catch (RuntimeException ignored) {
-            return name == null || name.trim().isEmpty() ? "target" : name.trim();
+            return name == null || name.trim().isEmpty()
+                    ? Messages.text("event.generic_target") : name.trim();
         }
     }
 

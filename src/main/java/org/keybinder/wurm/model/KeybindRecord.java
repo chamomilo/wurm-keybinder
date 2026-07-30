@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class KeybindRecord {
     private final String id;
@@ -97,7 +98,8 @@ public final class KeybindRecord {
         return null;
     }
     public void setActiveVariantId(String variantId) {
-        if (findVariant(variantId) == null) throw new IllegalArgumentException("Unknown keybind variant");
+        if (findVariant(variantId) == null)
+            throw new IllegalArgumentException(Messages.text("validation.variant_unknown"));
         activeVariantId = variantId;
     }
     public String getDisplayName() {

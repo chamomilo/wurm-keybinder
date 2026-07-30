@@ -2,6 +2,7 @@ package com.wurmonline.client.renderer.gui;
 
 import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.ui.KeybindEditorController;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class KeybinderSelectionWindow extends WWindow {
     private final KeybindEditorController controller;
@@ -9,7 +10,7 @@ public final class KeybinderSelectionWindow extends WWindow {
     public KeybinderSelectionWindow(KeybindEditorController controller, String message) {
         super("keybinder.slot.selection", false);
         this.controller = controller;
-        setTitle("Select target");
+        setTitle(Messages.text("selection.title"));
         WurmArrayPanel<FlexComponent> lines =
                 new WurmArrayPanel<>("keybinder.selection.message", WurmArrayPanel.DIR_VERTICAL, true);
         int widest = 0;

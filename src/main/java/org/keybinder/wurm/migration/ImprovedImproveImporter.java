@@ -4,6 +4,7 @@ import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.i18n.Messages;
 
 import java.util.Collections;
 import java.util.List;
@@ -20,7 +21,8 @@ public final class ImprovedImproveImporter {
     }
 
     public List<KeybindStep> importCommand(String command) {
-        if (!supports(command)) throw new IllegalArgumentException("Not an Improved Improve command");
+        if (!supports(command))
+            throw new IllegalArgumentException(Messages.text("validation.not_improve_command"));
         return Collections.<KeybindStep>singletonList(
                 new SmartImproveStep(TargetSpec.simple(TargetKind.HOVER)));
     }

@@ -11,9 +11,11 @@ import com.wurmonline.client.renderer.gui.KeybinderEditorWindow;
 import com.wurmonline.client.renderer.gui.KeybinderLegacyWindow;
 import com.wurmonline.client.renderer.gui.KeybinderMultiSelectorWindow;
 import com.wurmonline.client.renderer.gui.KeybinderSelectionWindow;
+import com.wurmonline.client.renderer.gui.KeybinderSelectionBridge;
 import com.wurmonline.client.renderer.gui.KeybinderTileWindow;
 import com.wurmonline.client.renderer.gui.KeybinderWindow;
 import com.wurmonline.client.renderer.gui.KeybinderTagWindow;
+import com.wurmonline.client.renderer.gui.SelectBar;
 import com.wurmonline.shared.constants.PlayerAction;
 import javassist.ClassPool;
 import javassist.CtClass;
@@ -24,9 +26,16 @@ import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.command.ActionExecutor;
 import org.keybinder.wurm.command.KeybindExecutionService;
 import org.keybinder.wurm.command.ImproveRequirementTracker;
+import org.keybinder.wurm.command.PushSelectionRetention;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.HudIntegration;
+import org.keybinder.wurm.i18n.Language;
+import org.keybinder.wurm.i18n.LanguageChangePolicy;
+import org.keybinder.wurm.i18n.LocalizationSettings;
+import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.i18n.DisableReason;
+import org.keybinder.wurm.i18n.ExistingWindowRelocalizer;
 import org.keybinder.wurm.migration.CustomActionsMigrationService;
 import org.keybinder.wurm.migration.ImprovedImproveMigrationService;
 import org.keybinder.wurm.model.ActionStep;
@@ -40,6 +49,8 @@ import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.migration.CustomActionsImporter;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
+import org.keybinder.wurm.queue.ActionQueueOccupancyTracker;
+import org.keybinder.wurm.queue.QueueCapacityException;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.queue.QueueLimitService;
 import org.keybinder.wurm.recording.ShadowRecorder;
@@ -74,7 +85,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.5.3";
+    public static final String VERSION = "0.5.4";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -90,9 +101,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static final ShadowRecorder RECORDER = new ShadowRecorder();
     private static final EventLogger EVENTS = new EventLogger(LOGGER);
     private static final SelectionController SELECTION = new SelectionController(EVENTS);
+    private static final PushSelectionRetention PUSH_SELECTION =
+            new PushSelectionRetention();
     private static final CustomActionsImporter CUSTOM_ACTIONS_IMPORTER = new CustomActionsImporter();
     private static final QueueLimitService LIMITS = new QueueLimitService();
     private static final ActionQueueCostCalculator COSTS = new ActionQueueCostCalculator();
+    private static final ActionQueueOccupancyTracker ACTION_QUEUE =
+            new ActionQueueOccupancyTracker();
     private static final VanillaBindService BINDS = new VanillaBindService();
     private static final CustomActionsMigrationService LEGACY_ACTION =
             new CustomActionsMigrationService();
@@ -140,6 +155,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static KeybindConflict pendingConflict;
     private Properties properties = new Properties();
     private volatile boolean skipIntro;
+    private volatile String language = Language.ENGLISH.getCode();
+    private volatile String pendingLanguage;
 
     @Override
     public String getVersion() { return VERSION; }
@@ -148,6 +165,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     public void configure(Properties properties) {
         this.properties = properties == null ? new Properties() : properties;
         skipIntro = Boolean.parseBoolean(this.properties.getProperty("skipIntroPage", "false"));
+        language = LocalizationSettings.load(this.properties);
+        Messages.select(language);
     }
 
     @Override
@@ -160,8 +179,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         installCapability("mouse wheel keybinds", () -> hookMouseWheel(pool));
         installCapability("Smart Improve messages", () -> hookImproveMessages(pool));
         installCapability("HUD lifecycle", () -> hookHud(pool));
+        installCapability("action queue occupancy", () -> hookActionQueue(pool));
         installCapability("shadow recording", () -> hookRecording(pool));
         installCapability("target selection", () -> hookSelections(pool));
+        installCapability("push selection retention", () -> hookPushSelection(pool));
         installCapability("server identity", () -> hookSelectedServer(pool));
     }
 
@@ -261,7 +282,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             }, x, y, delta);
         } catch (Throwable e) {
             LOGGER.log(Level.WARNING, "Mouse wheel keybind hook failed open", e);
-            EVENTS.error("Mouse wheel keybind failed; Wurm input continues normally", e);
+            EVENTS.error(Messages.text("error.mouse_wheel"), e);
         }
     }
 
@@ -292,7 +313,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             try {
                 operation.run();
             } catch (Throwable e) {
-                EVENTS.error("Deferred HUD operation failed", e);
+                EVENTS.error(Messages.text("error.deferred_hud"), e);
             }
         }
         pollSharedDefinitions();
@@ -340,11 +361,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
         deferUi(() -> {
             try {
-                hideSafely(multiSelectorWindow, "multi-purpose selector");
+                hideSafely(multiSelectorWindow);
                 multiSelectorWindow = new KeybinderMultiSelectorWindow(record);
                 new HudIntegration(ACCESS).add(hud, multiSelectorWindow);
             } catch (Exception e) {
-                EVENTS.error("Unable to show multi-purpose selector", e);
+                EVENTS.error(Messages.text("error.multi_selector"), e);
                 clearLongPress();
             }
         });
@@ -356,9 +377,22 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     private static void executeManaged(KeybindRecord record, HeadsUpDisplay currentHud)
             throws ReflectiveOperationException {
-        KEYBIND_EXECUTOR.execute(record, currentHud, LIMITS.readLimit(currentHud));
-        EVENTS.execution("Executed " + record.getDisplayName() + " on "
-                + org.keybinder.wurm.catalog.InputKeyCatalog.displayChord(record.getKey()) + ".");
+        final int queueLimit = LIMITS.readLimit(currentHud);
+        try {
+            KEYBIND_EXECUTOR.execute(record, currentHud, queueLimit,
+                    () -> ACTION_QUEUE.occupied(hudShowsAction(currentHud)));
+        } catch (QueueCapacityException capacity) {
+            EVENTS.warning(capacity.getMessage());
+            return;
+        }
+        EVENTS.execution(Messages.text("event.executed", record.getDisplayName(),
+                org.keybinder.wurm.catalog.InputKeyCatalog.displayChord(record.getKey())));
+    }
+
+    private static boolean hudShowsAction(HeadsUpDisplay currentHud) {
+        if (currentHud == null) return false;
+        String action = currentHud.getActionString();
+        return action != null && !action.trim().isEmpty();
     }
 
     private static void clearLongPress() {
@@ -373,22 +407,22 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             if (registry.selectVariant(recordId, variantId)) {
                 selected = registry.find(recordId);
                 if (selected == null || !selected.isEnabled())
-                    throw new IllegalStateException("Selected keybind is unavailable");
-                EVENTS.info(selected.getName() + ": active action changed from "
-                        + oldName + " to " + selected.getDisplayName() + ".");
+                    throw new IllegalStateException(Messages.text("error.selected_unavailable"));
+                EVENTS.info(Messages.text("event.active_action_changed",
+                        selected.getName(), oldName, selected.getDisplayName()));
                 if (window != null) window.refresh();
             } else selected = registry.find(recordId);
             if (selected == null || !selected.isEnabled())
-                throw new IllegalStateException("Selected keybind is unavailable");
+                throw new IllegalStateException(Messages.text("error.selected_unavailable"));
         } catch (Exception e) {
-            EVENTS.error("Unable to change active action", e);
+            EVENTS.error(Messages.text("error.change_active_action"), e);
             closeMultiSelector();
             return;
         }
         try {
             executeManaged(selected);
         } catch (Exception e) {
-            EVENTS.error("Unable to execute selected action", e);
+            EVENTS.error(Messages.text("error.execute_selected_action"), e);
         } finally {
             closeMultiSelector();
         }
@@ -397,7 +431,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     public static void closeMultiSelector() {
         KeybinderMultiSelectorWindow selector = multiSelectorWindow;
         multiSelectorWindow = null;
-        deferUi(() -> hideSafely(selector, "multi-purpose selector"));
+        deferUi(() -> {
+            hideSafely(selector);
+            if (INSTANCE.pendingLanguage != null)
+                INSTANCE.applyLanguage(INSTANCE.pendingLanguage);
+        });
     }
 
     private static void pollSharedDefinitions() {
@@ -451,6 +489,36 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         HookManager.getInstance().registerHook("com.wurmonline.client.game.World",
                 "sendLocalAction", "(Lcom/wurmonline/shared/constants/PlayerAction;)V",
                 () -> (proxy, method, args) -> withTarget("tile", proxy, method, args));
+    }
+
+    private void hookActionQueue(ClassPool pool) throws Exception {
+        CtClass connection =
+                pool.getCtClass("com.wurmonline.client.comm.SimpleServerConnectionClass");
+        connection.getMethod("sendAction",
+                "(J[JLcom/wurmonline/shared/constants/PlayerAction;)V").insertAfter(
+                "org.keybinder.wurm.KeybinderMod.observeActionSent($2, $3);");
+        connection.getMethod("sendSingleAction",
+                "(JJLcom/wurmonline/shared/constants/PlayerAction;)V").insertAfter(
+                "org.keybinder.wurm.KeybinderMod.observeSingleActionSent();");
+        CtClass hudClass =
+                pool.getCtClass("com.wurmonline.client.renderer.gui.HeadsUpDisplay");
+        hudClass.getMethod("setAction", "(Ljava/lang/String;F)V").insertAfter(
+                "org.keybinder.wurm.KeybinderMod.observeActionState($1, $2);");
+    }
+
+    public static void observeActionSent(long[] targets, PlayerAction action) {
+        if (targets == null || targets.length == 0) return;
+        int count = action != null && action.isAtomic()
+                ? 1 : Math.min(10, targets.length);
+        ACTION_QUEUE.actionsSent(count);
+    }
+
+    public static void observeSingleActionSent() {
+        ACTION_QUEUE.actionsSent(1);
+    }
+
+    public static void observeActionState(String actionText, float durationSeconds) {
+        ACTION_QUEUE.actionState(actionText, durationSeconds);
     }
 
     private void hookSelections(ClassPool pool) throws Exception {
@@ -538,6 +606,14 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 });
     }
 
+    private void hookPushSelection(ClassPool pool) throws Exception {
+        CtClass selectBar =
+                pool.getCtClass("com.wurmonline.client.renderer.gui.SelectBar");
+        selectBar.getMethod("setNewSelectedIfKeepId",
+                "(Lcom/wurmonline/client/renderer/PickableUnit;)V").insertAfter(
+                "org.keybinder.wurm.KeybinderMod.afterPushTargetRecreated(this, $1);");
+    }
+
     public static void observeMousePressed(int mouseX, int mouseY, int button) {
         try {
             if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
@@ -580,6 +656,20 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static void targetWindowNotReady() {
         LOGGER.fine("Ignored input for a TargetWindow without a renderer during reconnect");
+    }
+
+    public static void afterPushTargetRecreated(SelectBar selectBar, PickableUnit unit) {
+        if (selectBar == null || unit == null) return;
+        try {
+            long unitId = unit.getId();
+            if (PUSH_SELECTION.afterRecreated(
+                    unitId, KeybinderSelectionBridge.isSelected(selectBar, unitId)))
+                selectBar.keepSelectedItem(unitId);
+        } catch (Throwable e) {
+            PUSH_SELECTION.clear();
+            LOGGER.log(Level.FINE,
+                    "Unable to retain selection across a queued Push action", e);
+        }
     }
 
     private static boolean isExactObjectClick(Object eventHandler, int releaseX, int releaseY) {
@@ -656,7 +746,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             if (zeroBasedSlot < 0 || hud == null || hud.getToolBelt() == null) return false;
             InventoryMetaItem item = hud.getToolBelt().getItemInSlot(zeroBasedSlot);
             if (item == null) {
-                EVENTS.warning("The selected toolbelt slot is empty.");
+                EVENTS.warning(Messages.text("event.toolbelt_empty"));
                 return false;
             }
             if (!SELECTION.acceptExactObject(item.getId(), item.getDisplayName())) return false;
@@ -674,12 +764,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             com.wurmonline.client.renderer.gui.PaperDollSlot frame =
                     ACCESS.equipmentSlot(hud.getPaperDollInventory(), slot);
             if (frame == null || frame.getEquippedItem() == null) {
-                EVENTS.warning("The selected equipment slot is empty.");
+                EVENTS.warning(Messages.text("event.equipment_empty"));
                 return false;
             }
             InventoryMetaItem item = frame.getEquippedItem().getItem();
             if (item == null) {
-                EVENTS.warning("The selected equipment slot is empty.");
+                EVENTS.warning(Messages.text("event.equipment_empty"));
                 return false;
             }
             if (!SELECTION.acceptExactObject(item.getId(), item.getDisplayName())) return false;
@@ -709,24 +799,24 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         finally { RECORDER.clearTargetContext(); }
     }
 
-    private static void hideSafely(com.wurmonline.client.renderer.gui.WurmComponent component, String description) {
+    private static void hideSafely(com.wurmonline.client.renderer.gui.WurmComponent component) {
         try {
             if (hud != null && component != null) ACCESS.hideComponent(hud, component);
         } catch (Exception e) {
-            EVENTS.error("Unable to close " + description + " window", e);
+            EVENTS.error(Messages.text("error.close_window"), e);
         }
     }
 
     private static void finishSlotSelection(boolean toolbelt) {
-        hideSafely(selectionWindow, "slot selection");
+        hideSafely(selectionWindow);
         selectionWindow = null;
         try {
             if (toolbelt && toolbeltOpenedForSelection)
-                hideSafely(ACCESS.toolbeltComponent(hud), "toolbelt");
+                hideSafely(ACCESS.toolbeltComponent(hud));
             if (!toolbelt && equipmentOpenedForSelection)
-                hideSafely(ACCESS.paperDollComponent(hud), "equipment");
+                hideSafely(ACCESS.paperDollComponent(hud));
         } catch (Exception e) {
-            EVENTS.error("Unable to restore target selection windows", e);
+            EVENTS.error(Messages.text("error.restore_selection_windows"), e);
         } finally {
             if (toolbelt) toolbeltOpenedForSelection = false;
             else equipmentOpenedForSelection = false;
@@ -734,18 +824,18 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     private static void finishExactObjectSelection() {
-        hideSafely(selectionWindow, "exact object selection");
+        hideSafely(selectionWindow);
         selectionWindow = null;
     }
 
     private static void cancelSlotSelection() {
-        hideSafely(selectionWindow, "slot selection");
+        hideSafely(selectionWindow);
         selectionWindow = null;
         try {
-            if (toolbeltOpenedForSelection) hideSafely(ACCESS.toolbeltComponent(hud), "toolbelt");
-            if (equipmentOpenedForSelection) hideSafely(ACCESS.paperDollComponent(hud), "equipment");
+            if (toolbeltOpenedForSelection) hideSafely(ACCESS.toolbeltComponent(hud));
+            if (equipmentOpenedForSelection) hideSafely(ACCESS.paperDollComponent(hud));
         } catch (Exception e) {
-            EVENTS.error("Unable to restore target selection windows", e);
+            EVENTS.error(Messages.text("error.restore_selection_windows"), e);
         } finally {
             toolbeltOpenedForSelection = false;
             equipmentOpenedForSelection = false;
@@ -812,12 +902,16 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             ensureRuntimeServices();
             if (hud != null && hud != newHud) disposeHudSession(hud);
+            if (INSTANCE.pendingLanguage != null)
+                INSTANCE.activatePendingLanguageForHudReplacement();
             ACCESS.setup();
             hud = newHud;
             refreshCreationContext();
             EVENTS.attach(newHud);
             RECORDER.cancel();
             IMPROVE_REQUIREMENTS.clear();
+            ACTION_QUEUE.clear();
+            PUSH_SELECTION.clear();
             resetExactPress();
             clearLongPress();
             closeMultiSelector();
@@ -827,10 +921,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             hudIntegration.register(newHud, window);
             hudIntegration.registerTag(newHud, tagWindow);
             if (LEGACY_ACTION.isInstalled())
-                EVENTS.warning("Old Custom Actions is installed. Review/import its binds, disable it in Keybinder, then restart.");
+                EVENTS.warning(Messages.text("event.legacy_installed"));
             if (LEGACY_IMPROVE.isInstalled())
-                EVENTS.warning("An old Improved Improve/i2improve mod is installed. "
-                        + "Smart Improve replaces it; disable the old mod after verifying migrated binds.");
+                EVENTS.warning(Messages.text("event.improve_installed"));
             if (INSTANCE.skipIntro) {
                 window.showKeybinds();
                 ACCESS.ensureComponentVisible(newHud, window);
@@ -847,13 +940,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                         registry.getCurrentUser(), console, LIMITS.readLimit(newHud));
                 List<org.keybinder.wurm.bind.BindSnapshot> candidates = registry.importCandidates(console);
                 if (!candidates.isEmpty())
-                    EVENTS.info("Found " + candidates.size()
-                            + " custom vanilla keybinds. Open Keybinder and choose Import vanilla keybinds to review.");
+                    EVENTS.info(Messages.text("event.import_candidates_found", candidates.size()));
             }
-            EVENTS.info("Keybinder " + VERSION + " ready. Action queue limit: " + LIMITS.readLimit(newHud) + ".");
+            EVENTS.info(Messages.text("event.ready", VERSION, LIMITS.readLimit(newHud)));
         } catch (Throwable e) {
-            EVENTS.error("Unable to attach Keybinder to HUD: "
-                    + e.getClass().getSimpleName() + ": " + safeMessage(e), e);
+            EVENTS.error(Messages.text("error.attach_hud",
+                    e.getClass().getSimpleName(), safeMessage(e)), e);
         }
     }
 
@@ -861,6 +953,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         RECORDER.cancel();
         SELECTION.cancel();
         IMPROVE_REQUIREMENTS.clear();
+        ACTION_QUEUE.clear();
+        PUSH_SELECTION.clear();
         resetExactPress();
         clearLongPress();
         UI_AFTER_TICK.clear();
@@ -898,7 +992,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static synchronized void ensureRuntimeServices() {
         if (ACCESS != null) return;
         ACCESS = new ClientAccess();
-        EXECUTOR = new ActionExecutor(ACCESS, INSTANCE::getActionName);
+        EXECUTOR = new ActionExecutor(ACCESS, INSTANCE::getActionName, PUSH_SELECTION);
         KEYBIND_EXECUTOR = new KeybindExecutionService(
                 EXECUTOR, ACCESS, EVENTS, IMPROVE_REQUIREMENTS, KeybinderMod::deferUi);
     }
@@ -969,11 +1063,15 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             if ("keybinder_run".equalsIgnoreCase(command)) {
                 ensureHud();
                 ensureRegistry();
-                if (data.length != 2) throw new IllegalArgumentException("Usage: keybinder_run <id>");
+                if (data.length != 2)
+                    throw new IllegalArgumentException(Messages.text("command.usage.run"));
                 KeybindRecord record = registry.find(data[1]);
-                if (record == null) throw new IllegalArgumentException("Keybind not found: " + data[1]);
+                if (record == null)
+                    throw new IllegalArgumentException(
+                            Messages.text("event.record_missing", data[1]));
                 if (!record.isEnabled()) {
-                    EVENTS.warning(record.getName() + " is disabled: " + record.getDisabledReason());
+                    EVENTS.warning(Messages.text("event.record_disabled", record.getName(),
+                            DisableReason.display(record.getDisabledReason())));
                     return true;
                 }
                 executeManaged(record);
@@ -992,7 +1090,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     if (filter.isEmpty() || line.toLowerCase().contains(filter)) {
                         EVENTS.info(line);
                         if (++shown >= 100) {
-                            EVENTS.warning("Action list truncated to 100 entries; use a narrower filter.");
+                            EVENTS.warning(Messages.text("event.action_list_truncated"));
                             break;
                         }
                     }
@@ -1002,10 +1100,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             if ("keybinder_add_selected".equalsIgnoreCase(command)) {
                 ensureRegistry();
                 if (data.length != 4) throw new IllegalArgumentException(
-                        "Usage: keybinder_add_selected <key> <name_no_spaces> <action-id>");
+                        Messages.text("command.usage.add_selected"));
                 int parsed = Integer.parseInt(data[3]);
                 if (parsed < Short.MIN_VALUE || parsed > Short.MAX_VALUE)
-                    throw new IllegalArgumentException("Action id is outside short range: " + parsed);
+                    throw new IllegalArgumentException(
+                            Messages.text("validation.action_id_range") + ": " + parsed);
                 KeybindRecord record = KeybindRecord.actionChain(
                         data[2].replace('_', ' '), data[1],
                         Collections.singletonList(new ActionStep((short) parsed,
@@ -1017,14 +1116,15 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             if ("keybinder_commit".equalsIgnoreCase(command)) {
                 ensureRegistry();
                 if (data.length != 3) throw new IllegalArgumentException(
-                        "Usage: keybinder_commit <key> <name_without_spaces>");
+                        Messages.text("command.usage.commit"));
                 List<KeybindStep> captured = RECORDER.snapshot();
-                if (captured.isEmpty()) throw new IllegalStateException("No shadow-recorded actions to save");
+                if (captured.isEmpty())
+                    throw new IllegalStateException(Messages.text("validation.recording_empty"));
                 for (KeybindStep step : captured)
                     if (step instanceof ActionStep
                             && ((ActionStep) step).getTarget().getKind() == TargetKind.UNRESOLVED)
-                        throw new IllegalStateException("Recorded step "
-                                + ((ActionStep) step).getActionId() + " needs a target");
+                        throw new IllegalStateException(Messages.text("validation.recorded_target",
+                                ((ActionStep) step).getActionId()));
                 registry.add(new KeybindRecord(null, data[2].replace('_', ' '), data[1], captured),
                         ACCESS.console(hud), LIMITS.readLimit(hud));
                 if (window != null) window.refresh();
@@ -1033,74 +1133,83 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             if ("keybinder_import_confirm".equalsIgnoreCase(command)) {
                 ensureRegistry();
                 if (data.length != 2 || !"CONFIRM".equals(data[1]))
-                    throw new IllegalArgumentException("Use: keybinder_import_confirm CONFIRM");
+                    throw new IllegalArgumentException(
+                            Messages.text("command.usage.import_confirm"));
                 int imported = registry.importAllReviewed(ACCESS.console(hud), LIMITS.readLimit(hud));
-                EVENTS.info("Import complete: " + imported + " keybinds imported.");
+                EVENTS.info(Messages.text("event.import_complete", imported));
                 if (window != null) window.refresh();
                 return true;
             }
             if ("keybinder_delete".equalsIgnoreCase(command)) {
                 ensureRegistry();
-                if (data.length != 2) throw new IllegalArgumentException("Usage: keybinder_delete <record-id>");
-                if (!registry.delete(data[1], ACCESS.console(hud))) EVENTS.warning("Record not found: " + data[1]);
+                if (data.length != 2)
+                    throw new IllegalArgumentException(Messages.text("command.usage.delete"));
+                if (!registry.delete(data[1], ACCESS.console(hud)))
+                    EVENTS.warning(Messages.text("event.record_missing", data[1]));
                 if (window != null) window.refresh();
                 return true;
             }
         } catch (Throwable e) {
-            EVENTS.error(e.getMessage() == null ? "Command failed" : e.getMessage(), e);
+            EVENTS.error(e.getMessage() == null
+                    ? Messages.text("error.command_failed") : e.getMessage(), e);
             return true;
         }
         return false;
     }
 
     private static void ensureHud() {
-        if (hud == null) throw new IllegalStateException("HUD is not ready");
+        if (hud == null) throw new IllegalStateException(Messages.text("error.hud_not_ready"));
     }
 
     private static void ensureRegistry() {
         ensureHud();
-        if (registry == null) throw new IllegalStateException("Keybinder registry is not ready");
+        if (registry == null)
+            throw new IllegalStateException(Messages.text("error.registry_not_ready"));
     }
 
     @Override public int getQueueLimit() { return LIMITS.readLimit(hud); }
     @Override public QueueCost getQueueCost(List<ActionStep> steps) { return COSTS.chainCost(steps); }
     @Override public QueueCost getKeybindCost(KeybindRecord record) { return COSTS.keybindCost(record); }
     @Override public boolean isShowingActionIds() { return showActionIds; }
-    @Override public void toggleActionIds() { showActionIds = !showActionIds; EVENTS.info("Action IDs " + (showActionIds ? "enabled." : "disabled.")); }
+    @Override public void toggleActionIds() {
+        showActionIds = !showActionIds;
+        EVENTS.info(Messages.text(showActionIds
+                ? "event.action_ids_enabled" : "event.action_ids_disabled"));
+    }
     @Override public List<KeybindRecord> getRecords() { return registry == null ? Collections.<KeybindRecord>emptyList() : registry.snapshot(); }
     @Override public void addNewKeybind() {
         try {
             refreshCreationContext();
             registry.createDraft();
             if (window != null) window.refresh();
-        } catch (Exception e) { EVENTS.error("Unable to create keybind", e); }
+        } catch (Exception e) { EVENTS.error(Messages.text("error.create_keybind"), e); }
     }
     @Override public void addNewKeybindAfter(String id) {
         try {
             refreshCreationContext();
             registry.createDraftAfter(id);
             if (window != null) window.refresh();
-        } catch (Exception e) { EVENTS.error("Unable to create keybind", e); }
+        } catch (Exception e) { EVENTS.error(Messages.text("error.create_keybind"), e); }
     }
     @Override public void moveKeybind(String id, List<String> visibleIds, int insertionIndex) {
         try {
             registry.moveVisible(id, visibleIds, insertionIndex);
             if (window != null) window.refresh();
-        } catch (Exception e) { EVENTS.error("Unable to reorder keybind", e); }
+        } catch (Exception e) { EVENTS.error(Messages.text("error.reorder_keybind"), e); }
     }
     @Override public void editKeybind(String id) {
         deferUi(() -> {
             try {
                 editorWindow = new KeybinderEditorWindow(INSTANCE, id);
                 if (window != null) window.showEditor(editorWindow);
-            } catch (Exception e) { EVENTS.error("Unable to open keybind constructor", e); }
+            } catch (Exception e) { EVENTS.error(Messages.text("error.open_editor"), e); }
         });
     }
     @Override public void deleteKeybind(String id) {
         try {
             registry.delete(id, ACCESS.console(hud));
             if (window != null) window.refresh();
-        } catch (Exception e) { EVENTS.error("Unable to delete keybind", e); }
+        } catch (Exception e) { EVENTS.error(Messages.text("error.delete_keybind"), e); }
     }
     @Override public void setKeybindEnabled(String id, boolean enabled) {
         try {
@@ -1110,13 +1219,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     pendingEnableId = id;
                     pendingConflict = conflict;
                     deferUi(() -> {
-                        hideSafely(conflictWindow, "keybind conflict");
+                        hideSafely(conflictWindow);
                         conflictWindow = new KeybinderConflictWindow(INSTANCE, conflict);
                         try { new HudIntegration(ACCESS).add(hud, conflictWindow); }
                         catch (ReflectiveOperationException e) {
                             pendingEnableId = null;
                             pendingConflict = null;
-                            EVENTS.error("Unable to show keybind conflict", e);
+                            EVENTS.error(Messages.text("error.conflict_window"), e);
                         }
                         if (window != null) window.refresh();
                     });
@@ -1126,7 +1235,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             registry.setEnabled(id, enabled, ACCESS.console(hud), LIMITS.readLimit(hud));
             if (window != null) window.refresh();
         } catch (Exception e) {
-            EVENTS.error("Unable to " + (enabled ? "enable" : "disable") + " keybind", e);
+            EVENTS.error(Messages.text(enabled
+                    ? "error.enable_keybind" : "error.disable_keybind"), e);
             if (window != null) window.refresh();
         }
     }
@@ -1137,23 +1247,25 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 registry.setEnabled(id, enabled, ACCESS.console(hud), LIMITS.readLimit(hud));
                 changed++;
             } catch (Exception e) {
-                EVENTS.error("Unable to " + (enabled ? "enable" : "disable")
-                        + " filtered keybind " + id, e);
+                EVENTS.error(Messages.text(enabled
+                        ? "error.enable_filtered" : "error.disable_filtered", id), e);
             }
         }
-        EVENTS.info((enabled ? "Enabled " : "Disabled ") + changed + " filtered keybinds.");
+        EVENTS.info(Messages.text(enabled
+                ? "event.filtered_enabled" : "event.filtered_disabled", changed));
         if (window != null) window.refresh();
     }
     @Override public void printAll() { if (registry != null) registry.printAll(EVENTS, getQueueLimit(), false); }
     @Override public void toggleShadowRecording() {
         if (RECORDER.isRecording()) {
             List<KeybindStep> result = RECORDER.stop();
-            EVENTS.info("Stopped shadow recording: " + result.size() + " steps recorded.");
-            for (KeybindStep step : result) EVENTS.info("Recorded: " + describeRecorded(step));
-            EVENTS.info("Save with: keybinder_commit <key> <name_without_spaces>");
+            EVENTS.info(Messages.text("event.recording_stopped", result.size()));
+            for (KeybindStep step : result)
+                EVENTS.info(Messages.text("event.recorded", describeRecorded(step)));
+            EVENTS.info(Messages.text("event.recording_save"));
         } else {
             RECORDER.start();
-            EVENTS.info("Started shadow recording. Perform actions in the game.");
+            EVENTS.info(Messages.text("event.recording_started"));
         }
     }
     @Override public boolean isShadowRecording() { return RECORDER.isRecording(); }
@@ -1162,20 +1274,21 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             refreshCreationContext();
             List<org.keybinder.wurm.bind.BindSnapshot> candidates =
                     registry.importCandidates(ACCESS.console(hud));
-            EVENTS.info("Vanilla import review - " + candidates.size() + " custom candidates:");
+            EVENTS.info(Messages.text("event.import_review", candidates.size()));
             for (org.keybinder.wurm.bind.BindSnapshot bind : candidates)
-                EVENTS.info("Import candidate: " + bind.getKey() + " -> " + bind.getCommand());
-            EVENTS.warning("No bindings changed. To import all reviewed candidates, type: keybinder_import_confirm CONFIRM");
-        } catch (Exception e) { EVENTS.error("Unable to inspect vanilla keybinds", e); }
+                EVENTS.info(Messages.text("event.import_candidate",
+                        bind.getKey(), bind.getCommand()));
+            EVENTS.warning(Messages.text("event.import_no_changes"));
+        } catch (Exception e) { EVENTS.error(Messages.text("error.import_inspect"), e); }
     }
     @Override public void confirmImport() {
         try {
             refreshCreationContext();
             int imported = registry.importAllReviewed(ACCESS.console(hud), LIMITS.readLimit(hud));
-            EVENTS.info("Import complete: " + imported + " keybinds imported.");
+            EVENTS.info(Messages.text("event.import_complete", imported));
             if (window != null) window.refresh();
         } catch (Exception e) {
-            EVENTS.error("Unable to import reviewed keybinds", e);
+            EVENTS.error(Messages.text("error.import_reviewed"), e);
         }
     }
     @Override public boolean isLegacyActionInstalled() { return LEGACY_ACTION.isInstalled(); }
@@ -1185,9 +1298,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 if (hud != null && window != null) {
                     window.showKeybinds();
                     ACCESS.ensureComponentVisible(hud, window);
+                    if (pendingLanguage != null) applyLanguage(pendingLanguage);
                 }
             } catch (Exception e) {
-                EVENTS.error("Unable to open Keybinder", e);
+                EVENTS.error(Messages.text("error.open_keybinder"), e);
             }
         });
     }
@@ -1196,14 +1310,14 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             ensureRegistry();
             int imported = registry.importAllReviewed(ACCESS.console(hud), LIMITS.readLimit(hud));
             java.nio.file.Path disabled = LEGACY_ACTION.disableForNextLaunch();
-            EVENTS.info("Imported " + imported + " keybinds.");
-            EVENTS.warning("Disabled Custom Actions as " + disabled + "; confirm Exit Game, then restart the client.");
+            EVENTS.info(Messages.text("event.imported", imported));
+            EVENTS.warning(Messages.text("event.legacy_disabled", disabled));
             MOD_PROPERTIES.save(properties);
             deferUi(() -> {
                 if (hud != null) hud.showQuitConfirmationWindow();
             });
         } catch (Exception e) {
-            EVENTS.error("Migration stopped; Exit Game was not opened", e);
+            EVENTS.error(Messages.text("error.migration_stopped"), e);
         }
     }
     @Override public boolean isSkipIntro() { return skipIntro; }
@@ -1214,18 +1328,59 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             MOD_PROPERTIES.save(properties);
         } catch (Exception e) {
-            EVENTS.error("Unable to save intro preference", e);
+            EVENTS.error(Messages.text("error.save_intro"), e);
         }
+    }
+    @Override public String getLanguage() { return language; }
+    @Override public void setLanguage(String requested) {
+        String selected = Language.fromCode(requested).getCode();
+        LanguageChangePolicy.Decision decision = LanguageChangePolicy.decide(
+                language, selected,
+                (window != null && window.isEditorOpen()) || multiSelectorWindow != null,
+                pendingLanguage);
+        if (decision == LanguageChangePolicy.Decision.UNCHANGED) return;
+        LocalizationSettings.save(properties, selected);
+        try {
+            MOD_PROPERTIES.save(properties);
+        } catch (Exception e) {
+            EVENTS.error(Messages.text("error.save_language"), e);
+        }
+        if (decision == LanguageChangePolicy.Decision.CANCEL_PENDING) {
+            pendingLanguage = null;
+            return;
+        }
+        if (decision == LanguageChangePolicy.Decision.DEFER) {
+            pendingLanguage = selected;
+            EVENTS.warning(Messages.text("event.language_deferred"));
+            return;
+        }
+        applyLanguage(selected);
+    }
+
+    private void applyLanguage(String selected) {
+        final String normalized = Language.fromCode(selected).getCode();
+        String previous = language;
+        final KeybinderWindow currentWindow = window;
+        pendingLanguage = null;
+        ExistingWindowRelocalizer.apply(previous, normalized, () -> {
+            language = normalized;
+            Messages.select(normalized);
+        }, currentWindow == null ? null : () -> deferUi(currentWindow::relocalize));
+    }
+
+    private void activatePendingLanguageForHudReplacement() {
+        language = Language.fromCode(pendingLanguage).getCode();
+        pendingLanguage = null;
+        Messages.select(language);
     }
     @Override public void disableLegacyAction() {
         try {
             java.nio.file.Path disabled = LEGACY_ACTION.disableForNextLaunch();
-            EVENTS.warning("Old Custom Actions disabled as " + disabled
-                    + ". Restart the client; it remains active in the current session.");
+            EVENTS.warning(Messages.text("event.legacy_disabled_next_restart", disabled));
             if (window != null) window.refresh();
         } catch (Exception e) {
-            EVENTS.error("Unable to disable old Custom Actions automatically", e);
-            EVENTS.warning("Rename mods/action.properties manually, then restart.");
+            EVENTS.error(Messages.text("error.disable_legacy"), e);
+            EVENTS.warning(Messages.text("error.disable_legacy_manual"));
         }
     }
     @Override public void requestToolbeltSelection() {
@@ -1259,7 +1414,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             ACTION_NAMES.put(actionId, constantName);
             return constantName;
         }
-        return "Unknown action (" + actionId + ")";
+        return Messages.text("editor.unknown_action", actionId);
     }
 
     private static String actionConstantName(short actionId) {
@@ -1281,9 +1436,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
     @Override public boolean saveRecord(String id, String name, String key, List<ActionStep> steps) {
         try {
-            if (name == null || name.trim().isEmpty()) throw new IllegalArgumentException("Name is missing");
-            if (key == null || key.trim().isEmpty()) throw new IllegalArgumentException("Key is missing");
-            if (steps == null || steps.isEmpty()) throw new IllegalArgumentException("At least one action is required");
+            if (name == null || name.trim().isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.name_missing"));
+            if (key == null || key.trim().isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.key_missing"));
+            if (steps == null || steps.isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.action_missing"));
             PendingSave requested = new PendingSave(id, name, key, steps);
             KeybindConflict conflict = registry.findSaveConflict(
                     id, key, requested.steps, ACCESS.console(hud));
@@ -1291,20 +1449,20 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 pendingSave = requested;
                 pendingConflict = conflict;
                 deferUi(() -> {
-                    hideSafely(conflictWindow, "keybind conflict");
+                    hideSafely(conflictWindow);
                     conflictWindow = new KeybinderConflictWindow(INSTANCE, conflict);
                     try {
                         new HudIntegration(ACCESS).add(hud, conflictWindow);
                     } catch (ReflectiveOperationException e) {
                         pendingSave = null;
-                        EVENTS.error("Unable to show keybind conflict", e);
+                        EVENTS.error(Messages.text("error.conflict_window"), e);
                     }
                 });
                 return false;
             }
             return commitSave(requested);
         } catch (Exception e) {
-            EVENTS.error("Unable to save keybind: " + safeMessage(e), e);
+            EVENTS.error(Messages.text("error.save_keybind", safeMessage(e)), e);
             return false;
         }
     }
@@ -1312,9 +1470,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     @Override public boolean saveKeybind(String id, String name, String key, List<KeybindStep> steps,
                                          String createdByUser, String createdOnServer) {
         try {
-            if (name == null || name.trim().isEmpty()) throw new IllegalArgumentException("Name is missing");
-            if (key == null || key.trim().isEmpty()) throw new IllegalArgumentException("Key is missing");
-            if (steps == null || steps.isEmpty()) throw new IllegalArgumentException("At least one step is required");
+            if (name == null || name.trim().isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.name_missing"));
+            if (key == null || key.trim().isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.key_missing"));
+            if (steps == null || steps.isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.step_missing"));
             PendingSave requested = new PendingSave(id, name, key, steps,
                     createdByUser, createdOnServer);
             KeybindConflict conflict = registry.findKeybindSaveConflict(id, key, ACCESS.console(hud));
@@ -1322,19 +1483,19 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 pendingSave = requested;
                 pendingConflict = conflict;
                 deferUi(() -> {
-                    hideSafely(conflictWindow, "keybind conflict");
+                    hideSafely(conflictWindow);
                     conflictWindow = new KeybinderConflictWindow(INSTANCE, conflict);
                     try { new HudIntegration(ACCESS).add(hud, conflictWindow); }
                     catch (ReflectiveOperationException e) {
                         pendingSave = null;
-                        EVENTS.error("Unable to show keybind conflict", e);
+                        EVENTS.error(Messages.text("error.conflict_window"), e);
                     }
                 });
                 return false;
             }
             return commitSave(requested);
         } catch (Exception e) {
-            EVENTS.error("Unable to save keybind: " + safeMessage(e), e);
+            EVENTS.error(Messages.text("error.save_keybind", safeMessage(e)), e);
             return false;
         }
     }
@@ -1342,13 +1503,16 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                                           List<KeybindVariant> variants, String activeVariantId,
                                           String createdByUser, String createdOnServer) {
         try {
-            if (name == null || name.trim().isEmpty()) throw new IllegalArgumentException("Name is missing");
-            if (key == null || key.trim().isEmpty()) throw new IllegalArgumentException("Key is missing");
+            if (name == null || name.trim().isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.name_missing"));
+            if (key == null || key.trim().isEmpty())
+                throw new IllegalArgumentException(Messages.text("validation.key_missing"));
             if (variants == null || variants.isEmpty())
-                throw new IllegalArgumentException("At least one action variant is required");
+                throw new IllegalArgumentException(Messages.text("validation.variant_missing"));
             for (KeybindVariant variant : variants)
                 if (variant.getSteps().isEmpty())
-                    throw new IllegalArgumentException("Every action variant must contain at least one step");
+                    throw new IllegalArgumentException(
+                            Messages.text("validation.variant_step_missing"));
             PendingSave requested = new PendingSave(id, name, key, variants, activeVariantId,
                     createdByUser, createdOnServer);
             KeybindConflict conflict = registry.findKeybindSaveConflict(id, key, ACCESS.console(hud));
@@ -1356,20 +1520,20 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 pendingSave = requested;
                 pendingConflict = conflict;
                 deferUi(() -> {
-                    hideSafely(conflictWindow, "keybind conflict");
+                    hideSafely(conflictWindow);
                     conflictWindow = new KeybinderConflictWindow(INSTANCE, conflict);
                     try { new HudIntegration(ACCESS).add(hud, conflictWindow); }
                     catch (ReflectiveOperationException e) {
                         pendingSave = null;
                         pendingConflict = null;
-                        EVENTS.error("Unable to show keybind conflict", e);
+                        EVENTS.error(Messages.text("error.conflict_window"), e);
                     }
                 });
                 return false;
             }
             return commitSave(requested);
         } catch (Exception e) {
-            EVENTS.error("Unable to save keybind: " + safeMessage(e), e);
+            EVENTS.error(Messages.text("error.save_keybind", safeMessage(e)), e);
             return false;
         }
     }
@@ -1391,32 +1555,36 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         pendingConflict = null;
         KeybinderConflictWindow dialog = conflictWindow;
         conflictWindow = null;
-        deferUi(() -> hideSafely(dialog, "keybind conflict"));
+        deferUi(() -> hideSafely(dialog));
         if (enableId != null) {
             if (resolution == ConflictResolution.KEEP_NEW) {
                 try {
                     registry.setEnabled(enableId, true, ACCESS.console(hud), LIMITS.readLimit(hud));
                     if (window != null) window.refresh();
                 } catch (Exception e) {
-                    EVENTS.error("Unable to enable keybind: " + safeMessage(e), e);
+                    EVENTS.error(Messages.text("error.enable_keybind"), e);
                 }
             } else {
-                EVENTS.info(resolution == ConflictResolution.CANCEL
-                        ? "Keybind enable cancelled." : "Existing keybind kept enabled.");
+                EVENTS.info(Messages.text(resolution == ConflictResolution.CANCEL
+                        ? "event.enable_cancelled" : "event.existing_kept"));
                 if (window != null) window.refresh();
             }
             return;
         }
         if (resolution == ConflictResolution.CANCEL || requested == null) {
-            EVENTS.info("Keybind save cancelled.");
+            EVENTS.info(Messages.text("event.save_cancelled"));
             return;
         }
         if (resolution == ConflictResolution.KEEP_OLD) {
             try {
                 if (requested.kind == SaveKind.ACTIONS)
-                    throw new IllegalStateException("Disabled conflict save requires a keybind container");
-                String reason = "key " + requested.key + " is used by "
-                        + (conflict == null ? "another keybind" : conflict.getOwner());
+                    throw new IllegalStateException(
+                            Messages.text("error.disabled_save_container"));
+                String reason = conflict == null
+                        ? DisableReason.value("key_used_unknown", requested.key)
+                        : conflict.isVanillaOwner()
+                        ? DisableReason.value("key_used_vanilla", requested.key)
+                        : DisableReason.value("key_used", requested.key, conflict.getOwner());
                 if (requested.kind == SaveKind.VARIANTS)
                     registry.updateVariantsDisabled(requested.id, requested.name, requested.key,
                             requested.variants, requested.activeVariantId, reason,
@@ -1429,7 +1597,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 INSTANCE.closeEditor();
                 if (window != null) window.refresh();
             } catch (Exception e) {
-                EVENTS.error("Unable to save the edited keybind disabled: " + safeMessage(e), e);
+                EVENTS.error(Messages.text("error.save_disabled", safeMessage(e)), e);
             }
             return;
         }
@@ -1454,7 +1622,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             if (window != null) window.refresh();
             return true;
         } catch (Exception e) {
-            EVENTS.error("Unable to save keybind: " + safeMessage(e), e);
+            EVENTS.error(Messages.text("error.save_keybind", safeMessage(e)), e);
             return false;
         }
     }
@@ -1471,7 +1639,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 new HudIntegration(ACCESS).add(hud, captureWindow);
             } catch (Exception e) {
                 RECORDER.cancel();
-                EVENTS.error("Unable to start action capture", e);
+                EVENTS.error(Messages.text("error.capture_start"), e);
             }
         });
     }
@@ -1491,9 +1659,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             return action.getActionId() + " " + TargetCodec.encode(action.getTarget());
         }
         if (step instanceof org.keybinder.wurm.model.ActivateToolStep)
-            return "Activate tool "
-                    + TargetCodec.display(((org.keybinder.wurm.model.ActivateToolStep) step).getTarget());
-        return step.getKind().name();
+            return Messages.text("event.describe_activate",
+                    TargetCodec.display(
+                            ((org.keybinder.wurm.model.ActivateToolStep) step).getTarget()));
+        return Messages.text("event.describe_unknown");
     }
     @Override public void requestTargetSelection(String kind) {
         if ("toolbelt".equals(kind)) {
@@ -1504,12 +1673,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     toolbeltOpenedForSelection = !ACCESS.isToolbeltVisible(hud);
                     ACCESS.ensureToolbeltVisible(hud);
                     selectionWindow = new KeybinderSelectionWindow(
-                            INSTANCE, "Click on required toolbelt slot");
+                            INSTANCE, Messages.text("selection.toolbelt"));
                     new HudIntegration(ACCESS).add(hud, selectionWindow);
                 }
                 catch (Exception e) {
                     SELECTION.cancel();
-                    EVENTS.error("Unable to show toolbelt", e);
+                    EVENTS.error(Messages.text("error.show_toolbelt"), e);
                 }
             });
         } else if ("equipment".equals(kind)) {
@@ -1520,12 +1689,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     equipmentOpenedForSelection = !ACCESS.isPaperDollVisible(hud);
                     ACCESS.ensurePaperDollVisible(hud);
                     selectionWindow = new KeybinderSelectionWindow(
-                            INSTANCE, "Click on required equipment slot");
+                            INSTANCE, Messages.text("selection.equipment"));
                     new HudIntegration(ACCESS).add(hud, selectionWindow);
                 }
                 catch (Exception e) {
                     SELECTION.cancel();
-                    EVENTS.error("Unable to show paper doll", e);
+                    EVENTS.error(Messages.text("error.show_paperdoll"), e);
                 }
             });
         } else if ("tiles".equals(kind)) {
@@ -1536,12 +1705,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                         new HudIntegration(ACCESS).add(hud, tileWindow);
                     } catch (Exception e) {
                         SELECTION.cancel();
-                        EVENTS.error("Unable to open tile selector", e);
+                        EVENTS.error(Messages.text("error.tile_open"), e);
                     }
                 });
             } catch (RuntimeException e) {
                 SELECTION.cancel();
-                EVENTS.error("Unable to select tile target", e);
+                EVENTS.error(Messages.text("error.tile_select"), e);
             }
         } else if ("exact object".equals(kind)) {
             RECORDER.cancel();
@@ -1550,11 +1719,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             deferUi(() -> {
                 try {
                     cancelSlotSelection();
-                    selectionWindow = new KeybinderSelectionWindow(INSTANCE, "Select target object");
+                    selectionWindow = new KeybinderSelectionWindow(
+                            INSTANCE, Messages.text("selection.object"));
                     new HudIntegration(ACCESS).add(hud, selectionWindow);
                 } catch (Exception e) {
                     SELECTION.cancel();
-                    EVENTS.error("Unable to start exact object selection", e);
+                    EVENTS.error(Messages.text("error.exact_start"), e);
                 }
             });
         } else if ("nearby by type".equals(kind)) {
@@ -1564,13 +1734,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             deferUi(() -> {
                 try {
                     cancelSlotSelection();
-                    selectionWindow = new KeybinderSelectionWindow(INSTANCE,
-                            "Select any object nearby. Keybinder will remember type of this object and "
-                                    + "will be able to select it automatically as a nearby target (i.e. any stump).");
+                    selectionWindow = new KeybinderSelectionWindow(
+                            INSTANCE, Messages.text("selection.nearby_type"));
                     new HudIntegration(ACCESS).add(hud, selectionWindow);
                 } catch (Exception e) {
                     SELECTION.cancel();
-                    EVENTS.error("Unable to start nearby type selection", e);
+                    EVENTS.error(Messages.text("error.nearby_start"), e);
                 }
             });
         } else {
@@ -1592,16 +1761,17 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         final KeybinderTileWindow tileToClose = tileWindow;
         deferUi(() -> {
             cancelSlotSelection();
-            hideSafely(captureToClose, "capture");
-            hideSafely(conflictToClose, "keybind conflict");
-            hideSafely(tileToClose, "tile selector");
+            hideSafely(captureToClose);
+            hideSafely(conflictToClose);
+            hideSafely(tileToClose);
             try {
                 if (hud != null && window != null) {
                     window.showKeybinds();
                     ACCESS.ensureComponentVisible(hud, window);
+                    if (pendingLanguage != null) applyLanguage(pendingLanguage);
                 }
             } catch (Exception e) {
-                EVENTS.error("Unable to restore Keybinder window", e);
+                EVENTS.error(Messages.text("error.window_restore"), e);
             }
         });
         editorWindow = null;
@@ -1676,10 +1846,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
     @Override public void openOriginalProject() {
         try {
-            if (!Desktop.isDesktopSupported()) throw new IllegalStateException("Desktop integration is unavailable");
+            if (!Desktop.isDesktopSupported())
+                throw new IllegalStateException(Messages.text("error.desktop_unavailable"));
             Desktop.getDesktop().browse(new URI(ORIGINAL_PROJECT));
         } catch (Throwable e) {
-            EVENTS.warning("Open this URL manually: " + ORIGINAL_PROJECT);
+            EVENTS.warning(Messages.text("error.open_url"));
+            EVENTS.warning(Messages.text("event.url_manual", ORIGINAL_PROJECT));
             LOGGER.log(Level.WARNING, "Unable to open project URL", e);
         }
     }
@@ -1694,10 +1866,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
     private static void openProject(String url, String name) {
         try {
-            if (!Desktop.isDesktopSupported()) throw new IllegalStateException("Desktop integration is unavailable");
+            if (!Desktop.isDesktopSupported())
+                throw new IllegalStateException(Messages.text("error.desktop_unavailable"));
             Desktop.getDesktop().browse(new URI(url));
         } catch (Throwable e) {
-            EVENTS.warning("Open this URL manually: " + url);
+            EVENTS.warning(Messages.text("error.open_url"));
+            EVENTS.warning(Messages.text("event.url_manual", url));
             LOGGER.log(Level.WARNING, "Unable to open " + name + " project URL", e);
         }
     }
@@ -1720,15 +1894,15 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         deferUi(() -> {
             try {
                 if (hud != null) {
-                    hideSafely(captureToClose, "capture");
-                    hideSafely(conflictToClose, "keybind conflict");
-                    hideSafely(tileToClose, "tile selector");
-                    hideSafely(selectionToClose, "target selection");
+                    hideSafely(captureToClose);
+                    hideSafely(conflictToClose);
+                    hideSafely(tileToClose);
+                    hideSafely(selectionToClose);
                     ACCESS.setComponentVisible(hud, window, false);
                     ACCESS.setComponentVisible(hud, tagWindow, true);
                 }
             } catch (Exception e) {
-                EVENTS.error("Unable to replace Keybinder with its KB tag", e);
+                EVENTS.error(Messages.text("error.replace_with_tag"), e);
             }
         });
     }
@@ -1742,7 +1916,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     ACCESS.setComponentVisible(hud, window, true);
                 }
             } catch (Exception e) {
-                EVENTS.error("Unable to open Keybinder from its KB tag", e);
+                EVENTS.error(Messages.text("error.open_from_tag"), e);
             }
         });
     }

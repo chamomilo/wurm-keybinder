@@ -2,11 +2,15 @@ package com.wurmonline.client.renderer.gui;
 
 import com.wurmonline.client.renderer.backend.Queue;
 import org.keybinder.wurm.KeybinderMod;
+import org.keybinder.wurm.i18n.Language;
+import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.i18n.DisableReason;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.ui.KeybinderUiController;
+import org.keybinder.wurm.ui.LocalizedLayout;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
 import com.wurmonline.client.resources.textures.KeybinderTextureFactory;
 import com.wurmonline.client.resources.textures.ResourceTexture;
@@ -21,8 +25,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private static final int CONTROLS_WIDTH = 41;
     private static final int CHECK_WIDTH = 34;
     private static final int KEY_WIDTH = 90;
-    private static final int EDIT_WIDTH = 58;
-    private static final int DELETE_WIDTH = 68;
+    private static final int EDIT_MIN_WIDTH = 58;
+    private static final int DELETE_MIN_WIDTH = 68;
     private static final int COLUMN_GAP = 8;
     private static final int DEFAULT_HEIGHT = 285;
     private static final int INTRO_MIN_WIDTH = 800;
@@ -30,6 +34,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private static final int INTRO_HEIGHT_PADDING = 10;
     private static final int INTRO_HORIZONTAL_CHROME = 0;
     private static final int INTRO_BUTTON_WIDTH = 240;
+    private static final String FILTER_ALL = "keybinder.filter:all";
+    private static final String FILTER_UNKNOWN = "keybinder.filter:unknown";
     private final KeybinderUiController controller;
     private final WurmArrayPanel<FlexComponent> table;
     private final WurmBorderPanel root;
@@ -41,12 +47,16 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private WButton disableFiltered;
     private WurmDropDown userFilter;
     private WurmDropDown serverFilter;
-    private String[] userFilterOptions = {"All users"};
-    private String[] serverFilterOptions = {"All servers"};
+    private String[] userFilterOptions = {Messages.text("list.all_users")};
+    private String[] serverFilterOptions = {Messages.text("list.all_servers")};
+    private String[] userFilterValues = {FILTER_ALL};
+    private String[] serverFilterValues = {FILTER_ALL};
     private int lastUserFilterValue;
     private int lastServerFilterValue;
     private WButton introPrimary;
     private WCheckBox introSkip;
+    private WurmDropDown introLanguage;
+    private int previousIntroLanguage;
     private WurmArrayPanel<FlexComponent> introContent;
     private IntroBanner introBanner;
     private final List<FlexComponent> introFullWidth = new ArrayList<>();
@@ -62,6 +72,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private int requiredKeyWidth;
     private int requiredUserWidth;
     private int requiredServerWidth;
+    private int requiredEditWidth;
+    private int requiredDeleteWidth;
     private int minimumWidth;
     private int minimumHeight = DEFAULT_HEIGHT;
     private int lastLayoutWidth = -1;
@@ -76,23 +88,17 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     public KeybinderWindow(KeybinderUiController controller) {
         super("keybinder.window", true);
         this.controller = controller;
-        setTitle("Keybinder");
+        setTitle(Messages.text("window.title"));
         table = new WurmArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL, true);
-        addButton = new WButton("Add", this);
+        addButton = new WButton(Messages.text("list.add"), this);
 
         root = new WurmBorderPanel("keybinder.root");
         listTop =
                 new WurmArrayPanel<>("keybinder.list.introduction", WurmArrayPanel.DIR_VERTICAL, true);
-        listTop.addComponent(new WurmLabel(
-                "REGISTERED KEYBINDS"));
-        listTop.addComponent(new WurmLabel(
-                "Use the controls on the left to add, remove, or reorder rows."));
-        listTop.addComponent(spacer(5));
         filterControls = new WurmArrayPanel<>(
                 "keybinder.list.filters", WurmArrayPanel.DIR_HORIZONTAL);
         filterControls.componentWidthOffset = COLUMN_GAP;
-        listTop.addComponent(filterControls);
-        listTop.addComponent(spacer(5));
+        rebuildListTop();
         root.setComponent(listTop, WurmBorderPanel.NORTH);
         root.setComponent(new WurmScrollPanel("keybinder.scroll", table, false, true), WurmBorderPanel.CENTER);
         refresh();
@@ -106,7 +112,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         resizable = false;
         minimumWidth = INTRO_MIN_WIDTH;
         minimumHeight = INTRO_MIN_HEIGHT;
-        setTitle("Welcome to Keybinder");
+        setTitle(Messages.text("window.intro.title"));
         setComponent(createIntroContent());
         layoutIntroContent(INTRO_MIN_WIDTH);
         introFixedHeight = Math.max(INTRO_MIN_HEIGHT,
@@ -120,7 +126,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         editor = null;
         resizable = true;
         minimumHeight = DEFAULT_HEIGHT;
-        setTitle("Keybinder");
+        setTitle(Messages.text("window.title"));
+        // The language can change while Intro is visible. listTop was created
+        // earlier, so refresh its labels before exposing the persistent list.
+        rebuildListTop();
         setComponent(root);
         refresh();
         if (width < minimumWidth) setSize(minimumWidth, height);
@@ -132,7 +141,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         resizable = true;
         minimumWidth = KeybinderEditorWindow.MIN_WIDTH;
         minimumHeight = 430;
-        setTitle("Keybind constructor");
+        setTitle(Messages.text("window.editor.title"));
         setComponent(newEditor.getEmbeddedContent());
         if (width < minimumWidth) setSize(minimumWidth, Math.max(height, 430));
         newEditor.embeddedTick(width, height);
@@ -150,62 +159,64 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         introBanner.layout(INTRO_MIN_WIDTH - INTRO_HORIZONTAL_CHROME);
         addIntro(introBanner);
         addIntro(spacer(8));
-        addIntro(introText("WELCOME TO KEYBINDER"));
-        addIntro(introText(
-                "Keybinder makes working with your keyboard easier, clearer, and completely at home in Wurm."));
-        addIntro(introText(
-                "It replaces both vanilla keybind management and complicated console binds used by different mods. This is not automation or scripting - it is simply a much more convenient way to use both simple and complex actions bound to keys."));
+        addIntro(introText(Messages.text("intro.heading")));
+        addIntro(introText(Messages.text("intro.lead")));
+        addIntro(introText(Messages.text("intro.description")));
         addIntro(spacer(8));
-        addIntro(introSection("ONE KEY - MANY ACTIONS, TOOLS, AND TARGETS",
-                "A keybind can contain several Wurm commands, up to the length of your character's action queue. For each command, you can pick an action from the vanilla list (boring...), enter a console command (even more boring...), or use Capture Action (!!!). Simply perform an action as usual. Keybinder will remember what you did and add it to your keybind. Bingo!"));
-        addIntro(introText(
-                "For every action, select the tool and target you need: hovered, selected, exact or nearby objects, your ride, tiles, areas, and many more. This flexible targeting system was inspired by bdew's Custom Actions. If Custom Actions is installed, Keybinder will offer to import its commands on the first run and then disable the old mod."));
-        addIntro(introText(
-                "There is no reason to run both mods at the same time. Keybinder will also offer to import your existing vanilla keybinds, allowing you to manage everything from one window."));
+        addIntro(introSection(Messages.text("intro.actions.heading"),
+                Messages.text("intro.actions.body")));
+        addIntro(introText(Messages.text("intro.targets.body")));
+        addIntro(introText(Messages.text("intro.migration.body")));
         addIntro(spacer(8));
-        addIntro(introSection("MULTI-KEYBINDS",
-                "Stop playing your keyboard like a piano. A multi-keybind lets you assign several keybinds to the same key. To switch between them, just hold the key for one second or longer. You can assign up to 10 keybinds to the same key. Need more? Let me know :)"));
+        addIntro(introSection(Messages.text("intro.multi.heading"),
+                Messages.text("intro.multi.body")));
         addIntro(spacer(8));
-        addIntro(introSection("DIFFERENT CHARACTERS, DIFFERENT SERVERS",
-                "Create separate keybind sets for different characters and servers, then switch between them easily. Your enchanter can use a completely different set from your farmer or woodcutter."));
+        addIntro(introSection(Messages.text("intro.profiles.heading"),
+                Messages.text("intro.profiles.body")));
         addIntro(spacer(8));
-        addIntro(introSection("SMART IMPROVE",
-                "Keybinder includes an updated version of the famous Improved Improve logic."));
-        addIntro(introText(
-                "Simply choose the key you want to use for improving - and improve! Just remember to keep all the required tools in your toolbelt. The old Improved Improve mod is no longer required and can be disabled."));
-        addIntro(introText(
-                "Everything is configured through a clear, Wurm-styled interface. No console work is required."));
-        addIntro(introText("I hope you will love this mod as much as I do :)"));
+        addIntro(introSection(Messages.text("intro.improve.heading"),
+                Messages.text("intro.improve.body")));
+        addIntro(introText(Messages.text("intro.improve.instructions")));
+        addIntro(introText(Messages.text("intro.interface")));
+        addIntro(introText(Messages.text("intro.closing")));
         addIntro(spacer(8));
-        addIntro(introText("Cheers! Chamomilo"));
+        addIntro(introText(Messages.text("intro.signature")));
         addIntro(spacer(8));
-        addIntro(introSection("SUPPORT YOUR NEW KEYBINDER",
-                "If you would like to say THANK YOU or support my work, please join the SKLOTOPOLIS server and send me, Chamomilo, a message - or a few in-game coins. Gold would be wonderful :)"));
-        addIntro(introText(
-                "Silver or copper - whatever amount feels appropriate. Thank you in advance!"));
+        addIntro(introSection(Messages.text("intro.support.heading"),
+                Messages.text("intro.support.body")));
+        addIntro(introText(Messages.text("intro.support.thanks")));
         addIntro(spacer(8));
-        addIntro(introText("WITH THANKS TO THE MODDERS WHO INSPIRED KEYBINDER"));
-        addIntro(link("bdew - Custom Actions: " + KeybinderMod.ORIGINAL_PROJECT,
+        addIntro(introText(Messages.text("intro.credits.heading")));
+        addIntro(link(Messages.text("intro.credit.custom_actions", KeybinderMod.ORIGINAL_PROJECT),
                 controller::openOriginalProject));
-        addIntro(link("Munsta0 - the original Improved Improve: "
-                + KeybinderMod.MUNSTA_IMPROVE_PROJECT, controller::openMunstaImproveProject));
-        addIntro(link("inniria - i2improve: " + KeybinderMod.INNIRIA_IMPROVE_PROJECT,
+        addIntro(link(Messages.text("intro.credit.munsta", KeybinderMod.MUNSTA_IMPROVE_PROJECT),
+                controller::openMunstaImproveProject));
+        addIntro(link(Messages.text("intro.credit.inniria", KeybinderMod.INNIRIA_IMPROVE_PROJECT),
                 controller::openInniriaImproveProject));
-        addIntro(link("Snidor - continued i2improve: " + KeybinderMod.IMPROVE_PROJECT,
+        addIntro(link(Messages.text("intro.credit.snidor", KeybinderMod.IMPROVE_PROJECT),
                 controller::openImproveProject));
-        addIntro(introText("Keybinder is licensed under GNU LGPL 3.0 or later."));
+        addIntro(introText(Messages.text("intro.license")));
         addIntro(spacer(8));
 
         boolean legacy = controller.isLegacyActionInstalled();
         if (legacy) {
             addIntro(introText(
-                    "Custom Actions was found. Keybinder can import its binds and disable it safely."));
+                    Messages.text("intro.legacy.found")));
         }
         introPrimary = new WButton(legacy
-                ? "Import binds, disable Custom Actions, and exit game"
-                : "Start Keybinding", this);
+                ? Messages.text("intro.import_exit") : Messages.text("intro.start"), this);
         addIntro(centeredButton(introPrimary));
-        introSkip = new WCheckBox("Skip intro page on next load");
+        WurmArrayPanel<FlexComponent> languageRow = new WurmArrayPanel<>(
+                "keybinder.intro.language", WurmArrayPanel.DIR_HORIZONTAL);
+        languageRow.componentWidthOffset = 8;
+        languageRow.addComponent(new WurmLabel(Messages.text("language.label")));
+        Language current = Language.fromCode(controller.getLanguage());
+        introLanguage = new WurmDropDown(
+                "keybinder.intro.language.value", current.ordinal(), Language.displayNames());
+        previousIntroLanguage = current.ordinal();
+        languageRow.addComponent(introLanguage);
+        addIntro(languageRow);
+        introSkip = new WCheckBox(Messages.text("intro.skip"));
         introSkip.checked = controller.isSkipIntro();
         previousIntroSkip = introSkip.checked;
         addIntro(introSkip);
@@ -219,15 +230,41 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         introFullWidth.add(component);
     }
 
+    public boolean isEditorOpen() { return mode == Mode.EDITOR; }
+
+    public void relocalize() {
+        if (mode == Mode.EDITOR) return;
+        if (mode == Mode.INTRO) showIntro();
+        else {
+            setTitle(Messages.text("window.title"));
+            addButton.setLabel(Messages.text("list.add"));
+            rebuildListTop();
+            refresh();
+            if (width < minimumWidth) setSize(minimumWidth, height);
+        }
+    }
+
+    private void rebuildListTop() {
+        listTop.removeAllComponents();
+        listTop.addComponent(new WurmLabel(Messages.text("list.heading")));
+        listTop.addComponent(new WurmLabel(Messages.text("list.instructions")));
+        listTop.addComponent(spacer(5));
+        listTop.addComponent(filterControls);
+        listTop.addComponent(spacer(5));
+        listTop.componentResized();
+    }
+
     private static FlexComponent centeredButton(WButton button) {
         int rowHeight = Math.max(18, button.height);
-        int sideWidth = (INTRO_MIN_WIDTH - INTRO_BUTTON_WIDTH) / 2;
+        int buttonWidth = Math.min(INTRO_MIN_WIDTH,
+                Math.max(INTRO_BUTTON_WIDTH, button.width + 12));
+        int sideWidth = Math.max(0, (INTRO_MIN_WIDTH - buttonWidth) / 2);
         WurmArrayPanel<FlexComponent> row = new WurmArrayPanel<>(
                 "keybinder.intro.primary.row", WurmArrayPanel.DIR_HORIZONTAL,
                 INTRO_MIN_WIDTH, rowHeight);
         WurmLabel left = new WurmLabel("");
         left.setSize(sideWidth, rowHeight);
-        button.setSize(INTRO_BUTTON_WIDTH, rowHeight);
+        button.setSize(buttonWidth, rowHeight);
         WurmLabel right = new WurmLabel("");
         right.setSize(sideWidth, rowHeight);
         row.addComponent(left);
@@ -255,8 +292,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     }
 
     public void refresh() {
-        String selectedUser = selectedOption(userFilterOptions, userFilter, "All users");
-        String selectedServer = selectedOption(serverFilterOptions, serverFilter, "All servers");
+        String selectedUser = selectedOption(userFilterValues, userFilter, FILTER_ALL);
+        String selectedServer = selectedOption(serverFilterValues, serverFilter, FILTER_ALL);
         rebuildFilters(selectedUser, selectedServer);
         rebuildTable();
     }
@@ -273,25 +310,30 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         requiredKeyWidth = KEY_WIDTH;
         requiredUserWidth = 90;
         requiredServerWidth = 100;
+        requiredEditWidth = localizedButtonColumnWidth("common.edit", EDIT_MIN_WIDTH);
+        requiredDeleteWidth = localizedButtonColumnWidth("common.delete", DELETE_MIN_WIDTH);
         table.addComponent(header());
         for (KeybindRecord record : filteredRecords()) table.addComponent(row(record));
         WurmArrayPanel<FlexComponent> addRow =
                 new WurmArrayPanel<>("keybinder.add.row", WurmArrayPanel.DIR_HORIZONTAL);
         addRow.addComponent(addButton);
         table.addComponent(addRow);
-        minimumWidth = WINDOW_CHROME + CONTROLS_WIDTH + CHECK_WIDTH + EDIT_WIDTH + DELETE_WIDTH
+        minimumWidth = WINDOW_CHROME + CONTROLS_WIDTH + CHECK_WIDTH
+                + requiredEditWidth + requiredDeleteWidth
                 + requiredNameWidth + requiredKeyWidth + requiredUserWidth + requiredServerWidth
                 + COLUMN_GAP * 7;
-        minimumWidth = Math.max(360, minimumWidth);
+        minimumWidth = Math.max(Math.max(360, minimumWidth),
+                WINDOW_CHROME + filterControls.width);
         lastLayoutWidth = -1;
         table.componentResized();
         applyTableLayout();
     }
 
     private FlexComponent header() {
-        return createTableRow("keybinder.header", new WurmLabel(""), new WurmLabel("On"),
-                new WurmLabel("Keybind name"), new WurmLabel("Key"),
-                new WurmLabel("Created by user"), new WurmLabel("Created on server"),
+        return createTableRow("keybinder.header", new WurmLabel(""),
+                new WurmLabel(Messages.text("list.on")),
+                new WurmLabel(Messages.text("list.name")), new WurmLabel(Messages.text("list.key")),
+                new WurmLabel(Messages.text("list.user")), new WurmLabel(Messages.text("list.server")),
                 new WurmLabel(""), new WurmLabel(""));
     }
 
@@ -301,23 +343,23 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         checkboxIds.put(enabled, record.getId());
         checkboxStates.put(enabled, record.isEnabled());
         WurmLabel name = new SelectableLabel(record.getName()
-                + (record.isMultiPurpose() ? " (multi)" : ""), record.getId());
+                + (record.isMultiPurpose() ? Messages.text("keybind.multi_suffix") : ""), record.getId());
         WurmLabel key = new SelectableLabel(
                 org.keybinder.wurm.catalog.InputKeyCatalog.displayChord(record.getKey()),
                 record.getId());
         WurmLabel createdBy = new SelectableLabel(displayOrigin(record.getCreatedByUser()), record.getId());
         WurmLabel createdOn = new SelectableLabel(displayOrigin(record.getCreatedOnServer()), record.getId());
 
-        WButton edit = new WButton("Edit", this);
-        edit.setHoverString("Edit keybind");
+        WButton edit = new WButton(Messages.text("common.edit"), this);
+        edit.setHoverString(Messages.text("keybind.edit.tip"));
         editIds.put(edit, record.getId());
 
-        WButton delete = new WButton("Delete", this);
-        delete.setHoverString("Delete keybind");
+        WButton delete = new WButton(Messages.text("common.delete"), this);
+        delete.setHoverString(Messages.text("keybind.delete.tip"));
         deleteIds.put(delete, record.getId());
         delete.setConfirm(true);
-        delete.setConfirmQuestion("Delete keybind?");
-        delete.setConfirmMessage("Delete " + record.getName());
+        delete.setConfirmQuestion(Messages.text("keybind.delete.question"));
+        delete.setConfirmMessage(Messages.text("keybind.delete.named", record.getName()));
         WurmArrayPanel<FlexComponent> controls =
                 new WurmArrayPanel<>("keybinder.controls." + record.getId(), WurmArrayPanel.DIR_HORIZONTAL);
         controls.componentWidthOffset = 1;
@@ -337,13 +379,14 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     }
 
     private WButton rowButton(KeybinderGlyphButton.Kind kind, int action, String recordId) {
-        String tooltip = action == RowAction.ADD_AFTER ? "Add keybind below" : "Delete keybind";
+        String tooltip = action == RowAction.ADD_AFTER
+                ? Messages.text("keybind.add_below") : Messages.text("keybind.delete.tip");
         WButton button = new KeybinderGlyphButton(kind, this, tooltip);
         rowActions.put(button, new RowAction(action, recordId));
         if (action == RowAction.REMOVE) {
             button.setConfirm(true);
-            button.setConfirmQuestion("Delete keybind?");
-            button.setConfirmMessage("Delete this keybind");
+            button.setConfirmQuestion(Messages.text("keybind.delete.question"));
+            button.setConfirmMessage(Messages.text("keybind.delete.this"));
         }
         return button;
     }
@@ -392,40 +435,49 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private RowStatus rowStatus(KeybindRecord record) {
         List<String> reasons = new ArrayList<>();
         if (record.getKey() == null || record.getKey().trim().isEmpty())
-            reasons.add("no key is assigned");
+            reasons.add(Messages.text("status.no_key"));
         if (record.getKeybindSteps() == null || record.getKeybindSteps().isEmpty())
-            reasons.add("no action or command is configured");
+            reasons.add(Messages.text("status.no_steps"));
+        if (!record.isEnabled() && DisableReason.blocksEnable(record.getDisabledReason()))
+            reasons.add(DisableReason.display(record.getDisabledReason()));
         QueueCost cost = new ActionQueueCostCalculator().keybindCost(record);
         if (cost.getKind() == QueueCost.Kind.FIXED && controller.getQueueLimit() > 0
                 && cost.getValue() > controller.getQueueLimit())
-            reasons.add("action queue cost " + cost.getValue()
-                    + " exceeds the current limit " + controller.getQueueLimit());
+            reasons.add(Messages.text("status.queue_exceeded",
+                    cost.getValue(), controller.getQueueLimit()));
         if (reasons.isEmpty()) return RowStatus.OK;
-        StringBuilder text = new StringBuilder("Cannot enable this keybind: ");
+        StringBuilder text = new StringBuilder();
         for (int i = 0; i < reasons.size(); i++) {
-            if (i > 0) text.append(i + 1 == reasons.size() ? " and " : ", ");
+            if (i > 0) text.append(i + 1 == reasons.size()
+                    ? " " + Messages.text("common.and") + " " : ", ");
             text.append(reasons.get(i));
         }
-        return new RowStatus(true, text.append('.').toString());
+        return new RowStatus(true, Messages.text("status.cannot_enable", text.toString()));
     }
 
     private void rebuildFilters(String selectedUser, String selectedServer) {
-        userFilterOptions = originOptions(controller.getRecords(), true, "All users", "Unknown user");
-        serverFilterOptions = originOptions(controller.getRecords(), false, "All servers", "Unknown server");
+        FilterOptions users = originOptions(controller.getRecords(), true,
+                Messages.text("list.all_users"), Messages.text("list.unknown_user"));
+        FilterOptions servers = originOptions(controller.getRecords(), false,
+                Messages.text("list.all_servers"), Messages.text("list.unknown_server"));
+        userFilterOptions = users.labels;
+        userFilterValues = users.values;
+        serverFilterOptions = servers.labels;
+        serverFilterValues = servers.values;
         userFilter = new WurmDropDown("keybinder.filter.user",
-                optionFor(userFilterOptions, selectedUser), userFilterOptions);
+                optionFor(userFilterValues, selectedUser), userFilterOptions);
         serverFilter = new WurmDropDown("keybinder.filter.server",
-                optionFor(serverFilterOptions, selectedServer), serverFilterOptions);
+                optionFor(serverFilterValues, selectedServer), serverFilterOptions);
         lastUserFilterValue = userFilter.getValue();
         lastServerFilterValue = serverFilter.getValue();
-        enableFiltered = new WButton("Enable filtered", this);
-        disableFiltered = new WButton("Disable filtered", this);
-        enableFiltered.setHoverString("Enable every keybind visible under the current user and server filters.");
-        disableFiltered.setHoverString("Disable every keybind visible under the current user and server filters.");
+        enableFiltered = new WButton(Messages.text("list.enable_filtered"), this);
+        disableFiltered = new WButton(Messages.text("list.disable_filtered"), this);
+        enableFiltered.setHoverString(Messages.text("list.enable_filtered.tip"));
+        disableFiltered.setHoverString(Messages.text("list.disable_filtered.tip"));
         filterControls.removeAllComponents();
-        filterControls.addComponent(new WurmLabel("User"));
+        filterControls.addComponent(new WurmLabel(Messages.text("common.user")));
         filterControls.addComponent(userFilter);
-        filterControls.addComponent(new WurmLabel("Server"));
+        filterControls.addComponent(new WurmLabel(Messages.text("common.server")));
         filterControls.addComponent(serverFilter);
         filterControls.addComponent(enableFiltered);
         filterControls.addComponent(disableFiltered);
@@ -434,25 +486,26 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     }
 
     private List<KeybindRecord> filteredRecords() {
-        String user = selectedOption(userFilterOptions, userFilter, "All users");
-        String server = selectedOption(serverFilterOptions, serverFilter, "All servers");
+        String user = selectedOption(userFilterValues, userFilter, FILTER_ALL);
+        String server = selectedOption(serverFilterValues, serverFilter, FILTER_ALL);
         List<KeybindRecord> result = new ArrayList<>();
         for (KeybindRecord record : controller.getRecords()) {
-            if (!matchesOrigin(user, record.getCreatedByUser(), "All users", "Unknown user")) continue;
-            if (!matchesOrigin(server, record.getCreatedOnServer(), "All servers", "Unknown server")) continue;
+            if (!matchesOrigin(user, record.getCreatedByUser())) continue;
+            if (!matchesOrigin(server, record.getCreatedOnServer())) continue;
             result.add(record);
         }
         return result;
     }
 
-    private static boolean matchesOrigin(String filter, String value, String all, String unknown) {
-        if (all.equals(filter)) return true;
+    private static boolean matchesOrigin(String filter, String value) {
+        if (FILTER_ALL.equals(filter)) return true;
         String clean = value == null ? "" : value.trim();
-        return unknown.equals(filter) ? clean.isEmpty() : filter.equalsIgnoreCase(clean);
+        return FILTER_UNKNOWN.equals(filter)
+                ? clean.isEmpty() : filter.equalsIgnoreCase(clean);
     }
 
-    private static String[] originOptions(List<KeybindRecord> records, boolean user,
-                                          String all, String unknown) {
+    private static FilterOptions originOptions(List<KeybindRecord> records, boolean user,
+                                                String all, String unknown) {
         java.util.Set<String> values = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         boolean hasUnknown = false;
         for (KeybindRecord record : records) {
@@ -460,11 +513,18 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             if (value == null || value.trim().isEmpty()) hasUnknown = true;
             else values.add(value.trim());
         }
-        List<String> options = new ArrayList<>();
-        options.add(all);
-        if (hasUnknown) options.add(unknown);
-        options.addAll(values);
-        return options.toArray(new String[options.size()]);
+        List<String> labels = new ArrayList<>();
+        List<String> identities = new ArrayList<>();
+        labels.add(all);
+        identities.add(FILTER_ALL);
+        if (hasUnknown) {
+            labels.add(unknown);
+            identities.add(FILTER_UNKNOWN);
+        }
+        labels.addAll(values);
+        identities.addAll(values);
+        return new FilterOptions(labels.toArray(new String[labels.size()]),
+                identities.toArray(new String[identities.size()]));
     }
 
     private static int optionFor(String[] options, String value) {
@@ -480,7 +540,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     }
 
     private static String displayOrigin(String value) {
-        return value == null || value.trim().isEmpty() ? "Unknown" : value.trim();
+        return value == null || value.trim().isEmpty()
+                ? Messages.text("list.unknown") : value.trim();
     }
 
     private List<String> filteredIds() {
@@ -497,6 +558,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             if (introSkip != null && introSkip.checked != previousIntroSkip) {
                 previousIntroSkip = introSkip.checked;
                 controller.setSkipIntro(introSkip.checked);
+            }
+            if (introLanguage != null && introLanguage.getValue() != previousIntroLanguage) {
+                previousIntroLanguage = introLanguage.getValue();
+                Language[] languages = Language.values();
+                if (previousIntroLanguage >= 0 && previousIntroLanguage < languages.length)
+                    controller.setLanguage(languages[previousIntroLanguage].getCode());
+                return;
             }
             return;
         }
@@ -566,7 +634,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         if (width == lastLayoutWidth || tableRows.isEmpty()) return;
         lastLayoutWidth = width;
         int available = Math.max(requiredNameWidth + requiredKeyWidth + requiredUserWidth + requiredServerWidth,
-                width - WINDOW_CHROME - CONTROLS_WIDTH - CHECK_WIDTH - EDIT_WIDTH - DELETE_WIDTH
+                width - WINDOW_CHROME - CONTROLS_WIDTH - CHECK_WIDTH
+                        - requiredEditWidth - requiredDeleteWidth
                         - COLUMN_GAP * 7);
         int extra = Math.max(0,
                 available - requiredNameWidth - requiredKeyWidth - requiredUserWidth - requiredServerWidth);
@@ -580,12 +649,17 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             row.key.setSize(requiredKeyWidth, row.key.height);
             row.user.setSize(userWidth, row.user.height);
             row.server.setSize(serverWidth, row.server.height);
-            row.edit.setSize(EDIT_WIDTH, row.edit.height);
-            row.delete.setSize(DELETE_WIDTH, row.delete.height);
+            row.edit.setSize(requiredEditWidth, row.edit.height);
+            row.delete.setSize(requiredDeleteWidth, row.delete.height);
             row.panel.componentResized();
         }
         table.componentResized();
         root.componentResized();
+    }
+
+    static int localizedButtonColumnWidth(String messageKey, int minimum) {
+        return LocalizedLayout.controlWidth(
+                Messages.text(messageKey), minimum, 18, text -> new WurmLabel(text).width);
     }
 
     private final class SelectableRow extends WurmArrayPanel<FlexComponent> {
@@ -723,6 +797,16 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         }
     }
 
+    private static final class FilterOptions {
+        private final String[] labels;
+        private final String[] values;
+
+        private FilterOptions(String[] labels, String[] values) {
+            this.labels = labels;
+            this.values = values;
+        }
+    }
+
     @Override
     public void buttonPressed(WButton button) {
         RowAction action = rowActions.get(button);
@@ -828,7 +912,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             this.label = text == null ? "" : text;
             this.action = action;
             lines.add(this.label);
-            setSize(Math.max(1, this.label.length() * 7), LINE_HEIGHT);
+            setSize(Math.max(1, this.text.getWidth(this.label) + HORIZONTAL_MARGIN * 2),
+                    LINE_HEIGHT);
         }
 
         private void layout(int availableWidth) {

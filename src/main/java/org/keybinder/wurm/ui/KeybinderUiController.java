@@ -28,6 +28,8 @@ public interface KeybinderUiController {
     void importDisableAndRestart();
     boolean isSkipIntro();
     void setSkipIntro(boolean skip);
+    String getLanguage();
+    void setLanguage(String language);
     void requestToolbeltSelection();
     void requestEquipmentSelection();
     void selectTileTarget(String target);

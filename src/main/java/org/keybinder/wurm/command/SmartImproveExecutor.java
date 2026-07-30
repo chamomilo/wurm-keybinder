@@ -8,6 +8,7 @@ import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.shared.constants.PlayerAction;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.event.EventLogger;
+import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
@@ -39,11 +40,7 @@ public final class SmartImproveExecutor {
                 ToolbeltTool selected = improveTool(item, hud);
                 if (selected == null) {
                     String required = tracker.toolName(item.getId());
-                    throw new StepUnavailableException("Improve tool "
-                            + (required == null ? "required by the item"
-                            : "\"" + required + "\"")
-                            + " for \"" + displayName(item)
-                            + "\" was not found on the toolbelt");
+                    throw missingTool(required, displayName(item));
                 }
                 InventoryMetaItem tool = selected.item;
                 int cost = item.getDamage() > 0 ? 1 : 0;
@@ -54,8 +51,7 @@ public final class SmartImproveExecutor {
         }
         long targetId = worldTargetId(step.getTarget(), hud);
         if (worldImproveTool(targetId, hud) == null)
-            throw new StepUnavailableException("Improve tool required by the selected object "
-                    + "was not found on the toolbelt");
+            throw new StepUnavailableException(Messages.text("improve.world_tool_missing"));
         return 2;
     }
 
@@ -69,14 +65,11 @@ public final class SmartImproveExecutor {
                 String itemName = displayName(item);
                 if (selected == null) {
                     String required = tracker.toolName(item.getId());
-                    throw new StepUnavailableException("Improve tool "
-                            + (required == null ? "required by the item" : "\"" + required + "\"")
-                            + " for \"" + itemName + "\" was not found on the toolbelt");
+                    throw missingTool(required, itemName);
                 }
                 InventoryMetaItem tool = selected.item;
-                log.info("Smart Improve: using " + tool.getBaseName()
-                        + " from toolbelt slot " + selected.slot
-                        + " to improve the \"" + itemName + "\"");
+                log.info(Messages.text("improve.using", tool.getBaseName(),
+                        selected.slot, itemName));
                 tracker.expect(item.getId());
                 if (item.getDamage() > 0) hud.sendAction(PlayerAction.REPAIR, item.getId());
                 if (tool.getDamage() > 1.0f) hud.sendAction(PlayerAction.REPAIR, tool.getId());
@@ -107,8 +100,8 @@ public final class SmartImproveExecutor {
             }
             executeWorldTarget(TargetSpec.simple(TargetKind.SELECTED), selected, hud);
         } catch (Throwable e) {
-            log.error("Deferred Smart Improve failed, skipping: "
-                    + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), e);
+            log.error(Messages.text("improve.deferred_failed",
+                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), e);
         } finally {
             org.keybinder.wurm.recording.ShadowRecorder.exitInternal();
         }
@@ -121,7 +114,8 @@ public final class SmartImproveExecutor {
         if (target.getKind() == TargetKind.EXACT_OBJECT) {
             ensureExactKnown(target, hud);
             id = target.getObjectId();
-            itemName = target.getText().isEmpty() ? "Exact object" : target.getText();
+            itemName = target.getText().isEmpty()
+                    ? Messages.text("target.exact_generic") : target.getText();
         } else {
             validateWorldTarget(selected);
             id = selected.getId();
@@ -130,14 +124,11 @@ public final class SmartImproveExecutor {
         String required = tracker.toolName(id);
         ToolbeltTool toolSelection = worldImproveTool(id, hud);
         if (toolSelection == null) {
-            throw new StepUnavailableException("Improve tool "
-                    + (required == null ? "required by the item" : "\"" + required + "\"")
-                    + " for \"" + itemName + "\" was not found on the toolbelt");
+            throw missingTool(required, itemName);
         }
         InventoryMetaItem tool = toolSelection.item;
-        log.info("Smart Improve: using " + tool.getBaseName()
-                + " from toolbelt slot " + toolSelection.slot
-                + " to improve the \"" + itemName + "\"");
+        log.info(Messages.text("improve.using",
+                tool.getBaseName(), toolSelection.slot, itemName));
         tracker.expect(id);
         hud.sendAction(PlayerAction.REPAIR, id);
         tracker.repaired(id);
@@ -190,7 +181,8 @@ public final class SmartImproveExecutor {
 
     private static String displayName(InventoryMetaItem item) {
         String name = item.getDisplayName();
-        return name == null || name.trim().isEmpty() ? "item" : name;
+        return name == null || name.trim().isEmpty()
+                ? Messages.text("improve.generic_item") : name;
     }
 
     private static final class ToolbeltTool {
@@ -241,23 +233,23 @@ public final class SmartImproveExecutor {
         if (target.getKind() == TargetKind.SELECTED) unit = access.selected(hud.getSelectBar());
         else if (target.getKind() == TargetKind.HOVER)
             unit = hud.getWorld().getCurrentHoveredObject();
-        else throw new IllegalArgumentException("Unsupported Smart Improve target "
-                    + target.getKind());
-        if (unit == null) throw new StepUnavailableException("Smart Improve target was not found");
+        else throw new IllegalArgumentException(Messages.text(
+                    "improve.unsupported_target", target.getKind()));
+        if (unit == null)
+            throw new StepUnavailableException(Messages.text("improve.target_missing"));
         return unit;
     }
 
     private static void validateWorldTarget(PickableUnit selected) {
         String itemName = safeName(selected.getHoverName());
         if (!selected.targetMatches(PlayerAction.IMPROVE.getTargetMask())) {
-            throw new StepUnavailableException("Selected object \"" + itemName
-                    + "\" cannot be improved");
+            throw new StepUnavailableException(
+                    Messages.text("improve.cannot_improve", itemName));
         }
         if (selected instanceof CellRenderable
                 && ((CellRenderable) selected).getSquaredLengthFromPlayer()
                 > ACTION_REACH_SQUARED) {
-            throw new StepUnavailableException("Selected object \"" + itemName
-                    + "\" is too far away to improve");
+            throw new StepUnavailableException(Messages.text("improve.too_far", itemName));
         }
     }
 
@@ -269,12 +261,20 @@ public final class SmartImproveExecutor {
         if (selected != null && selected.getId() == id) return;
         PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
         if (hovered != null && hovered.getId() == id) return;
-        throw new StepUnavailableException("Exact object "
-                + (target.getText().isEmpty() ? Long.toString(id) : "\"" + target.getText() + "\"")
-                + " was not found");
+        throw new StepUnavailableException(Messages.text("unavailable.exact_object",
+                target.getText().isEmpty()
+                        ? Long.toString(id) : "\"" + target.getText() + "\""));
     }
 
     private static String safeName(String value) {
-        return value == null || value.trim().isEmpty() ? "item" : value;
+        return value == null || value.trim().isEmpty()
+                ? Messages.text("improve.generic_item") : value;
+    }
+
+    private static StepUnavailableException missingTool(String required, String itemName) {
+        String tool = required == null
+                ? Messages.text("improve.required_by_item") : "\"" + required + "\"";
+        return new StepUnavailableException(
+                Messages.text("improve.tool_missing", tool, itemName));
     }
 }

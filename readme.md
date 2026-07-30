@@ -1,7 +1,22 @@
-# Keybinder 0.5.3 for Wurm Unlimited
+# Keybinder 0.5.4 for Wurm Unlimited
 
 Keybinder is a standalone Wurm Unlimited client mod for constructing and managing
 ordered keybind workflows from the HUD.
+
+## What's new in 0.5.4
+
+- Complete English and Brazilian Portuguese localization with a persistent
+  Wurm-styled language selector and safe English fallback.
+- Vanilla gameplay actions selected from the catalog now use ordinary
+  target-aware action steps when the current client provides an unambiguous
+  `PlayerAction`; HUD, movement, and unresolved commands retain native
+  compatibility behavior.
+- Runtime queue preflight accounts for occupied slots and rejects an entire
+  keybind before its first action when the remaining capacity is insufficient.
+- Repeated `Push` and `Push gently` actions retain the selected object across
+  every server-side recreation.
+- Fixed the `KB` tag right-click crash, stale English list content after a
+  language change, and incorrect red styling for user-disabled keybinds.
 
 Each managed keybind is a stable container of steps:
 
@@ -37,7 +52,7 @@ performing this restore.
 ## Installation
 
 1. Disable the old `action` and `i2improve` client mods.
-2. Extract `keybinder-0.5.3.zip` into the Wurm Unlimited client directory.
+2. Extract `keybinder-0.5.4.zip` into the Wurm Unlimited client directory.
 3. Verify `mods/keybinder.properties` and `mods/keybinder/keybinder.jar`.
 4. Enable **Keybinder** in HUD Settings.
 

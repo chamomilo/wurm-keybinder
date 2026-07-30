@@ -4,6 +4,7 @@ import com.wurmonline.client.WurmClientBase;
 import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindVariant;
+import org.keybinder.wurm.i18n.Messages;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -25,13 +26,14 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
                 new WurmArrayPanel<FlexComponent>("keybinder.multi.options",
                         WurmArrayPanel.DIR_VERTICAL, true);
         content.componentWidthOffset = 2;
-        WurmLabel prompt = new WurmLabel("Pick desired action:");
+        WurmLabel prompt = new WurmLabel(Messages.text("multi.pick"));
         content.addComponent(prompt);
         int widest = Math.max(prompt.width, new WurmLabel(record.getName()).width + 30);
         int index = 0;
         for (KeybindVariant variant : record.getVariants()) {
             String label = variant.getSubName().trim();
-            if (label.isEmpty()) label = index == 0 ? "Default action" : "Alternative action " + index;
+            if (label.isEmpty()) label = index == 0 ? Messages.text("multi.default")
+                    : Messages.text("multi.alternative", index);
             if (variant.getId().equals(record.getActiveVariantId())) label = "> " + label;
             WButton button = new WButton(label, this);
             widest = Math.max(widest, button.width);

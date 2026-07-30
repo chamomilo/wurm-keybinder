@@ -3,6 +3,7 @@ package com.wurmonline.client.renderer.gui;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.KeybinderMod;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class KeybinderCaptureWindow extends WWindow {
     private final KeybindEditorController controller;
@@ -12,9 +13,8 @@ public final class KeybinderCaptureWindow extends WWindow {
         super("keybinder.capture", false);
         this.controller = controller;
         this.editor = editor;
-        setTitle("Capture action");
-        WurmLabel label = new WurmLabel(
-                "Waiting for action. Perform required action via menu. Keybinder will remember it.");
+        setTitle(Messages.text("capture.title"));
+        WurmLabel label = new WurmLabel(Messages.text("capture.waiting"));
         setComponent(label);
         setInitialSize(Math.max(510, label.width + 24), 90, false);
     }

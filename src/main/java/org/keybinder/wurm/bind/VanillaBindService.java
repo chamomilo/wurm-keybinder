@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class VanillaBindService {
     private Field keyBindsField;
@@ -30,9 +31,12 @@ public final class VanillaBindService {
     }
 
     public void install(WurmConsole console, String key, String command) {
-        if (key == null || key.trim().isEmpty()) throw new IllegalArgumentException("Key is missing");
-        if (command == null || command.trim().isEmpty()) throw new IllegalArgumentException("Command is missing");
-        if (command.contains("\"")) throw new IllegalArgumentException("Commands containing quotes are not supported");
+        if (key == null || key.trim().isEmpty())
+            throw new IllegalArgumentException(Messages.text("validation.key_missing"));
+        if (command == null || command.trim().isEmpty())
+            throw new IllegalArgumentException(Messages.text("validation.command_missing"));
+        if (command.contains("\""))
+            throw new IllegalArgumentException(Messages.text("validation.command_quotes"));
         console.handleInput("bind " + key + " \"" + command + "\"", false);
         console.saveKeyBindings();
     }

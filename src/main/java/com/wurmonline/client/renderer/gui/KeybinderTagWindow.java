@@ -52,6 +52,12 @@ public final class KeybinderTagWindow extends TargetWindow {
     }
 
     @Override
+    protected void rightPressed(int mouseX, int mouseY, int clickCount) {
+        // This launcher intentionally has no TargetWindowRenderer. A right
+        // click is not an interaction and must never reach TargetWindow.
+    }
+
+    @Override
     protected void mouseDragged(int mouseX, int mouseY) {
         if (pressed && (Math.abs(mouseX - pressX) > CLICK_SLOP
                 || Math.abs(mouseY - pressY) > CLICK_SLOP))

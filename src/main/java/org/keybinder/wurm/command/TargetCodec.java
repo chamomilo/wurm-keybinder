@@ -2,6 +2,7 @@ package org.keybinder.wurm.command;
 
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.i18n.Messages;
 
 /** Converts external/editor/legacy target tokens to the native target model. */
 public final class TargetCodec {
@@ -9,7 +10,7 @@ public final class TargetCodec {
 
     public static TargetSpec decode(String token) {
         if (token == null || token.trim().isEmpty())
-            throw new IllegalArgumentException("Target is missing");
+            throw new IllegalArgumentException(Messages.text("validation.target_missing"));
         String value = token.trim();
         switch (value.toLowerCase(java.util.Locale.ENGLISH)) {
             case "hover": return TargetSpec.simple(TargetKind.HOVER);
@@ -32,21 +33,22 @@ public final class TargetCodec {
             default:
         }
         if (value.startsWith("@tb"))
-            return TargetSpec.toolbeltSlot(parseInt(value.substring(3), "toolbelt slot"));
+            return TargetSpec.toolbeltSlot(parseInt(value.substring(3), "validation.toolbelt_slot"));
         if (value.startsWith("@eq"))
-            return TargetSpec.equipmentSlot(parseInt(value.substring(3), "equipment slot"));
+            return TargetSpec.equipmentSlot(parseInt(
+                    value.substring(3), "validation.equipment_slot"));
         if (value.startsWith("@nearby")) {
             try {
                 return TargetSpec.nearbyRadius(Float.parseFloat(value.substring(7)));
             } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Invalid nearby radius", e);
+                throw new IllegalArgumentException(Messages.text("validation.nearby_radius"), e);
             }
         }
         if (NearbyTypeTarget.isNearbyType(value))
             return TargetSpec.nearbyType(NearbyTypeTarget.type(value));
         if (ExactObjectTarget.isExact(value))
             return TargetSpec.exactObject(ExactObjectTarget.id(value), ExactObjectTarget.name(value));
-        throw new IllegalArgumentException("Unknown target: " + value);
+        throw new IllegalArgumentException(Messages.text("validation.target_unknown", value));
     }
 
     public static String encode(TargetSpec target) {
@@ -65,27 +67,42 @@ public final class TargetCodec {
             case CURRENT_RIDE: return "current ride";
             case EMPTY_HAND: return "hand";
             case UNRESOLVED: return "unresolved";
-            default: throw new IllegalArgumentException("Unsupported target " + target.getKind());
+            default: throw new IllegalArgumentException(
+                    Messages.text("validation.target_unsupported", target.getKind()));
         }
     }
 
     public static String display(TargetSpec target) {
         switch (target.getKind()) {
-            case TOOLBELT_SLOT: return "toolbelt slot " + target.getSlot();
-            case EQUIPMENT_SLOT: return "equipment slot " + target.getSlot();
+            case HOVER: return Messages.text("target.hover");
+            case BODY: return Messages.text("target.body");
+            case ACTIVE_TOOL: return Messages.text("target.tool");
+            case SELECTED: return Messages.text("target.selected");
+            case TILE: return Messages.text("target.tile", tileToken(target.getDx(), target.getDy()));
+            case AREA: return Messages.text("target.area");
+            case TOOLBELT_SLOT:
+                return Messages.text("target.slot.toolbelt", target.getSlot());
+            case EQUIPMENT_SLOT:
+                return Messages.text("target.slot.equipment", target.getSlot());
+            case NEARBY_RADIUS:
+                return Messages.text("target.nearby_radius", trimFloat(target.getRadius()));
             case EXACT_OBJECT:
-                return target.getText().isEmpty() ? "Exact object" : target.getText();
-            case NEARBY_TYPE: return "nearby " + target.getText();
-            case CURRENT_RIDE: return "current ride";
+                return target.getText().isEmpty()
+                        ? Messages.text("target.exact_generic") : target.getText();
+            case NEARBY_TYPE:
+                return Messages.text("target.nearby_named", target.getText());
+            case CURRENT_RIDE: return Messages.text("target.current_ride");
+            case EMPTY_HAND: return Messages.text("target.hand");
+            case UNRESOLVED: return Messages.text("target.unresolved");
             default: return encode(target);
         }
     }
 
-    private static int parseInt(String value, String name) {
+    private static int parseInt(String value, String validationKey) {
         try {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid " + name + ": " + value, e);
+            throw new IllegalArgumentException(Messages.text(validationKey), e);
         }
     }
 
@@ -99,7 +116,7 @@ public final class TargetCodec {
         if (dx == -1 && dy == 1) return "tile_sw";
         if (dx == -1 && dy == 0) return "tile_w";
         if (dx == -1 && dy == -1) return "tile_nw";
-        throw new IllegalArgumentException("Invalid tile offset");
+        throw new IllegalArgumentException(Messages.text("validation.tile_offset"));
     }
 
     private static String trimFloat(float value) {

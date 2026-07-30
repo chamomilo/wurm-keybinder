@@ -2,6 +2,7 @@ package org.keybinder.wurm.command;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class ExactObjectTarget {
     private static final String PREFIX = "@id";
@@ -20,14 +21,15 @@ public final class ExactObjectTarget {
     }
 
     public static long id(String target) {
-        if (!isExact(target)) throw new IllegalArgumentException("Exact object target is missing");
+        if (!isExact(target))
+            throw new IllegalArgumentException(Messages.text("validation.exact_missing"));
         int separator = target.indexOf(':', PREFIX.length());
         String value = separator < 0 ? target.substring(PREFIX.length())
                 : target.substring(PREFIX.length(), separator);
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid exact object ID: " + value, e);
+            throw new IllegalArgumentException(Messages.text("validation.exact_id", value), e);
         }
     }
 
@@ -45,6 +47,6 @@ public final class ExactObjectTarget {
 
     public static String display(String target) {
         String name = name(target);
-        return name.isEmpty() ? "Exact object" : name;
+        return name.isEmpty() ? Messages.text("target.exact_generic") : name;
     }
 }

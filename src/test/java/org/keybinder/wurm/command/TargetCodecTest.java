@@ -27,7 +27,7 @@ public class TargetCodecTest {
         TargetSpec target = TargetCodec.decode("current ride");
         assertEquals(TargetKind.CURRENT_RIDE, target.getKind());
         assertEquals("current ride", TargetCodec.encode(target));
-        assertEquals("current ride", TargetCodec.display(target));
+        assertEquals("Current ride", TargetCodec.display(target));
     }
 
     @Test(expected = IllegalArgumentException.class)

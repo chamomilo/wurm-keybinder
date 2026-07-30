@@ -1,7 +1,11 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.5.3"
+version "0.5.4"
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
 
 repositories {
     mavenCentral()
@@ -67,6 +71,12 @@ task verifyJarNamespace(dependsOn: jar) {
         if (tree.matching { include 'org/keybinder/wurm/KeybinderMod.class' }.files.empty) {
             throw new GradleException("Keybinder main class is missing from keybinder.jar")
         }
+        ['keybinder/i18n/messages_en.properties',
+         'keybinder/i18n/messages_pt-BR.properties'].each { resource ->
+            if (tree.matching { include resource }.files.empty) {
+                throw new GradleException("Localization dictionary is missing from keybinder.jar: ${resource}")
+            }
+        }
     }
 }
 
@@ -89,7 +99,29 @@ task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace]) {
 
 }
 
-build.dependsOn verifyJarNamespace
+task verifyDistArchive(dependsOn: dist) {
+    doLast {
+        def expectedJarPath = "mods/${project.name}/${project.name}.jar"
+        def packagedJars = zipTree(dist.archivePath).matching {
+            include expectedJarPath
+        }.files
+        if (packagedJars.size() != 1) {
+            throw new GradleException(
+                    "Expected exactly one ${expectedJarPath} in ${dist.archiveName}")
+        }
+        def packagedJar = packagedJars.iterator().next()
+        def nested = zipTree(packagedJar)
+        ['keybinder/i18n/messages_en.properties',
+         'keybinder/i18n/messages_pt-BR.properties'].each { resource ->
+            if (nested.matching { include resource }.files.empty) {
+                throw new GradleException(
+                        "Localization dictionary is missing from distribution JAR: ${resource}")
+            }
+        }
+    }
+}
+
+build.dependsOn verifyJarNamespace, verifyDistArchive
 
 test {
     testLogging {

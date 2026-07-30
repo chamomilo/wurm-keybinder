@@ -3,6 +3,7 @@ package org.keybinder.wurm.recording;
 import org.keybinder.wurm.command.ExactObjectTarget;
 import org.keybinder.wurm.command.NearbyTypeTarget;
 import org.keybinder.wurm.event.EventLogger;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class SelectionController {
     public enum Mode { NONE, TOOLBELT, EQUIPMENT, EXACT_OBJECT, NEARBY_TYPE }
@@ -18,26 +19,25 @@ public final class SelectionController {
     public void requestToolbelt() {
         mode = Mode.TOOLBELT;
         selectionComplete = false;
-        log.info("Select a toolbelt slot.");
+        log.info(Messages.text("event.select_toolbelt"));
     }
 
     public void requestEquipment() {
         mode = Mode.EQUIPMENT;
         selectionComplete = false;
-        log.info("Select an equipment slot.");
+        log.info(Messages.text("event.select_equipment"));
     }
 
     public void requestExactObject() {
         mode = Mode.EXACT_OBJECT;
         selectionComplete = false;
-        log.info("Select target object.");
+        log.info(Messages.text("event.select_object"));
     }
 
     public void requestNearbyType() {
         mode = Mode.NEARBY_TYPE;
         selectionComplete = false;
-        log.info("Select any object nearby. Keybinder will remember type of this object and "
-                + "will be able to select it automatically as a nearby target (i.e. any stump).");
+        log.info(Messages.text("event.select_nearby_type"));
     }
 
     public boolean acceptToolbelt(int zeroBasedSlot) {
@@ -45,7 +45,7 @@ public final class SelectionController {
         selectedTarget = "@tb" + (zeroBasedSlot + 1);
         selectionComplete = true;
         mode = Mode.NONE;
-        log.info("Selected target " + selectedTarget + ".");
+        log.info(Messages.text("event.target_selected", selectedTarget));
         return true;
     }
 
@@ -54,7 +54,7 @@ public final class SelectionController {
         selectedTarget = "@eq" + slot;
         selectionComplete = true;
         mode = Mode.NONE;
-        log.info("Selected target " + selectedTarget + ".");
+        log.info(Messages.text("event.target_selected", selectedTarget));
         return true;
     }
 
@@ -63,7 +63,8 @@ public final class SelectionController {
         selectedTarget = ExactObjectTarget.encode(id, name);
         selectionComplete = true;
         mode = Mode.NONE;
-        log.info("Selected exact object " + ExactObjectTarget.display(selectedTarget) + ".");
+        log.info(Messages.text("event.exact_selected",
+                ExactObjectTarget.display(selectedTarget)));
         return true;
     }
 
@@ -72,7 +73,7 @@ public final class SelectionController {
         selectedTarget = NearbyTypeTarget.encode(name);
         selectionComplete = true;
         mode = Mode.NONE;
-        log.info("Selected target " + selectedTarget + ".");
+        log.info(Messages.text("event.target_selected", selectedTarget));
         return true;
     }
 
@@ -80,7 +81,7 @@ public final class SelectionController {
         selectedTarget = target;
         selectionComplete = true;
         mode = Mode.NONE;
-        log.info("Selected target " + selectedTarget + ".");
+        log.info(Messages.text("event.target_selected", selectedTarget));
     }
 
     public String getSelectedTarget() { return selectedTarget; }

@@ -9,6 +9,7 @@ import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.junit.Test;
 
@@ -168,8 +169,14 @@ public class KeybindStoreTest {
             props.store(out, "legacy Keybinder data");
         }
 
-        KeybindStep migrated = new KeybindStore(file).load().get(0)
-                .getKeybindSteps().get(0);
+        KeybindStep migrated;
+        Messages.select("pt-BR");
+        try {
+            migrated = new KeybindStore(file).load().get(0)
+                    .getKeybindSteps().get(0);
+        } finally {
+            Messages.select("en");
+        }
 
         assertTrue(migrated instanceof ActivateToolStep);
         assertEquals(3, ((ActivateToolStep) migrated).getTarget().getSlot());

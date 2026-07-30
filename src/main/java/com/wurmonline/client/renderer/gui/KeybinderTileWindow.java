@@ -5,6 +5,7 @@ import org.keybinder.wurm.ui.KeybindEditorController;
 import com.wurmonline.client.renderer.backend.Queue;
 import com.wurmonline.client.resources.textures.KeybinderTextureFactory;
 import com.wurmonline.client.resources.textures.ResourceTexture;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class KeybinderTileWindow extends WWindow implements ButtonListener {
     private static final int SELECTOR_SIZE = 300;
@@ -18,12 +19,12 @@ public final class KeybinderTileWindow extends WWindow implements ButtonListener
     public KeybinderTileWindow(KeybindEditorController controller) {
         super("keybinder.tiles", false);
         this.controller = controller;
-        setTitle("Select tile target");
+        setTitle(Messages.text("tile.title"));
 
         TileSelector selector = new TileSelector();
         selector.setSize(SELECTOR_SIZE, SELECTOR_SIZE);
-        area = new WButton("Select whole 3x3 area", this);
-        area.setHoverString("Select all nine surrounding tiles");
+        area = new WButton(Messages.text("tile.area"), this);
+        area.setHoverString(Messages.text("tile.area.tip"));
         area.setSize(SELECTOR_SIZE, area.height);
 
         WurmBorderPanel root = new WurmBorderPanel("keybinder.tiles.root");

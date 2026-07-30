@@ -2,6 +2,7 @@ package org.keybinder.wurm.catalog;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
+import org.keybinder.wurm.i18n.Messages;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,21 +22,36 @@ public final class InputKeyCatalog {
     public static final class Entry {
         private final String persistedName;
         private final String displayName;
+        private final String messageKey;
         private final InputKind inputKind;
         private final int sortGroup;
         private final int sortOrder;
 
         private Entry(String persistedName, String displayName, InputKind inputKind,
                       int sortGroup, int sortOrder) {
+            this(persistedName, displayName, null, inputKind, sortGroup, sortOrder);
+        }
+
+        private Entry(String persistedName, String displayName, String messageKey,
+                      InputKind inputKind, int sortGroup, int sortOrder) {
             this.persistedName = persistedName;
             this.displayName = displayName;
+            this.messageKey = messageKey;
             this.inputKind = inputKind;
             this.sortGroup = sortGroup;
             this.sortOrder = sortOrder;
         }
 
         public String getPersistedName() { return persistedName; }
-        public String getDisplayName() { return displayName; }
+        public String getDisplayName() {
+            return messageKey == null ? displayName
+                    : Messages.text(messageKey, sortOrder);
+        }
+
+        private String getEnglishDisplayName() {
+            return messageKey == null ? displayName
+                    : Messages.englishText(messageKey, sortOrder);
+        }
         public InputKind getInputKind() { return inputKind; }
     }
 
@@ -62,7 +78,7 @@ public final class InputKeyCatalog {
         Map<String, Entry> display = new LinkedHashMap<String, Entry>();
         for (Entry entry : entries) {
             persisted.put(entry.persistedName.toUpperCase(Locale.ENGLISH), entry);
-            display.put(entry.displayName.toUpperCase(Locale.ENGLISH), entry);
+            display.put(entry.getEnglishDisplayName().toUpperCase(Locale.ENGLISH), entry);
         }
         byPersisted = Collections.unmodifiableMap(persisted);
         byDisplay = Collections.unmodifiableMap(display);
@@ -75,7 +91,8 @@ public final class InputKeyCatalog {
     public String[] displayOptions() {
         String[] options = new String[entries.size() + 1];
         options[0] = "";
-        for (int i = 0; i < entries.size(); i++) options[i + 1] = entries.get(i).displayName;
+        for (int i = 0; i < entries.size(); i++)
+            options[i + 1] = entries.get(i).getDisplayName();
         return options;
     }
 
@@ -86,7 +103,13 @@ public final class InputKeyCatalog {
 
     public Entry findDisplay(String value) {
         if (value == null) return null;
-        return byDisplay.get(value.trim().toUpperCase(Locale.ENGLISH));
+        String normalized = value.trim().toUpperCase(Locale.ENGLISH);
+        Entry english = byDisplay.get(normalized);
+        if (english != null) return english;
+        for (Entry entry : entries)
+            if (entry.getDisplayName().toUpperCase(Locale.ENGLISH).equals(normalized))
+                return entry;
+        return null;
     }
 
     public String persistedName(String displayOrPersisted) {
@@ -97,7 +120,7 @@ public final class InputKeyCatalog {
 
     public String displayName(String persisted) {
         Entry entry = findPersisted(persisted);
-        return entry == null ? normalizeBase(persisted) : entry.displayName;
+        return entry == null ? normalizeBase(persisted) : entry.getDisplayName();
     }
 
     public static boolean isVirtual(String chord) {
@@ -175,12 +198,13 @@ public final class InputKeyCatalog {
         buttons = Math.max(3, buttons);
         for (int index = 0; index < buttons; index++) {
             String persisted = "MOUSE" + index;
-            String display = index == 2 ? "Mouse Wheel Button" : "Mouse Button " + (index + 1);
-            unique.put(persisted, new Entry(persisted, display, InputKind.MOUSE_BUTTON, 10, index));
+            String key = index == 2 ? "input.mouse_wheel_button" : "input.mouse_button";
+            unique.put(persisted, new Entry(
+                    persisted, null, key, InputKind.MOUSE_BUTTON, 10, index + 1));
         }
-        unique.put(WHEEL_UP, new Entry(WHEEL_UP, "Mouse Wheel Up",
+        unique.put(WHEEL_UP, new Entry(WHEEL_UP, null, "input.mouse_wheel_up",
                 InputKind.MOUSE_WHEEL_DIRECTION, 11, 0));
-        unique.put(WHEEL_DOWN, new Entry(WHEEL_DOWN, "Mouse Wheel Down",
+        unique.put(WHEEL_DOWN, new Entry(WHEEL_DOWN, null, "input.mouse_wheel_down",
                 InputKind.MOUSE_WHEEL_DIRECTION, 12, 0));
         return new InputKeyCatalog(new ArrayList<Entry>(unique.values()));
     }

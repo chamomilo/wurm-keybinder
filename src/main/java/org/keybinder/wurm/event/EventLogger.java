@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.keybinder.wurm.i18n.Messages;
 
 public final class EventLogger {
     private static final int BUFFER_LIMIT = 100;
@@ -35,10 +36,11 @@ public final class EventLogger {
     public synchronized void warning(String text) { publish(text, 1f, 0.75f, 0.2f); }
     public synchronized void error(String text, Throwable error) {
         logger.log(Level.SEVERE, text, error);
-        publish("ERROR: " + text, 1f, 0.35f, 0.35f);
+        publish(Messages.text("event.prefix.error", text), 1f, 0.35f, 0.35f);
     }
     public synchronized void debug(String text) {
-        if (debugEnabled) publish("DEBUG: " + text, 0.65f, 0.65f, 0.65f);
+        if (debugEnabled)
+            publish(Messages.text("event.prefix.debug", text), 0.65f, 0.65f, 0.65f);
     }
     public synchronized void execution(String text) {
         if (executionEnabled) publish(text, 0.7f, 1f, 0.7f);

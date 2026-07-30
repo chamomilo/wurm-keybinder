@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
+import org.keybinder.wurm.i18n.Messages;
 
 /** Portable nearby target based on the stable type portion of a Wurm hover name. */
 public final class NearbyTypeTarget {
@@ -35,9 +36,11 @@ public final class NearbyTypeTarget {
     }
 
     public static String type(String target) {
-        if (!isNearbyType(target)) throw new IllegalArgumentException("Not a nearby-by-type target");
+        if (!isNearbyType(target))
+            throw new IllegalArgumentException(Messages.text("validation.nearby_not_type"));
         String value = target.substring(PREFIX.length()).trim().toLowerCase(Locale.ENGLISH);
-        if (value.isEmpty()) throw new IllegalArgumentException("Nearby object type is missing");
+        if (value.isEmpty())
+            throw new IllegalArgumentException(Messages.text("validation.nearby_type"));
         return value;
     }
 
@@ -46,7 +49,8 @@ public final class NearbyTypeTarget {
     }
 
     public static String normalizeType(String hoverName) {
-        if (hoverName == null) throw new IllegalArgumentException("Object name is missing");
+        if (hoverName == null)
+            throw new IllegalArgumentException(Messages.text("validation.object_name_missing"));
         String value = hoverName.trim().toLowerCase(Locale.ENGLISH)
                 .replaceAll("\\s+", " ");
         value = value.replaceFirst("^(a|an|the)\\s+", "");
@@ -62,7 +66,8 @@ public final class NearbyTypeTarget {
             if (result.length() > 0) result.append(' ');
             result.append(words[i]);
         }
-        if (result.length() == 0) throw new IllegalArgumentException("Object type is missing");
+        if (result.length() == 0)
+            throw new IllegalArgumentException(Messages.text("validation.object_type_missing"));
         return result.toString();
     }
 }

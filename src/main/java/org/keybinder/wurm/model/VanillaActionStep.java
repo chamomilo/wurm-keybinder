@@ -1,6 +1,7 @@
 package org.keybinder.wurm.model;
 
 import java.util.Objects;
+import org.keybinder.wurm.i18n.Messages;
 
 /** A native Wurm key action identified by its stable ActionClass command name. */
 public final class VanillaActionStep implements KeybindStep {
@@ -8,7 +9,8 @@ public final class VanillaActionStep implements KeybindStep {
 
     public VanillaActionStep(String command) {
         String value = command == null ? "" : command.trim();
-        if (value.isEmpty()) throw new IllegalArgumentException("Vanilla command is missing");
+        if (value.isEmpty())
+            throw new IllegalArgumentException(Messages.text("validation.vanilla_missing"));
         this.command = value;
     }
 

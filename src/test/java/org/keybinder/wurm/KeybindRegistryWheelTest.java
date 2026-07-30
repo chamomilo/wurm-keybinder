@@ -3,6 +3,7 @@ package org.keybinder.wurm;
 import org.junit.Test;
 import org.keybinder.wurm.bind.VanillaBindService;
 import org.keybinder.wurm.event.EventLogger;
+import org.keybinder.wurm.i18n.DisableReason;
 import org.keybinder.wurm.migration.CustomActionsImporter;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindRecord;
@@ -37,7 +38,7 @@ public class KeybindRegistryWheelTest {
         registry.add(first, null, 10);
         registry.add(second, null, 10);
         assertFalse(first.isEnabled());
-        assertEquals("replaced by second", first.getDisabledReason());
+        assertEquals("replaced by second", DisableReason.display(first.getDisabledReason()));
         assertSame(second, registry.findEnabledByChord("SHIFT+MOUSE_WHEEL_DOWN"));
     }
 

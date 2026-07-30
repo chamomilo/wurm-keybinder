@@ -4,6 +4,7 @@ import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import org.keybinder.wurm.event.EventLogger;
+import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
@@ -15,9 +16,11 @@ import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.recording.ShadowRecorder;
+import org.keybinder.wurm.queue.QueueCapacityPreflight;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.IntSupplier;
 
 public final class KeybindExecutionService {
     private static final ThreadLocal<Set<String>> ACTIVE = new ThreadLocal<Set<String>>() {
@@ -50,8 +53,15 @@ public final class KeybindExecutionService {
 
     public void execute(KeybindRecord record, HeadsUpDisplay hud, int queueLimit)
             throws ReflectiveOperationException {
+        execute(record, hud, queueLimit, () -> 0);
+    }
+
+    public void execute(KeybindRecord record, HeadsUpDisplay hud, int queueLimit,
+                        IntSupplier occupiedQueueSlots)
+            throws ReflectiveOperationException {
         if (!ACTIVE.get().add(record.getId()))
-            throw new IllegalStateException("Recursive keybind invocation: " + record.getName());
+            throw new IllegalStateException(
+                    Messages.text("execution.recursive", record.getName()));
         try {
             ExecutionPlan plan = planner.plan(record.getKeybindSteps(),
                     step -> runtimeStepCost(step, hud));
@@ -63,9 +73,8 @@ public final class KeybindExecutionService {
                 if (failure instanceof StepUnavailableException) log.warning(message);
                 else log.error(message, failure);
             }
-            if (queueLimit > 0 && plan.getQueueCost() > queueLimit)
-                throw new IllegalStateException("Executable steps require " + plan.getQueueCost()
-                        + " queued actions; current limit is " + queueLimit);
+            QueueCapacityPreflight.requireFits(plan.getQueueCost(), queueLimit,
+                    occupiedQueueSlots == null ? 0 : occupiedQueueSlots.getAsInt());
 
             ShadowRecorder.enterInternal();
             try {
@@ -99,7 +108,8 @@ public final class KeybindExecutionService {
         if (step instanceof SmartImproveStep)
             return improve.runtimeCost((SmartImproveStep) step, hud);
         if (step instanceof ActivateToolStep) {
-            resolveActivateItem((ActivateToolStep) step, hud);
+            if (((ActivateToolStep) step).getTarget().getKind() != TargetKind.HOVER)
+                resolveActivateItem((ActivateToolStep) step, hud);
             return 0;
         }
         return 0;
@@ -117,10 +127,11 @@ public final class KeybindExecutionService {
         } else if (step instanceof ConsoleCommandStep) {
             String command = ((ConsoleCommandStep) step).getCommand();
             if (command.trim().toLowerCase(java.util.Locale.ENGLISH).startsWith("keybinder_run "))
-                throw new IllegalArgumentException("keybinder_run is not allowed inside a console step");
+                throw new IllegalArgumentException(Messages.text("validation.nested_run"));
             access.console(hud).handleInput(command, false);
         } else {
-            throw new IllegalArgumentException("Unsupported keybind step " + step.getClass().getName());
+            throw new IllegalArgumentException(
+                    Messages.text("execution.unsupported_step", step.getClass().getName()));
         }
     }
 
@@ -143,6 +154,10 @@ public final class KeybindExecutionService {
 
     private void activate(ActivateToolStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
         TargetSpec target = step.getTarget();
+        if (target.getKind() == TargetKind.HOVER) {
+            hud.getWorld().activateHoveredItem();
+            return;
+        }
         if (target.getKind() == TargetKind.EMPTY_HAND) {
             access.setActiveTool(hud, null);
             return;
@@ -166,36 +181,42 @@ public final class KeybindExecutionService {
         } else if (target.getKind() == TargetKind.EXACT_OBJECT) {
             item = access.inventoryItem(hud, target.getObjectId());
         } else {
-            throw new IllegalArgumentException("Unsupported activate-tool target "
-                    + target.getKind());
+            throw new IllegalArgumentException(
+                    Messages.text("unavailable.unsupported_activate_target", target.getKind()));
         }
         if (item == null)
-            throw new StepUnavailableException("Tool target "
-                    + TargetCodec.display(target) + " was not found");
+            throw new StepUnavailableException(
+                    Messages.text("unavailable.tool_target", TargetCodec.display(target)));
         return item;
     }
 
     String skipMessage(int zeroBasedIndex, KeybindStep step, String reason) {
-        if (reason != null && reason.startsWith("Command ")
-                && reason.contains(" skipped ")) return reason;
-        return "Step " + (zeroBasedIndex + 1) + " (" + describe(step) + "): "
-                + reason + ", skipping.";
+        if (reason != null
+                && reason.startsWith(Messages.text("event.command_word") + " ")
+                && reason.contains(Messages.text("event.skipped_marker"))) return reason;
+        return Messages.text("event.step_skipped",
+                zeroBasedIndex + 1, describe(step), reason);
     }
 
     private String describe(KeybindStep step) {
         if (step instanceof ActionStep) {
             ActionStep action = (ActionStep) step;
-            return actions.actionName(action.getActionId()) + " on "
-                    + TargetCodec.display(action.getTarget());
+            return Messages.text("event.describe_action",
+                    actions.actionName(action.getActionId()),
+                    TargetCodec.display(action.getTarget()));
         }
         if (step instanceof ActivateToolStep)
-            return "activate " + TargetCodec.display(((ActivateToolStep) step).getTarget());
+            return Messages.text("event.describe_activate",
+                    TargetCodec.display(((ActivateToolStep) step).getTarget()));
         if (step instanceof SmartImproveStep)
-            return "smart improve " + TargetCodec.display(((SmartImproveStep) step).getTarget());
-        if (step instanceof ConsoleCommandStep) return "console command";
+            return Messages.text("event.describe_improve",
+                    TargetCodec.display(((SmartImproveStep) step).getTarget()));
+        if (step instanceof ConsoleCommandStep)
+            return Messages.text("event.describe_console");
         if (step instanceof VanillaActionStep)
-            return "vanilla " + ((VanillaActionStep) step).getCommand();
-        return step.getKind().name().toLowerCase(java.util.Locale.ENGLISH);
+            return Messages.text("event.describe_vanilla",
+                    ((VanillaActionStep) step).getCommand());
+        return Messages.text("event.describe_unknown");
     }
 
     private static String safeMessage(Throwable error) {

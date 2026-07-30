@@ -1,6 +1,7 @@
 package org.keybinder.wurm.model;
 
 import java.util.Objects;
+import org.keybinder.wurm.i18n.Messages;
 
 /** Immutable, typed target used by every native Keybinder step. */
 public final class TargetSpec {
@@ -27,36 +28,37 @@ public final class TargetSpec {
         if (kind == TargetKind.TILE || kind == TargetKind.TOOLBELT_SLOT
                 || kind == TargetKind.EQUIPMENT_SLOT || kind == TargetKind.NEARBY_RADIUS
                 || kind == TargetKind.NEARBY_TYPE || kind == TargetKind.EXACT_OBJECT)
-            throw new IllegalArgumentException(kind + " requires target parameters");
+            throw new IllegalArgumentException(
+                    Messages.text("validation.target_parameters", kind));
         return new TargetSpec(kind, 0, 0, 0, 0f, 0L, "");
     }
 
     public static TargetSpec tile(int dx, int dy) {
         if (dx < -1 || dx > 1 || dy < -1 || dy > 1)
-            throw new IllegalArgumentException("Tile offset must be between -1 and 1");
+            throw new IllegalArgumentException(Messages.text("validation.tile_offset"));
         return new TargetSpec(TargetKind.TILE, 0, dx, dy, 0f, 0L, "");
     }
 
     public static TargetSpec toolbeltSlot(int oneBasedSlot) {
         if (oneBasedSlot < 1 || oneBasedSlot > 10)
-            throw new IllegalArgumentException("Toolbelt slot must be 1-10");
+            throw new IllegalArgumentException(Messages.text("validation.toolbelt_slot"));
         return new TargetSpec(TargetKind.TOOLBELT_SLOT, oneBasedSlot, 0, 0, 0f, 0L, "");
     }
 
     public static TargetSpec equipmentSlot(int slot) {
         if (slot < Byte.MIN_VALUE || slot > Byte.MAX_VALUE)
-            throw new IllegalArgumentException("Invalid equipment slot");
+            throw new IllegalArgumentException(Messages.text("validation.equipment_slot"));
         return new TargetSpec(TargetKind.EQUIPMENT_SLOT, slot, 0, 0, 0f, 0L, "");
     }
 
     public static TargetSpec nearbyRadius(float radius) {
         if (!Float.isFinite(radius) || radius <= 0f)
-            throw new IllegalArgumentException("Nearby radius must be positive");
+            throw new IllegalArgumentException(Messages.text("validation.nearby_radius"));
         return new TargetSpec(TargetKind.NEARBY_RADIUS, 0, 0, 0, radius, 0L, "");
     }
 
     public static TargetSpec nearbyType(String type) {
-        String value = requireText(type, "Nearby object type is missing");
+        String value = requireText(type, Messages.text("validation.nearby_type"));
         return new TargetSpec(TargetKind.NEARBY_TYPE, 0, 0, 0, 0f, 0L, value);
     }
 

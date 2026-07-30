@@ -1,6 +1,8 @@
 package org.keybinder.wurm.catalog;
 
+import org.junit.After;
 import org.junit.Test;
+import org.keybinder.wurm.i18n.Messages;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -8,6 +10,8 @@ import java.util.Set;
 import static org.junit.Assert.*;
 
 public class InputKeyCatalogTest {
+    @After public void restoreEnglish() { Messages.select("en"); }
+
     @Test public void normalizesWheelAndMouseButtonKeys() {
         assertEquals("MOUSE_WHEEL_UP", InputKeyCatalog.normalizeChord("mouse_wheel_up"));
         assertEquals("MOUSE_WHEEL_DOWN", InputKeyCatalog.normalizeChord("MOUSE_WHEEL_DOWN"));
@@ -36,5 +40,13 @@ public class InputKeyCatalogTest {
                 InputKeyCatalog.system().findPersisted("MOUSE2").getInputKind());
         assertEquals(InputKeyCatalog.InputKind.MOUSE_WHEEL_DIRECTION,
                 InputKeyCatalog.system().findPersisted("MOUSE_WHEEL_UP").getInputKind());
+    }
+
+    @Test public void localizedMouseLabelsDoNotChangePersistedKeys() {
+        Messages.select("pt-BR");
+        InputKeyCatalog catalog = InputKeyCatalog.system();
+        assertEquals("Roda do mouse para cima", catalog.displayName("MOUSE_WHEEL_UP"));
+        assertEquals("MOUSE_WHEEL_UP", catalog.persistedName("Roda do mouse para cima"));
+        assertEquals("MOUSE2", catalog.persistedName("Botão da roda do mouse"));
     }
 }
