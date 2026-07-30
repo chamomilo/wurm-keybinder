@@ -1,0 +1,23 @@
+/bin
+/out
+/build
+/run
+/.idea
+/eclipse
+/.gradle
+/*.iml
+/*.ipr
+/libs
+# Internal research and development notes (kept locally, not published)
+/ACTION_ICON_TAXONOMY.csv
+/ACTION_ICON_TAXONOMY.md
+/AGENTS.md
+/DIGGER_DEVELOPMENT_PROMPT.md
+/DIGGER_RESEARCH_PROMPT.md
+/DIGGER_RESEARCH_REPORT.md
+/RARITY_KNOWLEDGE_BASE.md
+/RARITY_TOOLS_REPORT.md
+/RESEARCH_PROMPT.md
+/RESEARCH_REPORT.md
+/WURM_CLIENT_DEVELOPMENT_NOTES.md
+/WU_RUNES_AND_ENCHANTS.md

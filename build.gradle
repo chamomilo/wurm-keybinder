@@ -1,0 +1,99 @@
+apply plugin: 'java'
+
+group "org.keybinder.wurm"
+version "0.5.2"
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    def requiredClientLibraries = [
+            'libs/client-patched.jar',
+            'libs/common.jar',
+            'libs/javassist.jar',
+            'libs/modlauncher.jar'
+    ]
+    requiredClientLibraries.each { library ->
+        if (!file(library).isFile()) {
+            throw new GradleException("Required pinned client library is missing: ${library}")
+        }
+    }
+    compile files(requiredClientLibraries)
+    testCompile 'junit:junit:4.13.2'
+}
+
+jar {
+    archiveName "${project.name}.jar"
+    exclude 'keybinder/*.png'
+}
+
+
+task verifyVersion {
+    doFirst {
+        def expected = project.version.toString()
+        if (!(expected ==~ /0\.5\.\d+/)) {
+            throw new GradleException("Keybinder release version must match 0.5.x, got ${expected}")
+        }
+        def metadata = [
+            [file('mods/keybinder.properties'), /(?m)^version=(.+)$/, 'properties'],
+            [file('src/main/java/org/keybinder/wurm/KeybinderMod.java'),
+             /VERSION = "([^"]+)"/, 'KeybinderMod'],
+            [file('readme.md'), /Keybinder (0\.5\.\d+)/, 'readme']
+        ]
+        metadata.each { item ->
+            def matcher = (item[0].getText('UTF-8') =~ item[1])
+            if (!matcher.find() || matcher.group(1) != expected) {
+                throw new GradleException(
+                        "Version mismatch in ${item[2]}: expected ${expected}")
+            }
+        }
+    }
+}
+
+task verifyJarNamespace(dependsOn: jar) {
+    doLast {
+        def tree = zipTree(jar.archivePath)
+        def forbidden = tree.matching {
+            include 'net/bdew/**'
+            include 'net/chamomilo/**'
+            include 'com/chamomilo/**'
+            include 'improvemod/**'
+            include 'net/inniria/**'
+        }.files
+        if (!forbidden.empty) {
+            throw new GradleException("Legacy implementation classes found in keybinder.jar: ${forbidden}")
+        }
+        if (tree.matching { include 'org/keybinder/wurm/KeybinderMod.class' }.files.empty) {
+            throw new GradleException("Keybinder main class is missing from keybinder.jar")
+        }
+    }
+}
+
+task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace]) {
+
+    into("mods", {
+        into(project.name, {
+            from jar
+            from 'readme.md'
+            from 'lgpl-3.0.txt'
+            into('assets/keybinder') {
+                from 'src/main/resources/keybinder'
+                include '*.png'
+            }
+        })
+        from fileTree(dir: 'mods', include: '*')
+    })
+
+    archiveName "${project.name}-${project.version}.zip"
+
+}
+
+build.dependsOn verifyJarNamespace
+
+test {
+    testLogging {
+        events "failed"
+        exceptionFormat "full"
+    }
+}
