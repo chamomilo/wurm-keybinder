@@ -1,4 +1,4 @@
-# Keybinder 0.5.2 for Wurm Unlimited
+# Keybinder 0.5.3 for Wurm Unlimited
 
 Keybinder is a standalone Wurm Unlimited client mod for constructing and managing
 ordered keybind workflows from the HUD.
@@ -37,7 +37,7 @@ performing this restore.
 ## Installation
 
 1. Disable the old `action` and `i2improve` client mods.
-2. Extract `keybinder-0.5.2.zip` into the Wurm Unlimited client directory.
+2. Extract `keybinder-0.5.3.zip` into the Wurm Unlimited client directory.
 3. Verify `mods/keybinder.properties` and `mods/keybinder/keybinder.jar`.
 4. Enable **Keybinder** in HUD Settings.
 

@@ -74,7 +74,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.5.2";
+    public static final String VERSION = "0.5.3";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -161,7 +161,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         installCapability("Smart Improve messages", () -> hookImproveMessages(pool));
         installCapability("HUD lifecycle", () -> hookHud(pool));
         installCapability("shadow recording", () -> hookRecording(pool));
-        installCapability("target selection", this::hookSelections);
+        installCapability("target selection", () -> hookSelections(pool));
         installCapability("server identity", () -> hookSelectedServer(pool));
     }
 
@@ -453,7 +453,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 () -> (proxy, method, args) -> withTarget("tile", proxy, method, args));
     }
 
-    private void hookSelections() {
+    private void hookSelections(ClassPool pool) throws Exception {
         HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.ToolBeltComponent",
                 "leftPressed", "(III)V", () -> (proxy, method, args) -> {
                     if (SELECTION.getMode() == SelectionController.Mode.TOOLBELT) {
@@ -502,38 +502,32 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     }
                     return method.invoke(proxy, args);
                 });
-        HookManager.getInstance().registerHook("com.wurmonline.client.WurmEventHandler",
-                "mousePressed", "(IIII)V",
-                () -> (proxy, method, args) -> {
-                    if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
-                            || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE)
-                            && ((Integer) args[2]) == 0) {
-                        exactPressArmed = true;
-                        exactPressDragged = false;
-                        exactPressX = (Integer) args[0];
-                        exactPressY = (Integer) args[1];
-                        exactPressTime = System.currentTimeMillis();
-                    }
-                    return method.invoke(proxy, args);
-                });
-        HookManager.getInstance().registerHook("com.wurmonline.client.WurmEventHandler",
-                "mouseDragged", "(II)V",
-                () -> (proxy, method, args) -> {
-                    if (exactPressArmed) exactPressDragged = true;
-                    return method.invoke(proxy, args);
-                });
-        HookManager.getInstance().registerHook("com.wurmonline.client.WurmEventHandler",
-                "mouseReleased", "(III)V",
-                () -> (proxy, method, args) -> {
-                    if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
-                            || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE)
-                            && ((Integer) args[2]) == 0) {
-                        if (isExactObjectClick(proxy, (Integer) args[0], (Integer) args[1]))
-                            captureWorldTarget(proxy);
-                        resetExactPress();
-                    }
-                    return method.invoke(proxy, args);
-                });
+        /*
+         * These global mouse methods must not use HookManager reflection wrappers.
+         * If the original client method throws, Method.invoke wraps the real cause
+         * in InvocationTargetException and HookManager reports it as a Keybinder
+         * HookException. Direct bytecode callbacks preserve the original call and
+         * keep Keybinder's observation fail-open.
+         */
+        CtClass eventHandler = pool.getCtClass("com.wurmonline.client.WurmEventHandler");
+        eventHandler.getMethod("mousePressed", "(IIII)V").insertBefore(
+                "org.keybinder.wurm.KeybinderMod.observeMousePressed($1, $2, $3);");
+        eventHandler.getMethod("mouseDragged", "(II)V").insertBefore(
+                "org.keybinder.wurm.KeybinderMod.observeMouseDragged();");
+        eventHandler.getMethod("mouseReleased", "(III)V").insertBefore(
+                "org.keybinder.wurm.KeybinderMod.observeMouseReleased(this, $1, $2, $3);");
+
+        /*
+         * Wurm can retain a TargetWindow briefly across reconnect while its
+         * renderer is null. A right click in that interval otherwise crashes in
+         * TargetWindow.rightPressed. Ignore only that unusable stale window.
+         */
+        CtClass targetWindow =
+                pool.getCtClass("com.wurmonline.client.renderer.gui.TargetWindow");
+        targetWindow.getDeclaredMethod("rightPressed").insertBefore(
+                "{ if (this.renderer == null) {"
+                        + " org.keybinder.wurm.KeybinderMod.targetWindowNotReady();"
+                        + " return; } }");
         HookManager.getInstance().registerHook(
                 "com.wurmonline.client.renderer.gui.WurmTreeList$TreeListPanel",
                 "leftPressed", "(III)V", () -> (proxy, method, args) -> {
@@ -542,6 +536,50 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                         captureInventoryTarget(proxy, (Integer) args[0], (Integer) args[1]);
                     return method.invoke(proxy, args);
                 });
+    }
+
+    public static void observeMousePressed(int mouseX, int mouseY, int button) {
+        try {
+            if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
+                    || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE)
+                    && button == 0) {
+                exactPressArmed = true;
+                exactPressDragged = false;
+                exactPressX = mouseX;
+                exactPressY = mouseY;
+                exactPressTime = System.currentTimeMillis();
+            }
+        } catch (Throwable e) {
+            resetExactPress();
+            LOGGER.log(Level.WARNING, "Unable to observe mouse press for target selection", e);
+        }
+    }
+
+    public static void observeMouseDragged() {
+        try {
+            if (exactPressArmed) exactPressDragged = true;
+        } catch (Throwable e) {
+            resetExactPress();
+            LOGGER.log(Level.WARNING, "Unable to observe mouse drag for target selection", e);
+        }
+    }
+
+    public static void observeMouseReleased(Object eventHandler, int mouseX, int mouseY, int button) {
+        try {
+            if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
+                    || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE)
+                    && button == 0
+                    && isExactObjectClick(eventHandler, mouseX, mouseY))
+                captureWorldTarget(eventHandler);
+        } catch (Throwable e) {
+            LOGGER.log(Level.WARNING, "Unable to observe mouse release for target selection", e);
+        } finally {
+            if (button == 0) resetExactPress();
+        }
+    }
+
+    public static void targetWindowNotReady() {
+        LOGGER.fine("Ignored input for a TargetWindow without a renderer during reconnect");
     }
 
     private static boolean isExactObjectClick(Object eventHandler, int releaseX, int releaseY) {
