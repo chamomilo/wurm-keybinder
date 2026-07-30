@@ -1,66 +1,66 @@
 # Keybinder 0.5.4 for Wurm Unlimited
 
-Keybinder is a standalone Wurm Unlimited client mod for constructing and managing
-ordered keybind workflows from the HUD.
+Tired of managing keybinds through console commands, juggling toolbelt setup
+files, and remembering dozens of keys? Keybinder replaces all of that with one
+clear in-game window. All your keybinds are visible in one place, where you can
+create, edit, disable, or delete them without digging through configuration
+files or memorizing commands.
+
+A single key can perform an entire routine. Start recording, carry out the
+actions normally, and Keybinder will remember them for you. Want a key for
+bashing stumps or smelting items? Easy. Want to chop anything in your kitchen
+with just one key? Easy. You can even assign several keybinds to the same key
+and switch between them in-game with a one-second long press. Keep all your
+favorite actions on one key and select the one you need without becoming a
+keyboard pianist.
+
+Keybinder even makes the mouse wheel useful: bind it to actions such as moving
+and rotating objects. Less console work, less clicking, fewer keys to remember:
+just press a key or turn the wheel and get back to playing.
 
 ## What's new in 0.5.4
 
+- Target selection is now more reliable across inventories, containers, the
+  toolbelt, equipment, and the game world. Keybinder can select a tool from
+  your backpack automatically.
+- Added **Import Wurm keybinds** and **Prepare mod removal** controls to the
+  main window. Keybinder can restore imported commands without overwriting
+  keys that now belong to something else.
+- Movement, camera, and essential HUD controls are excluded from import, so
+  Keybinder does not take ownership of Wurm's fundamental controls.
 - Complete English and Brazilian Portuguese localization with a persistent
-  Wurm-styled language selector and safe English fallback.
-- Vanilla gameplay actions selected from the catalog now use ordinary
-  target-aware action steps when the current client provides an unambiguous
-  `PlayerAction`; HUD, movement, and unresolved commands retain native
-  compatibility behavior.
-- Runtime queue preflight accounts for occupied slots and rejects an entire
-  keybind before its first action when the remaining capacity is insufficient.
+  Wurm-styled language selector and a safe English fallback. More languages
+  are welcome!
+- There are now two ways to add an action: perform it and let Keybinder record
+  it, or choose it from the complete list of vanilla actions.
+- Keybinder checks the available action queue before it starts. If the entire
+  keybind cannot fit, nothing is sent. Empty your queue and press the key again.
 - Repeated `Push` and `Push gently` actions retain the selected object across
-  every server-side recreation.
-- Fixed the `KB` tag right-click crash, stale English list content after a
-  language change, and incorrect red styling for user-disabled keybinds.
-
-Each managed keybind is a stable container of steps:
-
-- Activate tool
-- Smart improve
-- Console command
-- Custom action
-
-Managed keys execute through `keybinder_run <id>` and run their stored,
-type-safe steps directly. Commands from Custom Actions and the Improved Improve
-lineage are supported only by the one-time import workflow and are replaced
-with native Keybinder records during import.
-
-An unavailable runtime target skips only its own step and writes the reason to
-the system Event tab. Remaining steps continue in their saved order. Queue
-limits are checked at runtime against the steps that can actually execute.
-Missing `nearby` targets are skipped silently; a target found outside the
-action range still produces a useful “come closer” Event message.
-
-`nearby` and `nearby by type` use the selected Wurm action's standard
-`ActionEntry` range. Keybinder scans at least twice that range; when a matching
-object is visible but outside the action range, Event identifies the action and
-nearest object and asks the player to move closer.
-
-The `current ride` target resolves at execution time to the creature or vehicle
-currently carrying the player. For example, `Open` on `current ride` opens the
-inventory of the ridden horse, cart, wagon, or boat when the server permits it.
-
-Enabled managed keybinds are remembered per Wurm account and restored after the
-player profile is loaded. Keybinder never overwrites a foreign binding while
-performing this restore.
+  every server-side recreation. Finally, you can push, push, push, and keep
+  going.
+- An unavailable target skips only its own step and writes the reason to the
+  system Event tab. The remaining steps continue in their saved order.
+- Missing `nearby` targets are skipped silently. If a target is visible but
+  outside the action range, Keybinder writes a useful "come closer" message to
+  the Event tab.
+- `nearby` and `nearby by type` search beyond the action's immediate range. If
+  Keybinder sees a matching target that you cannot reach yet, it tells you what
+  it found and asks you to move closer.
+- Your current mount or vehicle can now be used as a target. Want to disembark
+  or open a cart hold with one key? Easy.
+- All your accounts can use the same keybind list.
 
 ## Installation
 
 1. Disable the old `action` and `i2improve` client mods.
-2. Extract `keybinder-0.5.4.zip` into the Wurm Unlimited client directory.
-3. Verify `mods/keybinder.properties` and `mods/keybinder/keybinder.jar`.
-4. Enable **Keybinder** in HUD Settings.
-
-Keybinder reports legacy Custom Actions and Improved Improve installations,
-imports their known bindings into native steps, and can then disable the
-superseded Custom Actions mod for the next launch.
+2. Extract `keybinder-0.5.4.zip` into the Wurm Unlimited client directory using
+   Ago's mod loader as usual.
+3. If the Keybinder introduction does not appear after startup, enable
+   **Keybinder** in HUD Settings.
 
 ## Runtime commands
+
+You do not need these, but if you still prefer the console, they are available:
 
 ```text
 keybinder_run <managed-id>
@@ -69,12 +69,12 @@ keybinder_list [commands]
 
 ## Attribution
 
-Keybinder is derivative work based on bdew's
+Keybinder began as derivative work based on bdew's
 [Custom Actions](https://github.com/bdew-wurm/action), licensed under
 LGPL-3.0-or-later.
 
-Smart Improve is a clean-room reimplementation inspired by the complete
-Improved Improve mod lineage. Special thanks to:
+The Smart Improve feature is a clean-room reimplementation inspired by the
+complete Improved Improve mod lineage. Special thanks to:
 
 - [Munsta0](https://github.com/munsta0/WUClientImprovedImprove), who created
   the original Improved Improve client mod;
