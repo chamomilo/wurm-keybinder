@@ -44,7 +44,7 @@ public final class ShadowRecorder {
         TargetSpec target = targetContext.get();
         if (target == null) target = TargetCodec.decode("hover");
         synchronized (recorded) {
-            recorded.add(new ActionStep(action.getId(), target));
+            recorded.add(new ActionStep(action.getId(), target, action.getName()));
         }
     }
 

@@ -126,6 +126,23 @@ public class KeybindStoreTest {
     }
 
     @Test
+    public void roundTripsLastKnownServerActionName() throws Exception {
+        Path file = Files.createTempDirectory("keybinder-action-name-test")
+                .resolve("records.properties");
+        KeybindStore store = new KeybindStore(file);
+        KeybindRecord record = new KeybindRecord("server-action", "Farming", "E",
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 981,
+                        TargetSpec.simple(TargetKind.HOVER), "Sow cultivated field")));
+
+        store.save(Collections.singletonList(record));
+
+        ActionStep loaded = (ActionStep) store.load().get(0)
+                .getKeybindSteps().get(0);
+        assertEquals((short) 981, loaded.getActionId());
+        assertEquals("Sow cultivated field", loaded.getLastKnownName());
+    }
+
+    @Test
     public void recoversFromBackupWhenPrimaryIsMalformed() throws Exception {
         Path dir = Files.createTempDirectory("keybinder-recovery-test");
         Path file = dir.resolve("records.properties");

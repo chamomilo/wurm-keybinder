@@ -4,6 +4,7 @@ import com.wurmonline.client.console.WurmConsole;
 import org.keybinder.wurm.bind.BindSnapshot;
 import org.keybinder.wurm.bind.DefaultBindCatalog;
 import org.keybinder.wurm.bind.VanillaBindService;
+import org.keybinder.wurm.bind.VanillaImportPolicy;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.DisableReason;
 import org.keybinder.wurm.i18n.Messages;
@@ -11,7 +12,9 @@ import org.keybinder.wurm.migration.CustomActionsImporter;
 import org.keybinder.wurm.migration.ImprovedImproveImporter;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindConflict;
+import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
+import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.storage.KeybindStore;
@@ -34,6 +37,7 @@ public final class KeybindRegistry {
     private final ImprovedImproveImporter improvedImproveImporter;
     private final ActionQueueCostCalculator costs;
     private final EventLogger log;
+    private final VanillaImportPolicy importPolicy = new VanillaImportPolicy();
     private String currentUser = "";
     private String currentServer = "";
     private String activeAccount = "";
@@ -74,6 +78,35 @@ public final class KeybindRegistry {
 
     public synchronized List<KeybindRecord> snapshot() {
         return Collections.unmodifiableList(new ArrayList<>(records));
+    }
+
+    /**
+     * Updates presentation metadata for managed steps after the server exposes
+     * a custom action name. Action identity continues to be the numeric ID.
+     */
+    public synchronized void rememberActionName(short actionId, String name) {
+        String clean = name == null ? "" : name.trim();
+        if (clean.isEmpty()) return;
+        boolean changed = false;
+        for (KeybindRecord record : records) {
+            for (org.keybinder.wurm.model.KeybindVariant variant : record.getVariants()) {
+                for (KeybindStep step : variant.getSteps()) {
+                    if (!(step instanceof ActionStep)) continue;
+                    ActionStep action = (ActionStep) step;
+                    if (action.getActionId() == actionId
+                            && !clean.equals(action.getLastKnownName())) {
+                        action.setLastKnownName(clean);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if (!changed) return;
+        try {
+            saveRecords();
+        } catch (IOException e) {
+            log.error("Unable to persist action name " + actionId, e);
+        }
     }
 
     public synchronized boolean syncExternal(WurmConsole console) {
@@ -752,6 +785,7 @@ public final class KeybindRegistry {
         java.util.Map<String, String> defaults = new DefaultBindCatalog().load();
         List<BindSnapshot> candidates = new ArrayList<>();
         for (BindSnapshot bind : binds.snapshot(console)) {
+            if (!importPolicy.mayImport(bind.getCommand())) continue;
             String defaultCommand = defaults.get(DefaultBindCatalog.normalize(bind.getKey()));
             if (defaultCommand != null && defaultCommand.equalsIgnoreCase(bind.getCommand())) continue;
             boolean managed = false;
@@ -765,6 +799,61 @@ public final class KeybindRegistry {
             if (!managed) candidates.add(bind);
         }
         return candidates;
+    }
+
+    public static final class RestoreResult {
+        private final int restored;
+        private final int removed;
+        private final int conflicts;
+
+        private RestoreResult(int restored, int removed, int conflicts) {
+            this.restored = restored;
+            this.removed = removed;
+            this.conflicts = conflicts;
+        }
+
+        public int getRestored() { return restored; }
+        public int getRemoved() { return removed; }
+        public int getConflicts() { return conflicts; }
+    }
+
+    /**
+     * Removes live dispatchers owned by Keybinder and restores imported
+     * commands on free chords. Records stay persisted but disabled so this is
+     * safe to run before deleting the mod and reversible after reinstalling it.
+     */
+    public synchronized RestoreResult prepareForUninstall(WurmConsole console)
+            throws ReflectiveOperationException, IOException {
+        int restored = 0;
+        int removed = 0;
+        int conflicts = 0;
+        for (KeybindRecord record : records) {
+            String managedCommand = commandFor(record);
+            BindSnapshot live = findLive(console, record.getKey());
+            if (live != null && live.getCommand().equalsIgnoreCase(managedCommand)) {
+                if (removeLive(console, record.getKey(), managedCommand)) removed++;
+            }
+
+            String originalKey = record.getOriginalKey() == null
+                    ? "" : record.getOriginalKey().trim();
+            String originalCommand = record.getOriginalCommand() == null
+                    ? "" : record.getOriginalCommand().trim();
+            if (!originalKey.isEmpty() && !originalCommand.isEmpty()) {
+                BindSnapshot originalLive = findLive(console, originalKey);
+                if (originalLive == null) {
+                    installLive(console, originalKey, originalCommand);
+                    restored++;
+                } else if (!originalLive.getCommand().equalsIgnoreCase(originalCommand)) {
+                    conflicts++;
+                    log.warning(Messages.text("registry.restore_conflict",
+                            record.getName(), originalKey, originalLive.getCommand()));
+                }
+            }
+            record.setEnabled(false);
+            record.setDisabledReason(DisableReason.value("disabled_by_user"));
+        }
+        saveRecords();
+        return new RestoreResult(restored, removed, conflicts);
     }
 
     public synchronized int importAllReviewed(WurmConsole console, int limit)

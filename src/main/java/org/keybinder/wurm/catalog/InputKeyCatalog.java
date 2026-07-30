@@ -1,5 +1,6 @@
 package org.keybinder.wurm.catalog;
 
+import com.wurmonline.client.options.keybinding.KeybindButtons;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.keybinder.wurm.i18n.Messages;
@@ -184,13 +185,16 @@ public final class InputKeyCatalog {
 
     private static InputKeyCatalog runtimeSnapshot() {
         Map<String, Entry> unique = new LinkedHashMap<String, Entry>();
+        Map<String, Integer> vanillaOrder = vanillaOrder();
         for (int code = 1; code < Keyboard.KEYBOARD_SIZE; code++) {
             String name = Keyboard.getKeyName(code);
             if (name == null || name.trim().isEmpty() || Keyboard.getKeyIndex(name) != code) continue;
             String persisted = name.toUpperCase(Locale.ENGLISH);
-            if (!unique.containsKey(persisted))
+            if (!unique.containsKey(persisted)) {
+                Integer order = vanillaOrder.get(persisted);
                 unique.put(persisted, new Entry(persisted, name, InputKind.KEYBOARD,
-                        keyboardGroup(persisted), code));
+                        order == null ? 1 : 0, order == null ? code : order));
+            }
         }
         int buttons;
         try { buttons = Mouse.getButtonCount(); }
@@ -199,24 +203,25 @@ public final class InputKeyCatalog {
         for (int index = 0; index < buttons; index++) {
             String persisted = "MOUSE" + index;
             String key = index == 2 ? "input.mouse_wheel_button" : "input.mouse_button";
+            Integer order = vanillaOrder.get(persisted);
             unique.put(persisted, new Entry(
-                    persisted, null, key, InputKind.MOUSE_BUTTON, 10, index + 1));
+                    persisted, null, key, InputKind.MOUSE_BUTTON,
+                    order == null ? 2 : 0, order == null ? index : order));
         }
         unique.put(WHEEL_UP, new Entry(WHEEL_UP, null, "input.mouse_wheel_up",
-                InputKind.MOUSE_WHEEL_DIRECTION, 11, 0));
+                InputKind.MOUSE_WHEEL_DIRECTION, 3, 0));
         unique.put(WHEEL_DOWN, new Entry(WHEEL_DOWN, null, "input.mouse_wheel_down",
-                InputKind.MOUSE_WHEEL_DIRECTION, 12, 0));
+                InputKind.MOUSE_WHEEL_DIRECTION, 3, 1));
         return new InputKeyCatalog(new ArrayList<Entry>(unique.values()));
     }
 
-    private static int keyboardGroup(String name) {
-        if (name.length() == 1 && name.charAt(0) >= 'A' && name.charAt(0) <= 'Z') return 1;
-        if (name.length() == 1 && Character.isDigit(name.charAt(0))) return 2;
-        if (name.matches("F\\d+")) return 3;
-        if (name.startsWith("NUMPAD")) return 7;
-        if (name.contains("SHIFT") || name.contains("CONTROL") || name.contains("MENU")
-                || name.contains("META") || name.contains("WIN") || name.contains("CAPITAL")
-                || name.contains("LOCK") || name.contains("SYSRQ")) return 8;
-        return 6;
+    private static Map<String, Integer> vanillaOrder() {
+        Map<String, Integer> order = new LinkedHashMap<String, Integer>();
+        for (KeybindButtons button : KeybindButtons.values()) {
+            String command = button.getCommandName();
+            if (command == null || command.trim().isEmpty()) continue;
+            order.put(command.trim().toUpperCase(Locale.ENGLISH), button.ordinal());
+        }
+        return order;
     }
 }

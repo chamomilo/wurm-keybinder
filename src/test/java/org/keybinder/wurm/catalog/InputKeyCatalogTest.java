@@ -5,6 +5,7 @@ import org.junit.Test;
 import org.keybinder.wurm.i18n.Messages;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.Assert.*;
@@ -40,6 +41,26 @@ public class InputKeyCatalogTest {
                 InputKeyCatalog.system().findPersisted("MOUSE2").getInputKind());
         assertEquals(InputKeyCatalog.InputKind.MOUSE_WHEEL_DIRECTION,
                 InputKeyCatalog.system().findPersisted("MOUSE_WHEEL_UP").getInputKind());
+    }
+
+    @Test public void followsTheVanillaKeyPickerOrder() {
+        List<InputKeyCatalog.Entry> entries = InputKeyCatalog.system().entries();
+        assertTrue(indexOf(entries, "A") < indexOf(entries, "Z"));
+        assertTrue(indexOf(entries, "Z") < indexOf(entries, "UP"));
+        assertTrue(indexOf(entries, "UP") < indexOf(entries, "NUMPAD1"));
+        assertTrue(indexOf(entries, "NUMPAD1") < indexOf(entries, "F1"));
+        assertTrue(indexOf(entries, "F1") < indexOf(entries, "1"));
+        assertTrue(indexOf(entries, "1") < indexOf(entries, "SPACE"));
+        assertTrue(indexOf(entries, "SPACE") < indexOf(entries, "MOUSE2"));
+        assertTrue(indexOf(entries, "MOUSE2") < indexOf(entries, "PAUSE"));
+        assertTrue(indexOf(entries, "PAUSE") < indexOf(entries, "GRAVE"));
+    }
+
+    private static int indexOf(List<InputKeyCatalog.Entry> entries, String persisted) {
+        for (int i = 0; i < entries.size(); i++)
+            if (persisted.equals(entries.get(i).getPersistedName())) return i;
+        fail("Missing key " + persisted);
+        return -1;
     }
 
     @Test public void localizedMouseLabelsDoNotChangePersistedKeys() {

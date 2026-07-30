@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Properties;
 
 public final class KeybindStore {
-    public static final int SCHEMA_VERSION = 6;
+    public static final int SCHEMA_VERSION = 7;
     private final Path file;
     private final CustomActionsImporter customActionsImporter = new CustomActionsImporter();
     private volatile boolean recoveredFromBackup;
@@ -226,7 +226,10 @@ public final class KeybindStore {
                     if (schema < 6 && "toolbelt".equalsIgnoreCase(value.trim())) {
                         steps.add(new ActivateToolStep(TargetSpec.toolbeltSlot(actionId)));
                     } else {
-                        steps.add(new ActionStep((short) actionId, TargetCodec.decode(value)));
+                        String lastKnownName = schema >= 7
+                                ? decode(props.getProperty(stepPrefix + "lastKnownName", "")) : "";
+                        steps.add(new ActionStep((short) actionId, TargetCodec.decode(value),
+                                lastKnownName));
                     }
                     break;
                 default: throw new IOException("Unsupported step kind " + kind);
@@ -245,6 +248,8 @@ public final class KeybindStore {
                 props.setProperty(stepPrefix + "actionId", String.valueOf(action.getActionId()));
                 props.setProperty(stepPrefix + "target",
                         encode(TargetCodec.encode(action.getTarget())));
+                props.setProperty(stepPrefix + "lastKnownName",
+                        encode(action.getLastKnownName()));
             } else if (step instanceof ActivateToolStep) {
                 props.setProperty(stepPrefix + "target", encode(TargetCodec.encode(
                         ((ActivateToolStep) step).getTarget())));

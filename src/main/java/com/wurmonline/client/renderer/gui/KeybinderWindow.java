@@ -43,6 +43,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private final WurmArrayPanel<FlexComponent> filterControls;
     private final List<TableRow> tableRows = new ArrayList<>();
     private final WButton addButton;
+    private final WButton importButton;
+    private final WButton restoreButton;
     private WButton enableFiltered;
     private WButton disableFiltered;
     private WurmDropDown userFilter;
@@ -74,10 +76,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private int requiredServerWidth;
     private int requiredEditWidth;
     private int requiredDeleteWidth;
+    private int requiredFilterWidth;
     private int minimumWidth;
     private int minimumHeight = DEFAULT_HEIGHT;
     private int lastLayoutWidth = -1;
-    private int lastIntroLayoutWidth = -1;
     private int introFixedHeight = INTRO_MIN_HEIGHT;
     private String selectedRowId;
     private String draggedRowId;
@@ -91,6 +93,11 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         setTitle(Messages.text("window.title"));
         table = new WurmArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL, true);
         addButton = new WButton(Messages.text("list.add"), this);
+        importButton = new WButton(Messages.text("list.import"), this);
+        restoreButton = new WButton(Messages.text("list.restore_originals"), this);
+        restoreButton.setConfirm(true);
+        restoreButton.setConfirmQuestion(Messages.text("list.restore_originals.question"));
+        restoreButton.setConfirmMessage(Messages.text("list.restore_originals.confirm"));
 
         root = new WurmBorderPanel("keybinder.root");
         listTop =
@@ -221,7 +228,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         previousIntroSkip = introSkip.checked;
         addIntro(introSkip);
         addIntro(introText("Keybinder " + KeybinderMod.VERSION));
-        lastIntroLayoutWidth = -1;
         return introContent;
     }
 
@@ -250,6 +256,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         listTop.addComponent(new WurmLabel(Messages.text("list.instructions")));
         listTop.addComponent(spacer(5));
         listTop.addComponent(filterControls);
+        listTop.addComponent(spacer(5));
+        WurmArrayPanel<FlexComponent> migrationControls =
+                new WurmArrayPanel<>("keybinder.list.migration", WurmArrayPanel.DIR_HORIZONTAL);
+        migrationControls.componentWidthOffset = COLUMN_GAP;
+        migrationControls.addComponent(importButton);
+        migrationControls.addComponent(restoreButton);
+        listTop.addComponent(migrationControls);
         listTop.addComponent(spacer(5));
         listTop.componentResized();
     }
@@ -323,7 +336,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                 + requiredNameWidth + requiredKeyWidth + requiredUserWidth + requiredServerWidth
                 + COLUMN_GAP * 7;
         minimumWidth = Math.max(Math.max(360, minimumWidth),
-                WINDOW_CHROME + filterControls.width);
+                WINDOW_CHROME + requiredFilterWidth);
         lastLayoutWidth = -1;
         table.componentResized();
         applyTableLayout();
@@ -474,10 +487,18 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         disableFiltered = new WButton(Messages.text("list.disable_filtered"), this);
         enableFiltered.setHoverString(Messages.text("list.enable_filtered.tip"));
         disableFiltered.setHoverString(Messages.text("list.disable_filtered.tip"));
+        WurmLabel userLabel = new WurmLabel(Messages.text("common.user"));
+        WurmLabel serverLabel = new WurmLabel(Messages.text("common.server"));
+        // WurmArrayPanel's runtime width is mutable and may retain a prior
+        // layout width after its children are rebuilt. Never feed that width
+        // back into the window minimum or every refresh can grow the window.
+        requiredFilterWidth = LocalizedLayout.horizontalRowWidth(COLUMN_GAP,
+                userLabel.width, userFilter.width, serverLabel.width, serverFilter.width,
+                enableFiltered.width, disableFiltered.width);
         filterControls.removeAllComponents();
-        filterControls.addComponent(new WurmLabel(Messages.text("common.user")));
+        filterControls.addComponent(userLabel);
         filterControls.addComponent(userFilter);
-        filterControls.addComponent(new WurmLabel(Messages.text("common.server")));
+        filterControls.addComponent(serverLabel);
         filterControls.addComponent(serverFilter);
         filterControls.addComponent(enableFiltered);
         filterControls.addComponent(disableFiltered);
@@ -554,7 +575,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     public void gameTick() {
         super.gameTick();
         if (mode == Mode.INTRO) {
-            applyIntroLayout();
             if (introSkip != null && introSkip.checked != previousIntroSkip) {
                 previousIntroSkip = introSkip.checked;
                 controller.setSkipIntro(introSkip.checked);
@@ -607,14 +627,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                 Math.max(requestedHeight, minimumHeight));
     }
 
-    private void applyIntroLayout() {
-        if (mode != Mode.INTRO || introContent == null || width == lastIntroLayoutWidth) return;
-        layoutIntroContent(width);
-    }
-
     private void layoutIntroContent(int windowWidth) {
         if (introContent == null) return;
-        lastIntroLayoutWidth = windowWidth;
         int contentWidth = Math.max(300, windowWidth - INTRO_HORIZONTAL_CHROME);
         for (FlexComponent component : introFullWidth) {
             if (component == introBanner) {
@@ -825,6 +839,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         else if (button == disableFiltered)
             controller.setKeybindsEnabled(filteredIds(), false);
         else if (button == addButton) controller.addNewKeybind();
+        else if (button == importButton) controller.requestImport();
+        else if (button == restoreButton) controller.restoreOriginalBindings();
         else if (editIds.containsKey(button)) controller.editKeybind(editIds.get(button));
         else if (deleteIds.containsKey(button)) controller.deleteKeybind(deleteIds.get(button));
         else {

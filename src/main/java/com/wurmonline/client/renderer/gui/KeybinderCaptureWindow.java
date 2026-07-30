@@ -2,7 +2,6 @@ package com.wurmonline.client.renderer.gui;
 
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.ui.KeybindEditorController;
-import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.i18n.Messages;
 
 public final class KeybinderCaptureWindow extends WWindow {
@@ -32,6 +31,5 @@ public final class KeybinderCaptureWindow extends WWindow {
     @Override
     protected void closePressed() {
         controller.cancelCapture();
-        KeybinderMod.deferUi(() -> hud.hideComponent(this));
     }
 }

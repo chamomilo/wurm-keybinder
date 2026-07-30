@@ -12,6 +12,7 @@ import com.wurmonline.client.renderer.gui.KeybinderLegacyWindow;
 import com.wurmonline.client.renderer.gui.KeybinderMultiSelectorWindow;
 import com.wurmonline.client.renderer.gui.KeybinderSelectionWindow;
 import com.wurmonline.client.renderer.gui.KeybinderSelectionBridge;
+import com.wurmonline.client.renderer.gui.KeybinderInventorySelectionBridge;
 import com.wurmonline.client.renderer.gui.KeybinderTileWindow;
 import com.wurmonline.client.renderer.gui.KeybinderWindow;
 import com.wurmonline.client.renderer.gui.KeybinderTagWindow;
@@ -146,6 +147,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static volatile int exactPressX;
     private static volatile int exactPressY;
     private static volatile long exactPressTime;
+    private static volatile long lastWheelFailureAt;
+    private static volatile String lastWheelFailure = "";
     private static volatile long lastSharedSyncPoll;
     private static volatile String selectedFullServerName = "";
     private static volatile String observedServerCluster = "";
@@ -181,7 +184,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         installCapability("HUD lifecycle", () -> hookHud(pool));
         installCapability("action queue occupancy", () -> hookActionQueue(pool));
         installCapability("shadow recording", () -> hookRecording(pool));
-        installCapability("target selection", () -> hookSelections(pool));
+        installCapability("toolbelt target selection", this::hookToolbeltSelection);
+        installCapability("equipment target selection", this::hookEquipmentSelection);
+        installCapability("world target selection", () -> hookWorldSelection(pool));
+        installCapability("inventory target selection", this::hookInventorySelection);
         installCapability("push selection retention", () -> hookPushSelection(pool));
         installCapability("server identity", () -> hookSelectedServer(pool));
     }
@@ -192,7 +198,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             LOGGER.fine("Installed Keybinder " + name + " integration");
         } catch (Throwable e) {
             LOGGER.log(Level.WARNING, "Keybinder " + name
-                    + " integration is unavailable; other features will continue", e);
+                    + " integration is unavailable; other features will continue ("
+                    + e.getClass().getName() + ": " + String.valueOf(e.getMessage()) + ")", e);
         }
     }
 
@@ -266,7 +273,19 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             final HeadsUpDisplay currentHud = hud;
             WheelInputHandler.handle(new WheelInputHandler.Environment() {
                 @Override public boolean isOverHudComponent(int px, int py) {
-                    return currentHud == null || currentHud.getComponentAt(px, py) != null;
+                    if (currentHud == null) return true;
+                    try {
+                        return currentHud.getComponentAt(px, py) != null;
+                    } catch (Throwable e) {
+                        /*
+                         * A just-hidden Wurm window can briefly remain in the
+                         * component stack. Never let a failed HUD hit-test
+                         * interfere with the client's ordinary scrolling.
+                         */
+                        LOGGER.log(Level.FINE,
+                                "Mouse wheel HUD hit-test failed open", e);
+                        return true;
+                    }
                 }
                 @Override public boolean isControlDown() { return currentHud.isControlDown(); }
                 @Override public boolean isShiftDown() { return currentHud.isShiftDown(); }
@@ -281,8 +300,18 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 }
             }, x, y, delta);
         } catch (Throwable e) {
-            LOGGER.log(Level.WARNING, "Mouse wheel keybind hook failed open", e);
-            EVENTS.error(Messages.text("error.mouse_wheel"), e);
+            String failure = e.getClass().getName() + ": "
+                    + String.valueOf(e.getMessage());
+            LOGGER.log(Level.WARNING,
+                    "Mouse wheel keybind hook failed open (" + failure + ")", e);
+            long now = System.currentTimeMillis();
+            if (!failure.equals(lastWheelFailure)
+                    || now - lastWheelFailureAt >= 30000L) {
+                lastWheelFailure = failure;
+                lastWheelFailureAt = now;
+                EVENTS.error(Messages.text("error.mouse_wheel")
+                        + " (" + failure + ")", e);
+            }
         }
     }
 
@@ -521,7 +550,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         ACTION_QUEUE.actionState(actionText, durationSeconds);
     }
 
-    private void hookSelections(ClassPool pool) throws Exception {
+    private void hookToolbeltSelection() {
         HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.ToolBeltComponent",
                 "leftPressed", "(III)V", () -> (proxy, method, args) -> {
                     if (SELECTION.getMode() == SelectionController.Mode.TOOLBELT) {
@@ -549,6 +578,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     }
                     return method.invoke(proxy, args);
                 });
+    }
+
+    private void hookEquipmentSelection() {
         HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.PaperDollInventory",
                 "leftPressed", "(III)V", () -> (proxy, method, args) -> {
                     if (SELECTION.getMode() == SelectionController.Mode.EQUIPMENT) {
@@ -570,12 +602,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     }
                     return method.invoke(proxy, args);
                 });
+    }
+
+    private void hookWorldSelection(ClassPool pool) throws Exception {
         /*
-         * These global mouse methods must not use HookManager reflection wrappers.
-         * If the original client method throws, Method.invoke wraps the real cause
-         * in InvocationTargetException and HookManager reports it as a Keybinder
-         * HookException. Direct bytecode callbacks preserve the original call and
-         * keep Keybinder's observation fail-open.
+         * WurmEventHandler is already modified by the wheel integration above.
+         * Keep these callbacks as Javassist insertions instead of registering a
+         * second proxy hook for the same client class.
          */
         CtClass eventHandler = pool.getCtClass("com.wurmonline.client.WurmEventHandler");
         eventHandler.getMethod("mousePressed", "(IIII)V").insertBefore(
@@ -584,18 +617,14 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 "org.keybinder.wurm.KeybinderMod.observeMouseDragged();");
         eventHandler.getMethod("mouseReleased", "(III)V").insertBefore(
                 "org.keybinder.wurm.KeybinderMod.observeMouseReleased(this, $1, $2, $3);");
+    }
 
+    private void hookInventorySelection() {
         /*
-         * Wurm can retain a TargetWindow briefly across reconnect while its
-         * renderer is null. A right click in that interval otherwise crashes in
-         * TargetWindow.rightPressed. Ignore only that unusable stale window.
+         * WurmTreeList can already be loaded by the native inventory GUI.
+         * A HookManager proxy remains installable in that state, while direct
+         * CtClass modification would fail and must not affect the other zones.
          */
-        CtClass targetWindow =
-                pool.getCtClass("com.wurmonline.client.renderer.gui.TargetWindow");
-        targetWindow.getDeclaredMethod("rightPressed").insertBefore(
-                "{ if (this.renderer == null) {"
-                        + " org.keybinder.wurm.KeybinderMod.targetWindowNotReady();"
-                        + " return; } }");
         HookManager.getInstance().registerHook(
                 "com.wurmonline.client.renderer.gui.WurmTreeList$TreeListPanel",
                 "leftPressed", "(III)V", () -> (proxy, method, args) -> {
@@ -654,10 +683,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    public static void targetWindowNotReady() {
-        LOGGER.fine("Ignored input for a TargetWindow without a renderer during reconnect");
-    }
-
     public static void afterPushTargetRecreated(SelectBar selectBar, PickableUnit unit) {
         if (selectBar == null || unit == null) return;
         try {
@@ -714,33 +739,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    private static void captureInventoryTarget(Object panel, int mouseX, int mouseY) {
-        try {
-            java.lang.reflect.Method getNodeAt = panel.getClass().getDeclaredMethod(
-                    "getNodeAt", int.class, int.class);
-            getNodeAt.setAccessible(true);
-            Object node = getNodeAt.invoke(panel, mouseX, mouseY);
-            if (node == null) return;
-            Field nodeItem = node.getClass().getDeclaredField("item");
-            nodeItem.setAccessible(true);
-            Object treeItem = nodeItem.get(node);
-            if (treeItem == null) return;
-            Field inventoryItem = findField(treeItem.getClass(), "item");
-            if (inventoryItem == null) return;
-            inventoryItem.setAccessible(true);
-            Object value = inventoryItem.get(treeItem);
-            if (!(value instanceof InventoryMetaItem)) return;
-            InventoryMetaItem item = (InventoryMetaItem) value;
-            boolean accepted = SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
-                    ? SELECTION.acceptNearbyType(item.getBaseName())
-                    : SELECTION.acceptExactObject(item.getId(), item.getDisplayName());
-            if (accepted)
-                deferUi(KeybinderMod::finishExactObjectSelection);
-        } catch (ReflectiveOperationException e) {
-            LOGGER.log(Level.WARNING, "Unable to capture inventory target", e);
-        }
-    }
-
     private static boolean captureExactToolbeltSlot(int zeroBasedSlot) {
         try {
             if (zeroBasedSlot < 0 || hud == null || hud.getToolBelt() == null) return false;
@@ -779,17 +777,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             LOGGER.log(Level.WARNING, "Unable to capture exact object from equipment", e);
             return false;
         }
-    }
-
-    private static Field findField(Class<?> type, String name) {
-        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-            try {
-                return current.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-                // Continue with the parent class.
-            }
-        }
-        return null;
     }
 
     private static Object withTarget(String target, Object proxy, java.lang.reflect.Method method, Object[] args)
@@ -847,7 +834,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     public static void rememberActionName(short actionId, String name) {
         if (name == null) return;
         String clean = name.trim();
-        if (!clean.isEmpty()) ACTION_NAMES.put(actionId, clean);
+        if (!clean.isEmpty()) {
+            String previous = ACTION_NAMES.put(actionId, clean);
+            if (!clean.equals(previous) && INSTANCE != null && INSTANCE.registry != null)
+                INSTANCE.registry.rememberActionName(actionId, clean);
+        }
     }
 
     public static void rememberPopupSubmenu(Object parentPopup, Object submenu, String label) {
@@ -866,7 +857,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         String cleanParent = stripActionNumber(parent.trim());
         String leaf = stripActionNumber(action.getName() == null ? "" : action.getName().trim());
         if (cleanParent.isEmpty() || leaf.isEmpty() || cleanParent.equalsIgnoreCase(leaf)) return;
-        ACTION_PATHS.put(action.getId(), cleanParent + " -> " + leaf);
+        String path = cleanParent + " -> " + leaf;
+        ACTION_PATHS.put(action.getId(), path);
+        if (INSTANCE != null && INSTANCE.registry != null)
+            INSTANCE.registry.rememberActionName(action.getId(), path);
     }
 
     private static String stripActionNumber(String value) {
@@ -1149,6 +1143,14 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 if (window != null) window.refresh();
                 return true;
             }
+            if ("keybinder_restore_originals".equalsIgnoreCase(command)) {
+                ensureRegistry();
+                if (data.length != 2 || !"CONFIRM".equals(data[1]))
+                    throw new IllegalArgumentException(
+                            Messages.text("command.usage.restore_originals"));
+                INSTANCE.restoreOriginalBindings();
+                return true;
+            }
         } catch (Throwable e) {
             EVENTS.error(e.getMessage() == null
                     ? Messages.text("error.command_failed") : e.getMessage(), e);
@@ -1291,6 +1293,33 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             EVENTS.error(Messages.text("error.import_reviewed"), e);
         }
     }
+
+    public static void captureInventoryTarget(Object panel, int mouseX, int mouseY) {
+        try {
+            if (SELECTION.getMode() != SelectionController.Mode.EXACT_OBJECT
+                    && SELECTION.getMode() != SelectionController.Mode.NEARBY_TYPE) return;
+            InventoryMetaItem item =
+                    KeybinderInventorySelectionBridge.itemAt(panel, mouseX, mouseY);
+            if (item == null) return;
+            boolean accepted = SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
+                    ? SELECTION.acceptNearbyType(item.getBaseName())
+                    : SELECTION.acceptExactObject(item.getId(), item.getDisplayName());
+            if (accepted) deferUi(KeybinderMod::finishExactObjectSelection);
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.WARNING, "Unable to resolve clicked inventory row", e);
+        }
+    }
+    @Override public void restoreOriginalBindings() {
+        try {
+            KeybindRegistry.RestoreResult result =
+                    registry.prepareForUninstall(ACCESS.console(hud));
+            EVENTS.info(Messages.text("event.restore_originals_complete",
+                    result.getRestored(), result.getRemoved(), result.getConflicts()));
+            if (window != null) window.refresh();
+        } catch (Exception e) {
+            EVENTS.error(Messages.text("error.restore_originals"), e);
+        }
+    }
     @Override public boolean isLegacyActionInstalled() { return LEGACY_ACTION.isInstalled(); }
     @Override public void startFromIntro() {
         deferUi(() -> {
@@ -1399,6 +1428,21 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         if (path != null) return path;
         String remembered = ACTION_NAMES.get(actionId);
         if (remembered != null) return remembered;
+        if (registry != null) {
+            for (KeybindRecord record : registry.snapshot()) {
+                for (org.keybinder.wurm.model.KeybindVariant variant : record.getVariants()) {
+                    for (org.keybinder.wurm.model.KeybindStep step : variant.getSteps()) {
+                        if (!(step instanceof ActionStep)) continue;
+                        ActionStep action = (ActionStep) step;
+                        if (action.getActionId() == actionId
+                                && !action.getLastKnownName().isEmpty()) {
+                            ACTION_NAMES.put(actionId, action.getLastKnownName());
+                            return action.getLastKnownName();
+                        }
+                    }
+                }
+            }
+        }
         PlayerAction direct = PlayerAction.getByActionId(actionId);
         if (direct != null && direct.getName() != null && !direct.getName().trim().isEmpty())
             return direct.getName();
@@ -1634,16 +1678,29 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     @Override public void beginCapture() {
         deferUi(() -> {
             try {
+                RECORDER.cancel();
+                SELECTION.cancel();
+                resetExactPress();
+                cancelSlotSelection();
+                hideSafely(captureWindow);
+                captureWindow = null;
                 RECORDER.start();
                 captureWindow = new KeybinderCaptureWindow(INSTANCE, editorWindow);
                 new HudIntegration(ACCESS).add(hud, captureWindow);
             } catch (Exception e) {
                 RECORDER.cancel();
+                hideSafely(captureWindow);
+                captureWindow = null;
                 EVENTS.error(Messages.text("error.capture_start"), e);
             }
         });
     }
-    @Override public void cancelCapture() { RECORDER.cancel(); }
+    @Override public void cancelCapture() {
+        RECORDER.cancel();
+        final KeybinderCaptureWindow captureToClose = captureWindow;
+        captureWindow = null;
+        deferUi(() -> hideSafely(captureToClose));
+    }
     @Override public ActionStep pollCapturedAction() {
         List<KeybindStep> captured = RECORDER.snapshot();
         if (captured.isEmpty()) return null;
@@ -1665,6 +1722,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         return Messages.text("event.describe_unknown");
     }
     @Override public void requestTargetSelection(String kind) {
+        RECORDER.cancel();
+        final KeybinderCaptureWindow captureToClose = captureWindow;
+        captureWindow = null;
+        deferUi(() -> hideSafely(captureToClose));
         if ("toolbelt".equals(kind)) {
             SELECTION.requestToolbelt();
             deferUi(() -> {

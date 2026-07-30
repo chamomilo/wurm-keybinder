@@ -1271,7 +1271,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             int value = Integer.parseInt(valueText);
             if (value < Short.MIN_VALUE || value > Short.MAX_VALUE)
                 throw new IllegalArgumentException(Messages.text("validation.action_id_range"));
-            return new ActionStep((short) value, TargetCodec.decode(selectedTarget));
+            return new ActionStep((short) value, TargetCodec.decode(selectedTarget),
+                    controller.getActionName((short) value));
         }
 
         private StepKind kind() {

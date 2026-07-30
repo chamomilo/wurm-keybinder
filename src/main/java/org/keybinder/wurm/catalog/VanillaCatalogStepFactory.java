@@ -37,6 +37,6 @@ public final class VanillaCatalogStepFactory {
             throw new IllegalArgumentException(Messages.text("validation.target_missing"));
         if (entry.isActivateTool())
             return new ActivateToolStep(selectedTarget);
-        return new ActionStep(entry.getActionId(), selectedTarget);
+        return new ActionStep(entry.getActionId(), selectedTarget, entry.getDisplayName());
     }
 }

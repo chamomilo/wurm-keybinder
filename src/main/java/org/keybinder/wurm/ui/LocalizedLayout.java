@@ -19,4 +19,12 @@ public final class LocalizedLayout {
         for (String option : options) width = Math.max(width, measurer.width(option));
         return width + horizontalPadding;
     }
+
+    /** Width of a fixed horizontal row, independent of its mutable GUI panel size. */
+    public static int horizontalRowWidth(int gap, int... componentWidths) {
+        int width = 0;
+        for (int componentWidth : componentWidths) width += Math.max(0, componentWidth);
+        if (componentWidths.length > 1) width += gap * (componentWidths.length - 1);
+        return width;
+    }
 }

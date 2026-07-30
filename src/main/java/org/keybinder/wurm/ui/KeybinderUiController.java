@@ -22,6 +22,7 @@ public interface KeybinderUiController {
     boolean isShadowRecording();
     void requestImport();
     void confirmImport();
+    void restoreOriginalBindings();
     boolean isLegacyActionInstalled();
     void disableLegacyAction();
     void startFromIntro();

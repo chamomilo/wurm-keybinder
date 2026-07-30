@@ -16,7 +16,10 @@ import org.gotti.wurmunlimited.modloader.ReflectionUtil;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 @SuppressWarnings("unchecked")
 public final class ClientAccess {
@@ -99,14 +102,39 @@ public final class ClientAccess {
                 hud.getWorld().getInventoryManager();
         InventoryMetaItem item = manager.getPlayerInventory().getItem(id);
         if (item != null) return item;
+        item = findInventoryItem(manager.getPlayerInventory().getRootItem(), id);
+        if (item != null) return item;
         item = manager.getPlayerEquipment().getItem(id);
+        if (item != null) return item;
+        item = findInventoryItem(manager.getPlayerEquipment().getRootItem(), id);
         if (item != null) return item;
         Map<Long, com.wurmonline.client.game.inventory.InventoryMetaWindowView> windows =
                 ReflectionUtil.getPrivateField(manager,
                         required(inventoryWindows, "inventory window lookup"));
         for (com.wurmonline.client.game.inventory.InventoryMetaWindowView window : windows.values()) {
+            if (window == null) continue;
             item = window.getItem(id);
             if (item != null) return item;
+            item = findInventoryItem(window.getRootItem(), id);
+            if (item != null) return item;
+        }
+        return null;
+    }
+
+    private static InventoryMetaItem findInventoryItem(InventoryMetaItem root, long id) {
+        if (root == null) return null;
+        ArrayDeque<InventoryMetaItem> pending = new ArrayDeque<InventoryMetaItem>();
+        Set<Long> visited = new HashSet<Long>();
+        pending.push(root);
+        while (!pending.isEmpty()) {
+            InventoryMetaItem item = pending.pop();
+            if (!visited.add(item.getId())) continue;
+            if (item.getId() == id) return item;
+            java.util.List<InventoryMetaItem> children = item.getChildren();
+            if (children == null) continue;
+            for (InventoryMetaItem child : children) {
+                if (child != null) pending.push(child);
+            }
         }
         return null;
     }

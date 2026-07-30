@@ -45,4 +45,10 @@ public class LocalizedLayoutTest {
         assertEquals(58, width);
         assertTrue(width >= measured.get("WW") + 30);
     }
+
+    @Test
+    public void horizontalRowWidthDependsOnlyOnChildrenAndGaps() {
+        assertEquals(78, LocalizedLayout.horizontalRowWidth(8, 10, 20, 32));
+        assertEquals(78, LocalizedLayout.horizontalRowWidth(8, 10, 20, 32));
+    }
 }
