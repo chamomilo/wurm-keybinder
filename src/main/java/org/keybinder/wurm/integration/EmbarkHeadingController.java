@@ -6,16 +6,11 @@ import com.wurmonline.client.renderer.cell.CreatureCellRenderable;
 import java.lang.reflect.Field;
 
 /**
- * Detects a new carrier and aligns the driver's horizontal view immediately
- * after the player tick which established controller ownership.
+ * Aligns the driver's horizontal view to the authoritative vehicle rotation
+ * supplied by the server to {@link PlayerObj#setController}.
  */
 public final class EmbarkHeadingController {
-    private static final int CONTROLLER_GRACE_TICKS = 2;
-
     public interface Environment {
-        Object getCarrier() throws Exception;
-        boolean isCarrierController() throws Exception;
-        float getCarrierYaw(Object carrier) throws Exception;
         void setPlayerHeading(float heading) throws Exception;
     }
 
@@ -26,9 +21,6 @@ public final class EmbarkHeadingController {
     private final FailureHandler failureHandler;
     private boolean configuredEnabled;
     private boolean failed;
-    private Object observedCarrier;
-    private Object pendingControllerCarrier;
-    private int pendingControllerChecks;
     private HeadingFields headingFields;
 
     public EmbarkHeadingController(boolean enabled, FailureHandler failureHandler) {
@@ -53,22 +45,7 @@ public final class EmbarkHeadingController {
     public void reset(boolean enabled) {
         configuredEnabled = enabled;
         failed = false;
-        clearCarrierState();
         headingFields = null;
-    }
-
-    public void cancel() {
-        clearCarrierState();
-    }
-
-    private void clearCarrierState() {
-        observedCarrier = null;
-        clearPendingController();
-    }
-
-    private void clearPendingController() {
-        pendingControllerCarrier = null;
-        pendingControllerChecks = 0;
     }
 
     public boolean isActive() {
@@ -79,74 +56,27 @@ public final class EmbarkHeadingController {
         fail(failure);
     }
 
-    public void tick(Environment environment) {
+    public void align(Environment environment, float vehicleRotation) {
         if (!isActive() || environment == null) return;
         try {
-            Object carrier = environment.getCarrier();
-            update(environment, carrier);
+            if (Float.isNaN(vehicleRotation) || Float.isInfinite(vehicleRotation))
+                throw new IllegalArgumentException(
+                        "Vehicle rotation is not finite: " + vehicleRotation);
+            environment.setPlayerHeading(normalize(vehicleRotation));
         } catch (Throwable failure) {
             fail(failure);
         }
     }
 
-    public void tick(final PlayerObj player) {
+    public void align(final PlayerObj player, float vehicleRotation) {
         final HeadingFields fields = headingFields;
         if (!isActive() || player == null || fields == null) return;
-        tick(new Environment() {
-            @Override public Object getCarrier() {
-                return player.getCarrierCreature();
-            }
-
-            @Override public boolean isCarrierController() {
-                return player.isCarrierController();
-            }
-
-            @Override public float getCarrierYaw(Object carrier) {
-                return ((CreatureCellRenderable) carrier).getYawValue(1.0f);
-            }
-
+        align(new Environment() {
             @Override public void setPlayerHeading(float heading)
                     throws IllegalAccessException {
                 fields.setHeading(player, heading);
             }
-        });
-    }
-
-    private void update(Environment environment, Object carrier) throws Exception {
-        if (carrier == null) {
-            cancel();
-            return;
-        }
-
-        if (carrier != observedCarrier) {
-            observedCarrier = carrier;
-            clearPendingController();
-            if (environment.isCarrierController()) {
-                align(environment, carrier);
-            } else {
-                // Some server flows attach first and grant controller status
-                // in a following update. Keep a short grace period without
-                // ever turning a carrier that remains a passenger seat.
-                pendingControllerCarrier = carrier;
-                pendingControllerChecks = CONTROLLER_GRACE_TICKS;
-            }
-            return;
-        }
-        if (carrier == pendingControllerCarrier) {
-            if (environment.isCarrierController()) {
-                clearPendingController();
-                align(environment, carrier);
-            } else if (--pendingControllerChecks <= 0) {
-                clearPendingController();
-            }
-        }
-    }
-
-    private void align(Environment environment, Object carrier) throws Exception {
-        float yaw = environment.getCarrierYaw(carrier);
-        if (Float.isNaN(yaw) || Float.isInfinite(yaw))
-            throw new IllegalArgumentException("Carrier yaw is not finite: " + yaw);
-        environment.setPlayerHeading(normalize(yaw));
+        }, vehicleRotation);
     }
 
     static float normalize(float heading) {
@@ -157,7 +87,6 @@ public final class EmbarkHeadingController {
     private void fail(Throwable failure) {
         if (failed) return;
         failed = true;
-        clearPendingController();
         if (failureHandler != null) failureHandler.onFailure(failure);
     }
 

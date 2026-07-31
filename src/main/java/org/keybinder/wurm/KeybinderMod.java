@@ -2,6 +2,7 @@ package org.keybinder.wurm;
 
 import com.wurmonline.client.console.WurmConsole;
 import com.wurmonline.client.WurmClientBase;
+import com.wurmonline.client.game.PlayerObj;
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.PickableUnit;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
@@ -88,7 +89,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.6.0";
+    public static final String VERSION = "0.6.1";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -186,6 +187,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         installCapability("multi-purpose long press", () -> hookLongPress(pool));
         installCapability("mouse wheel keybinds", () -> hookMouseWheel(pool));
         installCapability("Smart Improve messages", () -> hookImproveMessages(pool));
+        installCapability("embark heading", () -> hookEmbarkHeading(pool));
         installCapability("HUD lifecycle", () -> hookHud(pool));
         installCapability("action queue occupancy", () -> hookActionQueue(pool));
         installCapability("shadow recording", () -> hookRecording(pool));
@@ -330,29 +332,22 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.HeadsUpDisplay", "gameTick", "()V",
                 () -> (proxy, method, args) -> {
                     Object result = method.invoke(proxy, args);
-                    tickEmbarkHeading((HeadsUpDisplay) proxy);
                     drainUiQueue();
                     return result;
                 });
     }
 
-    private static void tickEmbarkHeading(HeadsUpDisplay currentHud) {
+    private void hookEmbarkHeading(ClassPool pool) throws Exception {
+        CtClass player = pool.getCtClass("com.wurmonline.client.game.PlayerObj");
+        player.getMethod("setController",
+                "(Lcom/wurmonline/client/renderer/cell/CreatureCellRenderable;FFFFFFFB)V")
+                .insertAfter(
+                        "org.keybinder.wurm.KeybinderMod.alignViewAfterEmbark(this, $8);");
+    }
+
+    public static void alignViewAfterEmbark(PlayerObj player, float vehicleRotation) {
         EmbarkHeadingController controller = embarkHeading;
-        if (controller == null) return;
-        try {
-            // A stale HUD can still receive a final tick after replacement; it
-            // must not cancel state already initialized for the new HUD.
-            if (currentHud == null || currentHud != hud) return;
-            if (currentHud.getWorld() == null) {
-                controller.cancel();
-                return;
-            }
-            controller.tick(currentHud.getWorld().getPlayer());
-        } catch (Throwable failure) {
-            // EmbarkHeadingController contains its own fail-open boundary. This
-            // outer guard also protects the game tick from HUD/world races.
-            controller.disableAfterFailure(failure);
-        }
+        if (controller != null) controller.align(player, vehicleRotation);
     }
 
     public static void deferUi(Runnable operation) {
@@ -977,7 +972,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         PUSH_SELECTION.clear();
         resetExactPress();
         clearLongPress();
-        if (embarkHeading != null) embarkHeading.cancel();
         UI_AFTER_TICK.clear();
         hideOnHud(oldHud, captureWindow);
         hideOnHud(oldHud, conflictWindow);

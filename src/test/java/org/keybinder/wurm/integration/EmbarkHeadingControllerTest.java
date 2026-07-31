@@ -8,109 +8,31 @@ import static org.junit.Assert.assertTrue;
 
 public class EmbarkHeadingControllerTest {
     @Test
-    public void centersViewForDriverOnFirstObservedTick() {
+    public void usesAuthoritativeServerVehicleRotation() {
         FailureCounter failures = new FailureCounter();
         EmbarkHeadingController controller = new EmbarkHeadingController(true, failures);
         FakeEnvironment environment = new FakeEnvironment();
-        environment.carrier = new Object();
-        environment.controller = true;
-        environment.yaw = -30.0f;
 
-        controller.tick(environment);
+        controller.align(environment, 90.0f);
 
         assertEquals(1, environment.writes);
-        assertEquals(330.0f, environment.heading, 0.0f);
+        assertEquals(90.0f, environment.heading, 0.0f);
         assertEquals(0, failures.count);
     }
 
     @Test
-    public void passengerIsNotTurned() {
+    public void normalizesServerVehicleRotation() {
         EmbarkHeadingController controller =
                 new EmbarkHeadingController(true, new FailureCounter());
         FakeEnvironment environment = new FakeEnvironment();
-        environment.carrier = new Object();
-        environment.controller = false;
 
-        tick(controller, environment, 3);
-
-        assertEquals(0, environment.writes);
-    }
-
-    @Test
-    public void doesNotDelayAfterCarrierAppears() {
-        EmbarkHeadingController controller =
-                new EmbarkHeadingController(true, new FailureCounter());
-        FakeEnvironment environment = new FakeEnvironment();
-        environment.carrier = new Object();
-        environment.controller = true;
-
-        controller.tick(environment);
-
+        controller.align(environment, -30.0f);
+        assertEquals(330.0f, environment.heading, 0.0f);
         assertEquals(1, environment.writes);
-    }
 
-    @Test
-    public void alignsWhenControllerStatusArrivesOneTickAfterAttach() {
-        EmbarkHeadingController controller =
-                new EmbarkHeadingController(true, new FailureCounter());
-        FakeEnvironment environment = new FakeEnvironment();
-        environment.carrier = new Object();
-        environment.controller = false;
-
-        controller.tick(environment);
-        assertEquals(0, environment.writes);
-        environment.controller = true;
-        controller.tick(environment);
-
-        assertEquals(1, environment.writes);
-    }
-
-    @Test
-    public void disembarkCancelsPendingTurn() {
-        EmbarkHeadingController controller =
-                new EmbarkHeadingController(true, new FailureCounter());
-        FakeEnvironment environment = new FakeEnvironment();
-        environment.carrier = new Object();
-        environment.controller = false;
-
-        controller.tick(environment);
-        environment.carrier = null;
-        tick(controller, environment, 3);
-
-        assertEquals(0, environment.writes);
-    }
-
-    @Test
-    public void doesNotTurnAgainForSameCarrier() {
-        EmbarkHeadingController controller =
-                new EmbarkHeadingController(true, new FailureCounter());
-        FakeEnvironment environment = new FakeEnvironment();
-        environment.carrier = new Object();
-        environment.controller = true;
-
-        tick(controller, environment, 8);
-
-        assertEquals(1, environment.writes);
-    }
-
-    @Test
-    public void carrierChangeCancelsOldPendingAndSchedulesNewCarrier() {
-        EmbarkHeadingController controller =
-                new EmbarkHeadingController(true, new FailureCounter());
-        FakeEnvironment environment = new FakeEnvironment();
-        Object first = new Object();
-        Object second = new Object();
-        environment.carrier = first;
-        environment.controller = true;
-        environment.yaw = 10.0f;
-
-        controller.tick(environment);
-        environment.carrier = second;
-        environment.yaw = 725.0f;
-        controller.tick(environment);
-
-        assertEquals(2, environment.writes);
+        controller.align(environment, 725.0f);
         assertEquals(5.0f, environment.heading, 0.0f);
+        assertEquals(2, environment.writes);
     }
 
     @Test
@@ -118,10 +40,8 @@ public class EmbarkHeadingControllerTest {
         EmbarkHeadingController controller =
                 new EmbarkHeadingController(false, new FailureCounter());
         FakeEnvironment environment = new FakeEnvironment();
-        environment.carrier = new Object();
-        environment.controller = true;
 
-        tick(controller, environment, 5);
+        controller.align(environment, 45.0f);
 
         assertEquals(0, environment.writes);
         assertFalse(controller.isActive());
@@ -134,7 +54,9 @@ public class EmbarkHeadingControllerTest {
         FakeEnvironment environment = new FakeEnvironment();
         environment.failure = new IllegalStateException("broken client access");
 
-        tick(controller, environment, 3);
+        controller.align(environment, 10.0f);
+        controller.align(environment, 20.0f);
+        controller.align(environment, 30.0f);
 
         assertEquals(1, failures.count);
         assertFalse(controller.isActive());
@@ -147,22 +69,28 @@ public class EmbarkHeadingControllerTest {
         EmbarkHeadingController controller = new EmbarkHeadingController(true, failures);
         FakeEnvironment environment = new FakeEnvironment();
         environment.failure = new IllegalStateException("broken client access");
-        controller.tick(environment);
+        controller.align(environment, 10.0f);
         assertFalse(controller.isActive());
 
         environment.failure = null;
-        environment.carrier = new Object();
-        environment.controller = true;
         controller.reset(true);
-        controller.tick(environment);
+        controller.align(environment, 20.0f);
 
         assertTrue(controller.isActive());
         assertEquals(1, environment.writes);
     }
 
-    private static void tick(EmbarkHeadingController controller,
-                             FakeEnvironment environment, int count) {
-        for (int i = 0; i < count; i++) controller.tick(environment);
+    @Test
+    public void nonFiniteVehicleRotationFailsOpen() {
+        FailureCounter failures = new FailureCounter();
+        EmbarkHeadingController controller = new EmbarkHeadingController(true, failures);
+        FakeEnvironment environment = new FakeEnvironment();
+
+        controller.align(environment, Float.NaN);
+
+        assertEquals(1, failures.count);
+        assertEquals(0, environment.writes);
+        assertFalse(controller.isActive());
     }
 
     private static final class FailureCounter
@@ -176,29 +104,12 @@ public class EmbarkHeadingControllerTest {
 
     private static final class FakeEnvironment
             implements EmbarkHeadingController.Environment {
-        private Object carrier;
-        private boolean controller;
-        private float yaw;
         private float heading;
         private int writes;
         private RuntimeException failure;
 
-        @Override public Object getCarrier() {
-            if (failure != null) throw failure;
-            return carrier;
-        }
-
-        @Override public boolean isCarrierController() {
-            return controller;
-        }
-
-        @Override public float getCarrierYaw(Object requestedCarrier) {
-            if (requestedCarrier != carrier)
-                throw new IllegalStateException("stale carrier");
-            return yaw;
-        }
-
         @Override public void setPlayerHeading(float value) {
+            if (failure != null) throw failure;
             heading = value;
             writes++;
         }
