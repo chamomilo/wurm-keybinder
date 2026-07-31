@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.5.4"
+version "0.6.0"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -36,14 +36,14 @@ jar {
 task verifyVersion {
     doFirst {
         def expected = project.version.toString()
-        if (!(expected ==~ /0\.5\.\d+/)) {
-            throw new GradleException("Keybinder release version must match 0.5.x, got ${expected}")
+        if (!(expected ==~ /0\.\d+\.\d+/)) {
+            throw new GradleException("Keybinder release version must match 0.x.y, got ${expected}")
         }
         def metadata = [
             [file('mods/keybinder.properties'), /(?m)^version=(.+)$/, 'properties'],
             [file('src/main/java/org/keybinder/wurm/KeybinderMod.java'),
              /VERSION = "([^"]+)"/, 'KeybinderMod'],
-            [file('readme.md'), /Keybinder (0\.5\.\d+)/, 'readme']
+            [file('readme.md'), /Keybinder (0\.\d+\.\d+)/, 'readme']
         ]
         metadata.each { item ->
             def matcher = (item[0].getText('UTF-8') =~ item[1])

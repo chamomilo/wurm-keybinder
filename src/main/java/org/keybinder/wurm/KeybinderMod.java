@@ -30,7 +30,9 @@ import org.keybinder.wurm.command.ImproveRequirementTracker;
 import org.keybinder.wurm.command.PushSelectionRetention;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.integration.ClientAccess;
+import org.keybinder.wurm.integration.EmbarkHeadingController;
 import org.keybinder.wurm.integration.HudIntegration;
+import org.keybinder.wurm.integration.ServerNameResolver;
 import org.keybinder.wurm.i18n.Language;
 import org.keybinder.wurm.i18n.LanguageChangePolicy;
 import org.keybinder.wurm.i18n.LocalizationSettings;
@@ -86,7 +88,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.5.4";
+    public static final String VERSION = "0.6.0";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -114,8 +116,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             new CustomActionsMigrationService();
     private static final ImprovedImproveMigrationService LEGACY_IMPROVE =
             new ImprovedImproveMigrationService();
-    private static final org.keybinder.wurm.integration.ServerNameResolver SERVER_NAMES =
-            new org.keybinder.wurm.integration.ServerNameResolver();
+    private static final ServerNameResolver SERVER_NAMES = new ServerNameResolver();
+    private static EmbarkHeadingController embarkHeading;
     private static final ModPropertiesStore MOD_PROPERTIES = new ModPropertiesStore();
     private static ActionExecutor EXECUTOR;
     private static final ImproveRequirementTracker IMPROVE_REQUIREMENTS = new ImproveRequirementTracker();
@@ -138,7 +140,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static volatile KeybinderLegacyWindow legacyWindow;
     private static volatile KeybinderMultiSelectorWindow multiSelectorWindow;
     private static final LongPressController LONG_PRESS = new LongPressController();
-    private static final long LONG_PRESS_NANOS = 1_000_000_000L;
+    private static final long LONG_PRESS_NANOS = 200_000_000L;
     private static volatile boolean showActionIds;
     private static volatile boolean toolbeltOpenedForSelection;
     private static volatile boolean equipmentOpenedForSelection;
@@ -158,6 +160,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static KeybindConflict pendingConflict;
     private Properties properties = new Properties();
     private volatile boolean skipIntro;
+    private volatile boolean centerViewAfterEmbark = true;
     private volatile String language = Language.ENGLISH.getCode();
     private volatile String pendingLanguage;
 
@@ -168,6 +171,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     public void configure(Properties properties) {
         this.properties = properties == null ? new Properties() : properties;
         skipIntro = Boolean.parseBoolean(this.properties.getProperty("skipIntroPage", "false"));
+        centerViewAfterEmbark = Boolean.parseBoolean(
+                this.properties.getProperty("centerViewAfterEmbark", "true"));
         language = LocalizationSettings.load(this.properties);
         Messages.select(language);
     }
@@ -325,9 +330,29 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.HeadsUpDisplay", "gameTick", "()V",
                 () -> (proxy, method, args) -> {
                     Object result = method.invoke(proxy, args);
+                    tickEmbarkHeading((HeadsUpDisplay) proxy);
                     drainUiQueue();
                     return result;
                 });
+    }
+
+    private static void tickEmbarkHeading(HeadsUpDisplay currentHud) {
+        EmbarkHeadingController controller = embarkHeading;
+        if (controller == null) return;
+        try {
+            // A stale HUD can still receive a final tick after replacement; it
+            // must not cancel state already initialized for the new HUD.
+            if (currentHud == null || currentHud != hud) return;
+            if (currentHud.getWorld() == null) {
+                controller.cancel();
+                return;
+            }
+            controller.tick(currentHud.getWorld().getPlayer());
+        } catch (Throwable failure) {
+            // EmbarkHeadingController contains its own fail-open boundary. This
+            // outer guard also protects the game tick from HUD/world races.
+            controller.disableAfterFailure(failure);
+        }
     }
 
     public static void deferUi(Runnable operation) {
@@ -900,6 +925,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 INSTANCE.activatePendingLanguageForHudReplacement();
             ACCESS.setup();
             hud = newHud;
+            embarkHeading.initializeClientAccess(INSTANCE.centerViewAfterEmbark);
             refreshCreationContext();
             EVENTS.attach(newHud);
             RECORDER.cancel();
@@ -951,6 +977,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         PUSH_SELECTION.clear();
         resetExactPress();
         clearLongPress();
+        if (embarkHeading != null) embarkHeading.cancel();
         UI_AFTER_TICK.clear();
         hideOnHud(oldHud, captureWindow);
         hideOnHud(oldHud, conflictWindow);
@@ -986,6 +1013,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static synchronized void ensureRuntimeServices() {
         if (ACCESS != null) return;
         ACCESS = new ClientAccess();
+        embarkHeading = new EmbarkHeadingController(false,
+                failure -> LOGGER.log(Level.WARNING,
+                        "Center-view-after-embark integration failed open and is disabled "
+                                + "until the next HUD initialization", failure));
         EXECUTOR = new ActionExecutor(ACCESS, INSTANCE::getActionName, PUSH_SELECTION);
         KEYBIND_EXECUTOR = new KeybindExecutionService(
                 EXECUTOR, ACCESS, EVENTS, IMPROVE_REQUIREMENTS, KeybinderMod::deferUi);

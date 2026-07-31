@@ -16,6 +16,8 @@ import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.StepKind;
+import org.keybinder.wurm.model.TargetKind;
+import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.ui.KeybindEditorController;
@@ -65,7 +67,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             "", "SHIFT", "CTRL", "ALT", "CTRL+SHIFT", "CTRL+ALT", "SHIFT+ALT",
             "CTRL+SHIFT+ALT"
     };
-    private static final int MAX_VARIANTS = 10;
+    private static final int MAX_VARIANTS = 15;
 
     private static String[] stepTypeOptions() {
         List<VanillaKeybindCatalog.Category> categories = VANILLA_CATALOG.getCategories();
@@ -420,6 +422,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     || "tiles".equals(selected) || "exact object".equals(selected)
                     || "nearby by type".equals(selected)) {
                 pendingTargetRow = row;
+                if ("toolbelt".equals(selected)) {
+                    // A concrete @tbN value belongs only to the completed
+                    // one-shot selection. Clear it before every new request so
+                    // choosing "Toolbelt slot..." again cannot silently retain
+                    // and compile the previously selected slot. Keep the menu
+                    // selection visible while the click capture is pending,
+                    // but use a valid unresolved model token for previews.
+                    row.selectedTarget = "unresolved";
+                }
                 controller.requestTargetSelection(selected);
             } else {
                 row.selectedTarget = "nearby".equals(selected) ? "@nearby4" : selected;
@@ -832,8 +843,11 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 try {
                     previewSteps.add(row.toStep());
                 } catch (RuntimeException ignored) {
+                    // Editor rows can be temporarily incomplete while a
+                    // one-shot target picker is open. Queue preview must never
+                    // decode a menu label such as "toolbelt" on the HUD tick.
                     previewSteps.add(new ActionStep((short) 0,
-                            TargetCodec.decode(row.selectedTarget)));
+                            TargetSpec.simple(TargetKind.UNRESOLVED)));
                 }
             }
             KeybindRecord preview = new KeybindRecord("preview", "Preview", "", previewSteps);

@@ -30,6 +30,13 @@ public class TargetCodecTest {
         assertEquals("Current ride", TargetCodec.display(target));
     }
 
+    @Test
+    public void roundTripsPendingUnresolvedTarget() {
+        TargetSpec target = TargetCodec.decode("unresolved");
+        assertEquals(TargetKind.UNRESOLVED, target.getKind());
+        assertEquals("unresolved", TargetCodec.encode(target));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsToolbeltSlotOutsideRange() {
         TargetCodec.decode("@tb11");
