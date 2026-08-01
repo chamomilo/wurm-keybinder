@@ -6,60 +6,68 @@
 
 Tired of managing keybinds through console commands, juggling toolbelt setup
 files, and remembering dozens of keys? Keybinder replaces all of that with one
-clear in-game window. All your keybinds are visible in one place, where you can
-create, edit, disable, or delete them without digging through configuration
-files or memorizing commands.
+clear in-game window. It is a convenient keybind manager with many QOL improvements.
+All your keybinds are visible in one place, where you can create, edit, disable, or delete them
+without using the console, digging through configuration files, or memorizing commands.
 
-A single key can perform an entire routine. Start recording, carry out the
-actions normally, and Keybinder will remember them for you. Want a key for
-bashing stumps or smelting items? Easy. Want to chop anything in your kitchen
-with just one key? Easy. You can even assign several keybinds to the same key
-and switch between them in-game with a one-second long press. Keep all your
-favorite actions on one key and select the one you need without becoming a
-keyboard pianist.
+Start with a single key binding. Let Keybinder capture your action and convert it into a keybind.
+Add target selection like an exact object, nearby item, or toolbelt slot. Add tool selection to the same keybind.
+So, with your keypress you do it all - select the tool, target, and do the action.
+Then, add more actions to the same keybind - "select rake"+"farm hovered tile 7x7"+"harvest and replant 7x7 over hovered tile".
+Enjoy a complex action by pressing one key. Nice?
 
-Keybinder even makes the mouse wheel useful: bind it to actions such as moving
-and rotating objects. Less console work, less clicking, fewer keys to remember:
-just press a key or turn the wheel and get back to playing.
+Then, add an alternative keybind to the same key. Repeat 13 times - now you have 15 keybinds on 1 key. Switch by long press.
+Dice meat - mince meat - chop veggie - chop herb - all on one key, easily switched in 1 second. Nice? It's called Multi-keybind.
+
+Then, bind Mouse wheel up and down with push and pull commands. Feel like a telekinetic mage :)
+Then bind embark to Tab, disembark to Shift-Tab. Super convenient. When embarking, you will face your horses automatically. Nice?
+
+Get rid of a 10-year-old mod with complex programming and console usage.
+The future has come, and it's convenient.
 
 ## What's new in 0.6.2
 
 - Fixed **Nearby by type** targets reverting to **Hovered** when a keybind was
   saved immediately after selecting an object.
-- Smart Improve can now find the required tool inside a backpack or another
-  container placed in a toolbelt slot.
-- Smart Improve processes inventory targets in a predictable order without
-  changing their visible order in Wurm and ignores duplicate target entries.
+- Smart Improve can now find the required tool or material inside a backpack or another
+  container placed in a toolbelt slot. Yes, now you can have a sack, backpack, or huge tub called "imping wood item" in
+  toolbelt slot 1, and it's enough. Keep related mats and tools inside. C for convenience.
+- Smart Improve processes inventory targets in a predictable order - if you selected several items,
+  one by one or in a stack, it will start with the item of the lowest ql.
 
 ## Previously in 0.6.1
 
 - Target selection is now more reliable across inventories, containers, the
   toolbelt, equipment, and the game world. Keybinder can select a tool from
-  your backpack automatically.
+  your toolbelt, backpack, inventory or outside easily.
 - Added **Import Wurm keybinds** and **Prepare mod removal** controls to the
   main window. Keybinder can restore imported commands without overwriting
   keys that now belong to something else.
-- Movement, camera, and essential HUD controls are excluded from import, so
-  Keybinder does not take ownership of Wurm's fundamental controls.
+- Vanilla keybinds like movement, camera, and essential HUD controls are excluded
+  from import, so no mess inside Keybinder list of keybinds.
 - Complete English and Brazilian Portuguese localization with a persistent
   Wurm-styled language selector and a safe English fallback. More languages
-  are welcome!
-- There are now two ways to add an action: perform it and let Keybinder record
-  it, or choose it from the complete list of vanilla actions.
-- Keybinder checks the available action queue before it starts. If the entire
-  keybind cannot fit, nothing is sent. Empty your queue and press the key again.
-- Repeated `Push` and `Push gently` actions retain the selected object across
-  every server-side recreation. Finally, you can push, push, push, and keep
-  going.
-- An unavailable target skips only its own step and writes the reason to the
-  system Event tab. The remaining steps continue in their saved order.
-- Missing `nearby` targets are skipped silently. If a target is visible but
-  outside the action range, Keybinder writes a useful "come closer" message to
-  the Event tab.
+  are welcome! Ask me for help with this.
+- There are now 3 ways to add an action: perform it and let Keybinder record
+  it, choose it from the complete list of vanilla actions, or enter your console command directly.
+- Keybinder is server-friendly. It checks the remaining slots in action queue on key press. If the entire
+  keybind cannot fit into the remaining queue, it will tell you "sorry, you are still too busy, push it a bit later".
+  And nothing will go to server this time.
+- Sometimes, with complex keybinds, some of the commands cannot find the proper target on keypress.
+  Again, server-friendly. Keybinder will just skip those exact steps and send nothing to server. It's safe.
+  "chop tree"+"bash nearby stump"+"chop up felled tree"+"pick up any log"+"pick up scraps" = E key for tree chopper.
+  Like it? Give it a try!
+- Even more server-friendly. If, for instance, you have Push on a keybind and try to push your horse :)
+  What will happen? Answer - nothing will happen. And the command will not go to the server. Keybinder will even
+  notify you about your tragic fault in Event tab.
+- There was a bug in Wurm with `Push` and `Push gently` commands - after them, the server deselects your target.
+  Inconvenient, I know. Fixed. Now you are a true Anakin, a telekinetic guy. Try it yourself.
+- All "nearby" targets are now smart. They check the surroundings, keeping in mind the commands which you are using.
+  Some commands have very short range, some very long. If a target is close, but not close enough,
+  Keybinder will confirm you are doing well but need to come closer.
 - Your current mount or vehicle can now be used as a target. Want to disembark
   or open a cart hold with one key? Easy.
-- All your accounts can use the same keybind list.
-- Embarking on a vehicle turns your view to face the same direction as the vehicle.
+- All your alts use the same keybinds list. What one created, all can use. It's so convenient!
 
 ## Installation
 
@@ -71,8 +79,7 @@ just press a key or turn the wheel and get back to playing.
 
 ## Runtime commands
 
-You do not need these, but if you still prefer the console, they are available:
-
+You do not need these, but if you can't live without the console, they are available:
 ```text
 keybinder_run <managed-id>
 keybinder_list [commands]
