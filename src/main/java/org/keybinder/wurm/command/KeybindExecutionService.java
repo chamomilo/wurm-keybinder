@@ -14,12 +14,16 @@ import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.model.ItemSelectorKind;
+import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.recording.ShadowRecorder;
 import org.keybinder.wurm.queue.QueueCapacityPreflight;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.IntSupplier;
 
 public final class KeybindExecutionService {
@@ -31,7 +35,6 @@ public final class KeybindExecutionService {
     private final SmartImproveExecutor improve;
     private final ClientAccess access;
     private final EventLogger log;
-    private final ExecutionPlanner planner = new ExecutionPlanner();
 
     public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log) {
         this(actions, access, log, new ImproveRequirementTracker(), Runnable::run);
@@ -63,8 +66,10 @@ public final class KeybindExecutionService {
             throw new IllegalStateException(
                     Messages.text("execution.recursive", record.getName()));
         try {
-            ExecutionPlan plan = planner.plan(record.getKeybindSteps(),
-                    step -> runtimeStepCost(step, hud));
+            int occupied = occupiedQueueSlots == null ? 0
+                    : Math.max(0, occupiedQueueSlots.getAsInt());
+            int free = Math.max(0, queueLimit - occupied);
+            ExecutionPlan plan = planWithinQueue(record.getKeybindSteps(), hud, free);
             for (ExecutionPlan.Entry entry : plan.getEntries()) {
                 if (!entry.isSkipped()) continue;
                 Throwable failure = entry.getSkippedBy();
@@ -73,8 +78,7 @@ public final class KeybindExecutionService {
                 if (failure instanceof StepUnavailableException) log.warning(message);
                 else log.error(message, failure);
             }
-            QueueCapacityPreflight.requireFits(plan.getQueueCost(), queueLimit,
-                    occupiedQueueSlots == null ? 0 : occupiedQueueSlots.getAsInt());
+            QueueCapacityPreflight.requireFits(plan.getQueueCost(), queueLimit, occupied);
 
             ShadowRecorder.enterInternal();
             try {
@@ -83,7 +87,7 @@ public final class KeybindExecutionService {
                     int index = entry.getIndex();
                     KeybindStep step = entry.getStep();
                     try {
-                        executeStep(step, hud);
+                        executeStep(step, hud, entry.getQueueCost());
                     } catch (StepUnavailableException unavailable) {
                         log.warning(skipMessage(index, step, unavailable.getMessage()));
                     } catch (RuntimeException failure) {
@@ -96,9 +100,95 @@ public final class KeybindExecutionService {
                 ShadowRecorder.exitInternal();
             }
         } finally {
+            improve.clearPrepared();
             ACTIVE.get().remove(record.getId());
             if (ACTIVE.get().isEmpty()) ACTIVE.remove();
         }
+    }
+
+    private ExecutionPlan planWithinQueue(List<KeybindStep> steps, HeadsUpDisplay hud,
+                                          int freeQueueSlots) {
+        List<ExecutionPlan.Entry> entries = new ArrayList<ExecutionPlan.Entry>(steps.size());
+        int nonImproveCost = 0;
+        for (int index = 0; index < steps.size(); index++) {
+            KeybindStep step = steps.get(index);
+            if (step instanceof SmartImproveStep) {
+                entries.add(null);
+                continue;
+            }
+            try {
+                int cost = runtimeStepCost(step, hud);
+                if (cost < 0) throw new IllegalStateException("Negative queue cost");
+                entries.add(new ExecutionPlan.Entry(index, step, cost, null));
+                nonImproveCost += cost;
+            } catch (Exception failure) {
+                entries.add(new ExecutionPlan.Entry(index, step, 0, failure));
+            }
+        }
+        ExecutionPlan nonImprovePlan = capDynamicFanOutWithinQueue(
+                new ExecutionPlan(entries, nonImproveCost), freeQueueSlots);
+        entries = new ArrayList<ExecutionPlan.Entry>(nonImprovePlan.getEntries());
+        nonImproveCost = nonImprovePlan.getQueueCost();
+        int remaining = Math.max(0, freeQueueSlots - nonImproveCost);
+        int improveCost = 0;
+        for (int index = 0; index < steps.size(); index++) {
+            KeybindStep step = steps.get(index);
+            if (!(step instanceof SmartImproveStep)) continue;
+            try {
+                int cost = improve.prepareWithinBudget((SmartImproveStep) step, hud, remaining);
+                entries.set(index, new ExecutionPlan.Entry(index, step, cost, null));
+                remaining = Math.max(0, remaining - cost);
+                improveCost += cost;
+            } catch (Exception failure) {
+                entries.set(index, new ExecutionPlan.Entry(index, step, 0, failure));
+            }
+        }
+        return new ExecutionPlan(entries, nonImproveCost + improveCost);
+    }
+
+    /**
+     * An automatic Nearby or filtered Hover action is one keybind step that can
+     * expand to many server queue entries. Preserve at least one target per available
+     * fan-out step so the keybind itself remains atomic, then spend the remaining
+     * queue capacity on additional targets in step order. Targets beyond that budget
+     * are intentionally silent; only failure of the minimum keybind itself reaches
+     * the ordinary one-line queue-capacity warning.
+     */
+    static ExecutionPlan capDynamicFanOutWithinQueue(ExecutionPlan plan,
+                                                      int freeQueueSlots) {
+        int minimumCost = 0;
+        for (ExecutionPlan.Entry entry : plan.getEntries()) {
+            if (entry == null || entry.isSkipped()) continue;
+            minimumCost += isBudgetedFanOut(entry.getStep()) && entry.getQueueCost() > 0
+                    ? 1 : entry.getQueueCost();
+        }
+        boolean minimumFits = minimumCost <= freeQueueSlots;
+        int extraCapacity = minimumFits ? freeQueueSlots - minimumCost : 0;
+        int cappedCost = 0;
+        List<ExecutionPlan.Entry> capped =
+                new ArrayList<ExecutionPlan.Entry>(plan.getEntries().size());
+        for (ExecutionPlan.Entry entry : plan.getEntries()) {
+            if (entry == null || entry.isSkipped() || !isBudgetedFanOut(entry.getStep())
+                    || entry.getQueueCost() <= 0) {
+                capped.add(entry);
+                if (entry != null) cappedCost += entry.getQueueCost();
+                continue;
+            }
+            int extraTargets = minimumFits
+                    ? Math.min(entry.getQueueCost() - 1, extraCapacity) : 0;
+            int allowedTargets = 1 + extraTargets;
+            extraCapacity -= extraTargets;
+            capped.add(new ExecutionPlan.Entry(entry.getIndex(), entry.getStep(),
+                    allowedTargets, null));
+            cappedCost += allowedTargets;
+        }
+        return new ExecutionPlan(capped, cappedCost);
+    }
+
+    private static boolean isBudgetedFanOut(KeybindStep step) {
+        if (!(step instanceof ActionStep)) return false;
+        TargetKind target = ((ActionStep) step).getTarget().getKind();
+        return target == TargetKind.HOVER_TYPE || target == TargetKind.NEARBY;
     }
 
     private int runtimeStepCost(KeybindStep step, HeadsUpDisplay hud)
@@ -115,9 +205,10 @@ public final class KeybindExecutionService {
         return 0;
     }
 
-    private void executeStep(KeybindStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
+    private void executeStep(KeybindStep step, HeadsUpDisplay hud, int plannedQueueCost)
+            throws ReflectiveOperationException {
         if (step instanceof ActionStep) {
-            actions.executeStep((ActionStep) step, hud);
+            actions.executeStep((ActionStep) step, hud, plannedQueueCost);
         } else if (step instanceof ActivateToolStep) {
             activate((ActivateToolStep) step, hud);
         } else if (step instanceof SmartImproveStep) {
@@ -201,6 +292,11 @@ public final class KeybindExecutionService {
     private String describe(KeybindStep step) {
         if (step instanceof ActionStep) {
             ActionStep action = (ActionStep) step;
+            if (action.getSource().getKind() != ItemSelectorKind.CURRENT_ACTIVE)
+                return Messages.text("event.describe_action_source",
+                        actions.actionName(action.getActionId()),
+                        ItemSelectorCodec.display(action.getSource()),
+                        TargetCodec.display(action.getTarget()));
             return Messages.text("event.describe_action",
                     actions.actionName(action.getActionId()),
                     TargetCodec.display(action.getTarget()));

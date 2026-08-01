@@ -16,6 +16,22 @@ public class TargetCodecTest {
     }
 
     @Test
+    public void roundTripsLegacyNearbyRadius() {
+        TargetSpec target = TargetCodec.decode("@nearby4");
+        assertEquals(TargetKind.NEARBY_RADIUS, target.getKind());
+        assertEquals("@nearby4", TargetCodec.encode(target));
+        assertEquals("Nearby objects within 4", TargetCodec.display(target));
+    }
+
+    @Test
+    public void automaticNearbyUsesTheSelectedActionsRangeWithoutStoredRadius() {
+        TargetSpec target = TargetCodec.decode("nearby");
+        assertEquals(TargetKind.NEARBY, target.getKind());
+        assertEquals("nearby", TargetCodec.encode(target));
+        assertEquals("Nearby objects", TargetCodec.display(target));
+    }
+
+    @Test
     public void roundTripsTileDirection() {
         TargetSpec target = TargetCodec.decode("tile_nw");
         assertEquals(TargetKind.TILE, target.getKind());

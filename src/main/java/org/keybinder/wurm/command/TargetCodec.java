@@ -18,6 +18,7 @@ public final class TargetCodec {
             case "tool": return TargetSpec.simple(TargetKind.ACTIVE_TOOL);
             case "selected": return TargetSpec.simple(TargetKind.SELECTED);
             case "current ride": return TargetSpec.simple(TargetKind.CURRENT_RIDE);
+            case "nearby": return TargetSpec.simple(TargetKind.NEARBY);
             case "tile": return TargetSpec.tile(0, 0);
             case "tile_n": return TargetSpec.tile(0, -1);
             case "tile_ne": return TargetSpec.tile(1, -1);
@@ -46,6 +47,8 @@ public final class TargetCodec {
         }
         if (NearbyTypeTarget.isNearbyType(value))
             return TargetSpec.nearbyType(NearbyTypeTarget.type(value));
+        if (value.toLowerCase(java.util.Locale.ENGLISH).startsWith("hover-type "))
+            return TargetSpec.hoverType(value.substring("hover-type ".length()));
         if (ExactObjectTarget.isExact(value))
             return TargetSpec.exactObject(ExactObjectTarget.id(value), ExactObjectTarget.name(value));
         throw new IllegalArgumentException(Messages.text("validation.target_unknown", value));
@@ -61,8 +64,10 @@ public final class TargetCodec {
             case AREA: return "area";
             case TOOLBELT_SLOT: return "@tb" + target.getSlot();
             case EQUIPMENT_SLOT: return "@eq" + target.getSlot();
+            case NEARBY: return "nearby";
             case NEARBY_RADIUS: return "@nearby" + trimFloat(target.getRadius());
             case NEARBY_TYPE: return NearbyTypeTarget.PREFIX + target.getText();
+            case HOVER_TYPE: return "hover-type " + target.getText();
             case EXACT_OBJECT: return ExactObjectTarget.encode(target.getObjectId(), target.getText());
             case CURRENT_RIDE: return "current ride";
             case EMPTY_HAND: return "hand";
@@ -84,6 +89,7 @@ public final class TargetCodec {
                 return Messages.text("target.slot.toolbelt", target.getSlot());
             case EQUIPMENT_SLOT:
                 return Messages.text("target.slot.equipment", target.getSlot());
+            case NEARBY: return Messages.text("target.nearby");
             case NEARBY_RADIUS:
                 return Messages.text("target.nearby_radius", trimFloat(target.getRadius()));
             case EXACT_OBJECT:
@@ -91,6 +97,8 @@ public final class TargetCodec {
                         ? Messages.text("target.exact_generic") : target.getText();
             case NEARBY_TYPE:
                 return Messages.text("target.nearby_named", target.getText());
+            case HOVER_TYPE:
+                return Messages.text("target.hover_type_named", target.getText());
             case CURRENT_RIDE: return Messages.text("target.current_ride");
             case EMPTY_HAND: return Messages.text("target.hand");
             case UNRESOLVED: return Messages.text("target.unresolved");

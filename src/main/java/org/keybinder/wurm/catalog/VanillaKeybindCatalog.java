@@ -6,12 +6,10 @@ import com.wurmonline.shared.constants.PlayerAction;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -64,7 +62,6 @@ public final class VanillaKeybindCatalog {
 
     private final List<Category> categories;
     private final Map<String, Entry> byCommand;
-    private final Map<Short, Entry> byActionId;
 
     public VanillaKeybindCatalog() {
         this(currentActionIdsByBind());
@@ -98,7 +95,6 @@ public final class VanillaKeybindCatalog {
         }
         categories = Collections.unmodifiableList(snapshot);
         byCommand = Collections.unmodifiableMap(commands);
-        byActionId = uniqueEntriesByActionId(snapshot);
     }
 
     public List<Category> getCategories() {
@@ -116,10 +112,6 @@ public final class VanillaKeybindCatalog {
         for (Category category : categories)
             if (category.getEntries().contains(entry)) return category;
         return null;
-    }
-
-    public Entry findByActionId(short actionId) {
-        return byActionId.get(actionId);
     }
 
     static Map<String, Short> uniqueActionIds(Map<String, List<Short>> candidates) {
@@ -174,24 +166,6 @@ public final class VanillaKeybindCatalog {
         if (keybind == PlayerKeybind.MINE_SURFACE) return PlayerAction.MINE_FORWARD.getBind();
         if (keybind == PlayerKeybind.FUNGUS_SPELL) return PlayerAction.FUNGUS.getBind();
         return keybind == PlayerKeybind.ACTIVATE ? null : keybind.getCommand();
-    }
-
-    private static Map<Short, Entry> uniqueEntriesByActionId(List<Category> categories) {
-        Map<Short, Entry> result = new LinkedHashMap<Short, Entry>();
-        Set<Short> ambiguous = new HashSet<Short>();
-        for (Category category : categories) {
-            if (category.usesNativeCompatibility()) continue;
-            for (Entry entry : category.getEntries()) {
-                Short actionId = entry.getActionId();
-                if (actionId == null || ambiguous.contains(actionId)) continue;
-                Entry previous = result.put(actionId, entry);
-                if (previous != null && previous != entry) {
-                    result.remove(actionId);
-                    ambiguous.add(actionId);
-                }
-            }
-        }
-        return Collections.unmodifiableMap(result);
     }
 
     private static String normalize(String value) {

@@ -6,6 +6,7 @@ import com.wurmonline.client.renderer.cell.CellRenderable;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.shared.constants.PlayerAction;
+import com.wurmonline.shared.util.MaterialUtilities;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.Messages;
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.IdentityHashMap;
 import java.util.function.Predicate;
 
 public final class SmartImproveExecutor {
@@ -28,6 +30,13 @@ public final class SmartImproveExecutor {
     private final EventLogger log;
     private final java.util.function.Consumer<Runnable> scheduler;
     private static final double ACTION_REACH_SQUARED = 16.0d;
+    private static final byte GLOWING_TEMPERATURE = 5;
+    private final ThreadLocal<Map<SmartImproveStep, PreparedInventoryPlan>> prepared =
+            new ThreadLocal<Map<SmartImproveStep, PreparedInventoryPlan>>() {
+                @Override protected Map<SmartImproveStep, PreparedInventoryPlan> initialValue() {
+                    return new IdentityHashMap<SmartImproveStep, PreparedInventoryPlan>();
+                }
+            };
 
     public SmartImproveExecutor(ClientAccess access, ImproveRequirementTracker tracker, EventLogger log,
                                 java.util.function.Consumer<Runnable> scheduler) {
@@ -42,40 +51,126 @@ public final class SmartImproveExecutor {
         if (!items.isEmpty()) {
             int total = 0;
             for (InventoryMetaItem item : items) {
-                ToolbeltTool selected = improveTool(item, hud);
-                if (selected == null) {
+                PreparedInventoryItem decision = assessInventoryItem(item, hud);
+                requireImprovable(item);
+                if (decision.improve && decision.tool == null) {
                     String required = tracker.toolName(item.getId());
                     throw missingTool(required, displayName(item));
                 }
-                InventoryMetaItem tool = selected.item;
-                int cost = item.getDamage() > 0 ? 1 : 0;
-                if (tool.getDamage() > 1.0f) cost++;
-                total += cost + 1;
+                total += decision.queueCost();
             }
             return total;
         }
         long targetId = worldTargetId(step.getTarget(), hud);
-        if (worldImproveTool(targetId, hud) == null)
+        ToolbeltTool tool = worldImproveTool(targetId, hud);
+        if (tool == null)
             throw new StepUnavailableException(Messages.text("improve.world_tool_missing"));
-        return 2;
+        return (tracker.damaged(targetId) ? 1 : 0)
+                + (isImproveToolTemperatureReady(tool.item) ? 1 : 0);
+    }
+
+    /**
+     * Prepares the deterministic inventory prefix that fits the currently free
+     * queue budget. Temperature-blocked metal work keeps only its optional Repair
+     * cost; ordinary items cost Repair + Improve or Improve. World targets use
+     * the damage state learned from Wurm's Event messages.
+     */
+    int prepareWithinBudget(SmartImproveStep step, HeadsUpDisplay hud, int budget)
+            throws ReflectiveOperationException {
+        List<InventoryMetaItem> items = inventoryTargets(step.getTarget(), hud);
+        if (items.isEmpty()) return runtimeCost(step, hud);
+        int available = Math.max(0, budget);
+        List<PreparedInventoryItem> decisions =
+                new ArrayList<PreparedInventoryItem>(items.size());
+        int[] costs = new int[items.size()];
+        for (int i = 0; i < items.size(); i++) {
+            PreparedInventoryItem decision = assessInventoryItem(items.get(i), hud);
+            decisions.add(decision);
+            costs[i] = decision.queueCost();
+        }
+        int plannedCost = fittedInventoryPrefixCost(available, costs);
+        int cost = 0;
+        List<PreparedInventoryItem> selectedItems = new ArrayList<PreparedInventoryItem>();
+        for (PreparedInventoryItem decision : decisions) {
+            InventoryMetaItem item = decision.target;
+            int itemCost = decision.queueCost();
+            if (cost + itemCost > plannedCost) break;
+            requireImprovable(item);
+            if (decision.improve && decision.tool == null) {
+                String required = tracker.toolName(item.getId());
+                throw missingTool(required, displayName(item));
+            }
+            selectedItems.add(decision);
+            cost += itemCost;
+        }
+        prepared.get().put(step, new PreparedInventoryPlan(selectedItems, plannedCost));
+        return plannedCost;
+    }
+
+    void clearPrepared() {
+        prepared.remove();
     }
 
     public void execute(SmartImproveStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
         TargetSpec target = step.getTarget();
         List<InventoryMetaItem> items = inventoryTargets(target, hud);
         if (!items.isEmpty()) {
-            for (InventoryMetaItem item : items) {
-                ToolbeltTool selected = improveTool(item, hud);
+            PreparedInventoryPlan preparedPlan = prepared.get().remove(step);
+            List<PreparedInventoryItem> plan;
+            if (preparedPlan == null) {
+                prepareWithinBudget(step, hud, Integer.MAX_VALUE);
+                preparedPlan = prepared.get().remove(step);
+            }
+            plan = preparedPlan.items;
+            int[] currentCosts = new int[plan.size()];
+            for (int i = 0; i < plan.size(); i++) {
+                PreparedInventoryItem candidate = plan.get(i);
+                currentCosts[i] = (needsRepair(candidate.target) ? 1 : 0)
+                        + (candidate.improve ? 1 : 0);
+            }
+            int executableItems = fittedInventoryPrefixLength(
+                    preparedPlan.queueBudget, currentCosts);
+            if (executableItems < plan.size())
+                log.warning(Messages.text("improve.queue_state_changed",
+                        executableItems, plan.size(), preparedPlan.queueBudget));
+            int repairs = 0;
+            int improvements = 0;
+            int actions = 0;
+            for (int i = 0; i < executableItems; i++) {
+                if (needsRepair(plan.get(i).target)) repairs++;
+                if (plan.get(i).improve) improvements++;
+                actions += currentCosts[i];
+            }
+            log.info(Messages.text("improve.plan_summary", executableItems, repairs,
+                    improvements, actions, preparedPlan.queueBudget));
+            for (int i = 0; i < executableItems; i++) {
+                PreparedInventoryItem preparedItem = plan.get(i);
+                InventoryMetaItem item = preparedItem.target;
+                ToolbeltTool selected = preparedItem.tool;
                 String itemName = displayName(item);
-                if (selected == null) {
-                    String required = tracker.toolName(item.getId());
-                    throw missingTool(required, itemName);
+                boolean repair = needsRepair(item);
+                if (!preparedItem.improve) {
+                    if (selected == null) {
+                        log.info(Messages.text(repair
+                                        ? "improve.repairing_not_glowing"
+                                        : "improve.skipping_not_glowing",
+                                itemName));
+                    } else {
+                        logColdTool(selected, itemName, repair);
+                    }
+                    if (repair) {
+                        hud.sendAction(PlayerAction.REPAIR, item.getId());
+                        tracker.repaired(item.getId());
+                    }
+                    continue;
                 }
                 InventoryMetaItem tool = selected.item;
-                logSelection(selected, itemName);
+                logSelection(selected, itemName, repair);
                 tracker.expect(item.getId());
-                if (item.getDamage() > 0) hud.sendAction(PlayerAction.REPAIR, item.getId());
-                if (tool.getDamage() > 1.0f) hud.sendAction(PlayerAction.REPAIR, tool.getId());
+                if (repair) {
+                    hud.sendAction(PlayerAction.REPAIR, item.getId());
+                    tracker.repaired(item.getId());
+                }
                 hud.getWorld().getServerConnection().sendAction(
                         tool.getId(), new long[]{item.getId()}, PlayerAction.IMPROVE);
             }
@@ -130,10 +225,22 @@ public final class SmartImproveExecutor {
             throw missingTool(required, itemName);
         }
         InventoryMetaItem tool = toolSelection.item;
-        logSelection(toolSelection, itemName);
+        boolean repair = tracker.damaged(id);
+        if (!isImproveToolTemperatureReady(tool)) {
+            logColdTool(toolSelection, itemName, repair);
+            if (repair) {
+                tracker.expect(id);
+                hud.sendAction(PlayerAction.REPAIR, id);
+                tracker.repaired(id);
+            }
+            return;
+        }
+        logSelection(toolSelection, itemName, repair);
         tracker.expect(id);
-        hud.sendAction(PlayerAction.REPAIR, id);
-        tracker.repaired(id);
+        if (repair) {
+            hud.sendAction(PlayerAction.REPAIR, id);
+            tracker.repaired(id);
+        }
         hud.getWorld().getServerConnection().sendAction(tool.getId(), new long[]{id}, PlayerAction.IMPROVE);
     }
 
@@ -173,12 +280,16 @@ public final class SmartImproveExecutor {
         return orderedTargets(result.values());
     }
 
-    private ToolbeltTool improveTool(InventoryMetaItem target, HeadsUpDisplay hud) {
+    private ToolbeltTool improveTool(InventoryMetaItem target, HeadsUpDisplay hud,
+                                     boolean temperatureReady) {
         final short requiredType = target.getImproveIconId();
+        final long targetId = target.getId();
         // Preserve the old behaviour when a matching item is directly on the belt.
         for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
             InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
-            if (candidate != null && candidate.getType() == requiredType)
+            if (candidate != null && candidate.getId() != targetId
+                    && candidate.getType() == requiredType
+                    && isImproveToolTemperatureReady(candidate) == temperatureReady)
                 return new ToolbeltTool(candidate, i + 1);
         }
         // A belt slot may itself be a backpack, quiver, bucket, etc. Search its
@@ -186,7 +297,8 @@ public final class SmartImproveExecutor {
         for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
             InventoryMetaItem container = hud.getToolBelt().getItemInSlot(i);
             InventoryMetaItem candidate = findDescendant(container,
-                    item -> item.getType() == requiredType);
+                    item -> item.getId() != targetId && item.getType() == requiredType
+                            && isImproveToolTemperatureReady(item) == temperatureReady);
             if (candidate != null)
                 return new ToolbeltTool(candidate, i + 1, displayName(container));
         }
@@ -234,6 +346,22 @@ public final class SmartImproveExecutor {
                 ? Messages.text("improve.generic_item") : name;
     }
 
+    private PreparedInventoryItem assessInventoryItem(InventoryMetaItem item,
+                                                       HeadsUpDisplay hud) {
+        boolean repair = needsRepair(item);
+        if (!isImprovable(item))
+            return new PreparedInventoryItem(item, null, repair, true);
+        if (!isTemperatureReady(item))
+            return new PreparedInventoryItem(item, null, repair, false);
+        ToolbeltTool ready = improveTool(item, hud, true);
+        if (ready != null)
+            return new PreparedInventoryItem(item, ready, repair, true);
+        ToolbeltTool cold = improveTool(item, hud, false);
+        if (cold != null)
+            return new PreparedInventoryItem(item, cold, repair, false);
+        return new PreparedInventoryItem(item, null, repair, true);
+    }
+
     private static final class ToolbeltTool {
         private final InventoryMetaItem item;
         private final int slot;
@@ -250,14 +378,129 @@ public final class SmartImproveExecutor {
         }
     }
 
-    private void logSelection(ToolbeltTool selection, String itemName) {
+    private static final class PreparedInventoryItem {
+        private final InventoryMetaItem target;
+        private final ToolbeltTool tool;
+        private final boolean repair;
+        private final boolean improve;
+
+        private PreparedInventoryItem(InventoryMetaItem target, ToolbeltTool tool,
+                                      boolean repair, boolean improve) {
+            this.target = target;
+            this.tool = tool;
+            this.repair = repair;
+            this.improve = improve;
+        }
+
+        private int queueCost() {
+            return (repair ? 1 : 0) + (improve ? 1 : 0);
+        }
+    }
+
+    private static final class PreparedInventoryPlan {
+        private final List<PreparedInventoryItem> items;
+        private final int queueBudget;
+
+        private PreparedInventoryPlan(List<PreparedInventoryItem> items, int queueBudget) {
+            this.items = items;
+            this.queueBudget = queueBudget;
+        }
+    }
+
+    static int inventoryItemCost(boolean damaged) {
+        return damaged ? 2 : 1;
+    }
+
+    static int inventoryItemCost(boolean damaged, boolean temperatureReady) {
+        return temperatureReady ? inventoryItemCost(damaged) : damaged ? 1 : 0;
+    }
+
+    static int inventoryBatchCost(boolean... damaged) {
+        int total = 0;
+        if (damaged != null)
+            for (boolean value : damaged) total += inventoryItemCost(value);
+        return total;
+    }
+
+    static int fittedInventoryPrefixCost(int budget, int... itemCosts) {
+        int total = 0;
+        if (itemCosts == null) return total;
+        for (int cost : itemCosts) {
+            if (cost < 0 || cost > 2)
+                throw new IllegalArgumentException("Inventory improve cost must be 0, 1, or 2");
+            if (total + cost > Math.max(0, budget)) break;
+            total += cost;
+        }
+        return total;
+    }
+
+    static int fittedInventoryPrefixLength(int budget, int... itemCosts) {
+        int total = 0;
+        int count = 0;
+        if (itemCosts == null) return count;
+        for (int cost : itemCosts) {
+            if (cost < 0 || cost > 2)
+                throw new IllegalArgumentException("Inventory improve cost must be 0, 1, or 2");
+            if (total + cost > Math.max(0, budget)) break;
+            total += cost;
+            count++;
+        }
+        return count;
+    }
+
+    static boolean needsRepair(InventoryMetaItem item) {
+        return item != null && item.getDamage() > 0.0f;
+    }
+
+    static boolean isTemperatureReady(InventoryMetaItem item) {
+        return item != null && (!MaterialUtilities.isMetal(item.getMaterialId())
+                || item.getTemperature() == GLOWING_TEMPERATURE);
+    }
+
+    static boolean isImproveToolTemperatureReady(InventoryMetaItem item) {
+        if (item == null) return false;
+        String name = item.getBaseName();
+        boolean metalLump = MaterialUtilities.isMetal(item.getMaterialId())
+                && name != null && name.toLowerCase(java.util.Locale.ENGLISH).contains("lump");
+        return !metalLump || item.getTemperature() == GLOWING_TEMPERATURE;
+    }
+
+    static boolean isImprovable(InventoryMetaItem item) {
+        return item != null && item.getImproveIconId() >= 0;
+    }
+
+    private static void requireImprovable(InventoryMetaItem item) {
+        if (!isImprovable(item))
+            throw new StepUnavailableException(
+                    Messages.text("improve.cannot_improve", displayName(item)));
+    }
+
+    private void logSelection(ToolbeltTool selection, String itemName, boolean repairing) {
         if (selection.container == null) {
-            log.info(Messages.text("improve.using", selection.item.getBaseName(),
+            log.info(Messages.text(repairing ? "improve.repairing_using" : "improve.using",
+                    selection.item.getBaseName(),
                     selection.slot, itemName));
         } else {
-            log.info(Messages.text("improve.using_from_container",
+            log.info(Messages.text(repairing
+                            ? "improve.repairing_using_from_container"
+                            : "improve.using_from_container",
                     selection.item.getBaseName(), selection.container,
                     selection.slot, itemName));
+        }
+    }
+
+    private void logColdTool(ToolbeltTool selection, String itemName, boolean repairing) {
+        if (selection.container == null) {
+            log.info(Messages.text(repairing
+                            ? "improve.repairing_cold_tool"
+                            : "improve.skipping_cold_tool",
+                    itemName, selection.item.getBaseName(), selection.slot));
+        } else {
+            log.info(Messages.text(repairing
+                            ? "improve.repairing_cold_tool_from_container"
+                            : "improve.skipping_cold_tool_from_container",
+                    itemName, selection.item.getBaseName(), selection.container,
+                    selection.slot));
         }
     }
 
@@ -265,22 +508,8 @@ public final class SmartImproveExecutor {
             throws ReflectiveOperationException {
         String required = tracker.toolName(targetId);
         if (required != null) {
-            final String requiredName = required;
-            for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
-                InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
-                if (candidate != null && candidate.getBaseName().toLowerCase(
-                        java.util.Locale.ENGLISH).contains(required))
-                    return new ToolbeltTool(candidate, i + 1);
-            }
-            for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
-                InventoryMetaItem container = hud.getToolBelt().getItemInSlot(i);
-                InventoryMetaItem candidate = findDescendant(container,
-                        item -> item.getBaseName() != null && item.getBaseName().toLowerCase(
-                                java.util.Locale.ENGLISH).contains(requiredName));
-                if (candidate != null)
-                    return new ToolbeltTool(candidate, i + 1, displayName(container));
-            }
-            return null;
+            ToolbeltTool ready = worldImproveTool(required, hud, true);
+            return ready != null ? ready : worldImproveTool(required, hud, false);
         }
         InventoryMetaItem active = access.activeTool(hud);
         if (active == null) return null;
@@ -288,6 +517,30 @@ public final class SmartImproveExecutor {
             InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
             if (candidate != null && candidate.getId() == active.getId())
                 return new ToolbeltTool(candidate, i + 1);
+        }
+        return null;
+    }
+
+    private ToolbeltTool worldImproveTool(String required, HeadsUpDisplay hud,
+                                          boolean temperatureReady) {
+        final String requiredName = required.toLowerCase(java.util.Locale.ENGLISH);
+        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
+            InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
+            if (candidate != null && candidate.getBaseName() != null
+                    && candidate.getBaseName().toLowerCase(java.util.Locale.ENGLISH)
+                    .contains(requiredName)
+                    && isImproveToolTemperatureReady(candidate) == temperatureReady)
+                return new ToolbeltTool(candidate, i + 1);
+        }
+        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
+            InventoryMetaItem container = hud.getToolBelt().getItemInSlot(i);
+            InventoryMetaItem candidate = findDescendant(container,
+                    item -> item.getBaseName() != null
+                            && item.getBaseName().toLowerCase(java.util.Locale.ENGLISH)
+                            .contains(requiredName)
+                            && isImproveToolTemperatureReady(item) == temperatureReady);
+            if (candidate != null)
+                return new ToolbeltTool(candidate, i + 1, displayName(container));
         }
         return null;
     }

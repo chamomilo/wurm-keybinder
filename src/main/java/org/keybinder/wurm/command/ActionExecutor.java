@@ -11,6 +11,8 @@ import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
 import org.keybinder.wurm.integration.ClientAccess;
+import org.keybinder.wurm.integration.ActionSourceOverride;
+import org.keybinder.wurm.integration.ActionSourceResolver;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.catalog.VanillaPlayerActionCatalog;
 import org.keybinder.wurm.model.ActionStep;
@@ -28,6 +30,7 @@ public final class ActionExecutor {
     private final ActionNameResolver names;
     private final VanillaPlayerActionCatalog vanillaActions;
     private final PushSelectionRetention pushSelection;
+    private final ActionSourceResolver sources;
 
     public ActionExecutor(ClientAccess access) {
         this(access, ActionExecutor::defaultActionName, new PushSelectionRetention());
@@ -62,21 +65,43 @@ public final class ActionExecutor {
         this.names = names;
         this.vanillaActions = vanillaActions;
         this.pushSelection = pushSelection;
+        this.sources = new ActionSourceResolver(access);
     }
 
     public int runtimeQueueCost(ActionStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
+        sources.resolve(step.getSource(), hud);
         TargetSpec target = step.getTarget();
-        if (target.getKind() == TargetKind.NEARBY_RADIUS)
+        if (target.getKind() == TargetKind.NEARBY
+                || target.getKind() == TargetKind.NEARBY_RADIUS)
             return nearbyTargets(step, hud).size();
         if (target.getKind() == TargetKind.NEARBY_TYPE)
             return nearbyTargetByType(step, hud) == null ? 0 : 1;
+        if (target.getKind() == TargetKind.HOVER_TYPE)
+            return hoverTypeTargets(step, hud).ids.size();
         ensureAvailable(step, hud);
         if (target.getKind() == TargetKind.AREA) return 9;
         return 1;
     }
 
     public void executeStep(ActionStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
+        executeStep(step, hud, Integer.MAX_VALUE);
+    }
+
+    public void executeStep(ActionStep step, HeadsUpDisplay hud, int maxFanOutTargets)
+            throws ReflectiveOperationException {
+        ActionSourceResolver.ResolvedSource source = sources.resolve(step.getSource(), hud);
+        if (!source.hasOverride()) {
+            executeTarget(step, hud, maxFanOutTargets);
+            return;
+        }
+        try (ActionSourceOverride.Scope ignored = ActionSourceOverride.push(source.getSourceId())) {
+            executeTarget(step, hud, maxFanOutTargets);
+        }
+    }
+
+    private void executeTarget(ActionStep step, HeadsUpDisplay hud, int maxFanOutTargets)
+            throws ReflectiveOperationException {
         short id = step.getActionId();
         TargetSpec target = step.getTarget();
         // A numeric ID that exactly matches a built-in vanilla PlayerAction inherits
@@ -125,11 +150,27 @@ public final class ActionExecutor {
                 List<Long> nearby = nearbyTargets(step, hud);
                 for (Long targetId : nearby) sendObjectAction(action, targetId, hud);
                 return;
+            case NEARBY:
+                List<Long> automaticNearby = nearbyTargets(step, hud);
+                int nearbyCount = Math.min(automaticNearby.size(),
+                        Math.max(0, maxFanOutTargets));
+                for (int i = 0; i < nearbyCount; i++)
+                    sendObjectAction(action, automaticNearby.get(i), hud);
+                return;
             case NEARBY_TYPE:
                 CellRenderable found = nearbyTargetByType(step, hud);
                 if (found == null) return;
                 access.select(hud.getSelectBar(), found);
                 sendObjectAction(action, found.getId(), hud);
+                return;
+            case HOVER_TYPE:
+                HoverTypeResolution hoverMatches = hoverTypeTargets(step, hud);
+                int targetCount = Math.min(hoverMatches.ids.size(),
+                        Math.max(0, maxFanOutTargets));
+                if (targetCount == 0) return;
+                long[] hoverIds = new long[targetCount];
+                for (int i = 0; i < hoverIds.length; i++) hoverIds[i] = hoverMatches.ids.get(i);
+                hud.sendAction(action, hoverIds);
                 return;
             case EXACT_OBJECT:
                 if (!exactObjectAvailable(target, hud))
@@ -177,7 +218,7 @@ public final class ActionExecutor {
         TargetSpec target = step.getTarget();
         float actionRange = ranges.actionRange(step.getActionId());
         float scanRange = ranges.scanRange(step.getActionId(), target.getRadius());
-        List<CellRenderable> scanned = nearbyCandidates(hud)
+        List<CellRenderable> scanned = nearbyCandidates(step, hud)
                 .filter(candidate -> candidate.getSquaredLengthFromPlayer()
                         <= scanRange * scanRange)
                 .sorted(java.util.Comparator.comparingDouble(
@@ -200,7 +241,7 @@ public final class ActionExecutor {
         TargetSpec target = step.getTarget();
         float actionRange = ranges.actionRange(step.getActionId());
         float scanRange = ranges.scanRange(step.getActionId(), 0.0f);
-        CellRenderable nearest = nearbyCandidates(hud)
+        CellRenderable nearest = nearbyCandidates(step, hud)
                 .filter(x -> x.getSquaredLengthFromPlayer() <= scanRange * scanRange)
                 .filter(x -> matchesNearbyType(target, x))
                 .min(java.util.Comparator.comparingDouble(CellRenderable::getSquaredLengthFromPlayer))
@@ -212,23 +253,83 @@ public final class ActionExecutor {
         return nearest;
     }
 
-    private Stream<CellRenderable> nearbyCandidates(HeadsUpDisplay hud)
+    private Stream<CellRenderable> nearbyCandidates(ActionStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
         ServerConnectionListenerClass listener =
                 hud.getWorld().getServerConnection().getServerConnectionListener();
         Collection<GroundItemCellRenderable> ground = access.groundItems(listener).values();
         Collection<CreatureCellRenderable> creatures = listener.getCreatures().values();
+        PlayerAction action = vanillaActions.resolveOrGeneric(step.getActionId());
         return Stream.concat(
                 ground.stream().map(candidate -> (CellRenderable) candidate),
-                creatures.stream().map(candidate -> (CellRenderable) candidate));
+                creatures.stream().map(candidate -> (CellRenderable) candidate))
+                .filter(candidate -> candidate.targetMatches(action.getTargetMask()));
     }
 
     private boolean matchesNearbyType(TargetSpec target, CellRenderable candidate) {
         try {
             return target.getText().equals(NearbyTypeTarget.normalizeType(access.objectType(candidate)));
-        } catch (ReflectiveOperationException e) {
-            return target.getText().equals(NearbyTypeTarget.normalizeType(candidate.getHoverName()));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            try {
+                return target.getText().equals(
+                        NearbyTypeTarget.normalizeType(candidate.getHoverName()));
+            } catch (RuntimeException unresolved) { return false; }
         }
+    }
+
+    private HoverTypeResolution hoverTypeTargets(ActionStep step, HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        PlayerAction action = vanillaActions.resolveOrGeneric(step.getActionId());
+        List<Long> candidates = new ArrayList<Long>();
+        if ((action.getTargetMask() & 256) != 0) {
+            com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
+            long[] hudTargets = hud.getCommandTargetsFrom(client.getXMouse(), client.getYMouse());
+            if (hudTargets != null)
+                for (long id : hudTargets) if (!candidates.contains(id)) candidates.add(id);
+        }
+        if (candidates.isEmpty()) {
+            PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+            if (hovered != null && hovered.targetMatches(action.getTargetMask()))
+                candidates.add(hovered.getId());
+        }
+        List<Long> matches = new ArrayList<Long>();
+        List<String> found = new ArrayList<String>();
+        for (Long id : candidates) {
+            String type = access.objectType(hud, id.longValue());
+            String normalized = "";
+            try {
+                if (type != null) normalized = ObjectTypeNormalizer.normalizeType(type);
+            } catch (RuntimeException unresolved) {
+                // Preserve the candidate as unresolved for the user-facing mismatch.
+            }
+            if (!normalized.isEmpty() && !found.contains(normalized)) found.add(normalized);
+            if (step.getTarget().getText().equals(normalized)) matches.add(id);
+        }
+        if (matches.isEmpty() && shouldReportHoverTypeMismatch(
+                candidates.size(), found.size())) {
+            String foundText = join(found);
+            throw unavailable(Messages.text("event.hover_type_mismatch",
+                    actionName(step.getActionId()), step.getTarget().getText(), foundText));
+        }
+        return new HoverTypeResolution(matches);
+    }
+
+    static boolean shouldReportHoverTypeMismatch(int candidateCount, int resolvedTypeCount) {
+        return candidateCount > 0 && resolvedTypeCount > 0;
+    }
+
+    private static String join(List<String> values) {
+        StringBuilder result = new StringBuilder();
+        for (String value : values) {
+            if (result.length() > 0) result.append(", ");
+            result.append(value);
+        }
+        return result.toString();
+    }
+
+    private static final class HoverTypeResolution {
+        private final List<Long> ids;
+        private HoverTypeResolution(List<Long> ids) { this.ids = ids; }
     }
 
     private void ensureAvailable(ActionStep step, HeadsUpDisplay hud)
@@ -258,10 +359,14 @@ public final class ActionExecutor {
                     throw unavailable(Messages.text("unavailable.equipment_empty", target.getSlot()));
                 return;
             case NEARBY_RADIUS:
+            case NEARBY:
                 nearbyTargets(step, hud);
                 return;
             case NEARBY_TYPE:
                 nearbyTargetByType(step, hud);
+                return;
+            case HOVER_TYPE:
+                hoverTypeTargets(step, hud);
                 return;
             case EXACT_OBJECT:
                 if (!exactObjectAvailable(target, hud))

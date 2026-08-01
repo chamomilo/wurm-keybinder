@@ -2,11 +2,12 @@ package org.keybinder.wurm.recording;
 
 import org.keybinder.wurm.command.ExactObjectTarget;
 import org.keybinder.wurm.command.NearbyTypeTarget;
+import org.keybinder.wurm.command.ObjectTypeNormalizer;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.Messages;
 
 public final class SelectionController {
-    public enum Mode { NONE, TOOLBELT, EQUIPMENT, EXACT_OBJECT, NEARBY_TYPE }
+    public enum Mode { NONE, TOOLBELT, EQUIPMENT, EXACT_OBJECT, NEARBY_TYPE, HOVER_TYPE }
     private final EventLogger log;
     private volatile Mode mode = Mode.NONE;
     private volatile String selectedTarget = "tile";
@@ -40,6 +41,12 @@ public final class SelectionController {
         log.info(Messages.text("event.select_nearby_type"));
     }
 
+    public void requestHoverType() {
+        mode = Mode.HOVER_TYPE;
+        selectionComplete = false;
+        log.info(Messages.text("event.select_hover_type"));
+    }
+
     public boolean acceptToolbelt(int zeroBasedSlot) {
         if (mode != Mode.TOOLBELT || zeroBasedSlot < 0 || zeroBasedSlot >= 10) return false;
         selectedTarget = "@tb" + (zeroBasedSlot + 1);
@@ -71,6 +78,15 @@ public final class SelectionController {
     public boolean acceptNearbyType(String name) {
         if (mode != Mode.NEARBY_TYPE) return false;
         selectedTarget = NearbyTypeTarget.encode(name);
+        selectionComplete = true;
+        mode = Mode.NONE;
+        log.info(Messages.text("event.target_selected", selectedTarget));
+        return true;
+    }
+
+    public boolean acceptHoverType(String name) {
+        if (mode != Mode.HOVER_TYPE) return false;
+        selectedTarget = "hover-type " + ObjectTypeNormalizer.normalizeType(name);
         selectionComplete = true;
         mode = Mode.NONE;
         log.info(Messages.text("event.target_selected", selectedTarget));

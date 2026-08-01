@@ -1,6 +1,7 @@
 package org.keybinder.wurm.model;
 
 import java.util.Objects;
+import org.keybinder.wurm.command.ObjectTypeNormalizer;
 import org.keybinder.wurm.i18n.Messages;
 
 /** Immutable, typed target used by every native Keybinder step. */
@@ -27,7 +28,8 @@ public final class TargetSpec {
     public static TargetSpec simple(TargetKind kind) {
         if (kind == TargetKind.TILE || kind == TargetKind.TOOLBELT_SLOT
                 || kind == TargetKind.EQUIPMENT_SLOT || kind == TargetKind.NEARBY_RADIUS
-                || kind == TargetKind.NEARBY_TYPE || kind == TargetKind.EXACT_OBJECT)
+                || kind == TargetKind.NEARBY_TYPE || kind == TargetKind.HOVER_TYPE
+                || kind == TargetKind.EXACT_OBJECT)
             throw new IllegalArgumentException(
                     Messages.text("validation.target_parameters", kind));
         return new TargetSpec(kind, 0, 0, 0, 0f, 0L, "");
@@ -46,7 +48,7 @@ public final class TargetSpec {
     }
 
     public static TargetSpec equipmentSlot(int slot) {
-        if (slot < Byte.MIN_VALUE || slot > Byte.MAX_VALUE)
+        if (slot < 0 || slot > Byte.MAX_VALUE)
             throw new IllegalArgumentException(Messages.text("validation.equipment_slot"));
         return new TargetSpec(TargetKind.EQUIPMENT_SLOT, slot, 0, 0, 0f, 0L, "");
     }
@@ -58,13 +60,26 @@ public final class TargetSpec {
     }
 
     public static TargetSpec nearbyType(String type) {
-        String value = requireText(type, Messages.text("validation.nearby_type"));
+        String value = ObjectTypeNormalizer.normalizeType(
+                requireText(type, Messages.text("validation.nearby_type")));
         return new TargetSpec(TargetKind.NEARBY_TYPE, 0, 0, 0, 0f, 0L, value);
+    }
+
+    public static TargetSpec hoverType(String type) {
+        String value = ObjectTypeNormalizer.normalizeType(
+                requireText(type, Messages.text("validation.nearby_type")));
+        return new TargetSpec(TargetKind.HOVER_TYPE, 0, 0, 0, 0f, 0L, value);
     }
 
     public static TargetSpec exactObject(long id, String name) {
         return new TargetSpec(TargetKind.EXACT_OBJECT, 0, 0, 0, 0f, id,
                 name == null ? "" : name);
+    }
+
+    public static TargetSpec copyOf(TargetSpec target) {
+        Objects.requireNonNull(target, "target");
+        return new TargetSpec(target.kind, target.slot, target.dx, target.dy, target.radius,
+                target.objectId, target.text);
     }
 
     private static String requireText(String value, String message) {

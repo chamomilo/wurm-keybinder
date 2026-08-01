@@ -42,6 +42,39 @@ public class ActionQueueCostCalculatorTest {
     }
 
     @Test
+    public void filteredTargetsHaveZeroDesignTimeCost() {
+        ActionStep automaticNearby = new ActionStep((short) 6,
+                TargetSpec.simple(TargetKind.NEARBY));
+        ActionStep nearbyFilter = new ActionStep((short) 6,
+                TargetSpec.nearbyType("oak chest"));
+        ActionStep hoverFilter = new ActionStep((short) 6,
+                TargetSpec.hoverType("strawberries"));
+
+        QueueCost automaticNearbyCost = calculator.stepCost(automaticNearby);
+        QueueCost nearbyCost = calculator.stepCost(nearbyFilter);
+        QueueCost hoverCost = calculator.stepCost(hoverFilter);
+        assertEquals(QueueCost.Kind.FIXED, automaticNearbyCost.getKind());
+        assertEquals(0, automaticNearbyCost.getValue());
+        assertEquals(QueueCost.Kind.FIXED, nearbyCost.getKind());
+        assertEquals(0, nearbyCost.getValue());
+        assertEquals(QueueCost.Kind.FIXED, hoverCost.getKind());
+        assertEquals(0, hoverCost.getValue());
+    }
+
+    @Test
+    public void filteredTargetsDoNotMakeMixedKeybindProblematicAtDesignTime() {
+        KeybindRecord record = new KeybindRecord("id", "Filtered", "R",
+                Arrays.<KeybindStep>asList(
+                        new ActionStep((short) 6, TargetSpec.nearbyType("oak chest")),
+                        new ActionStep((short) 6, TargetSpec.hoverType("strawberries")),
+                        new ActionStep((short) 6, TargetSpec.simple(TargetKind.HOVER))));
+
+        QueueCost cost = calculator.keybindCost(record);
+        assertEquals(QueueCost.Kind.FIXED, cost.getKind());
+        assertEquals(1, cost.getValue());
+    }
+
+    @Test
     public void activateToolIsZeroCostInManagedKeybind() {
         KeybindRecord record = new KeybindRecord("id", "Activate", "R",
                 Arrays.<KeybindStep>asList(new ActivateToolStep(TargetSpec.toolbeltSlot(1)),

@@ -4,7 +4,7 @@ import com.wurmonline.client.renderer.backend.Queue;
 
 /** Stable, font-independent row controls shared by both Keybinder windows. */
 final class KeybinderGlyphButton extends WButton {
-    enum Kind { PLUS_BOX, MINUS_BOX, CLOSE_BOX, RECORD_DOT, REFRESH }
+    enum Kind { PLUS_BOX, MINUS_BOX, CLOSE_BOX, EXTRACT_UP, RECORD_DOT, REFRESH }
 
     private Kind kind;
 
@@ -24,12 +24,28 @@ final class KeybinderGlyphButton extends WButton {
         float brightness = isEnabled() ? (hovered ? 1.0f : 0.82f) : 0.36f;
         if (kind == Kind.PLUS_BOX || kind == Kind.MINUS_BOX || kind == Kind.CLOSE_BOX) {
             drawBoxIcon(queue, brightness, kind);
+        } else if (kind == Kind.EXTRACT_UP) {
+            drawExtractUp(queue, brightness);
         } else if (kind == Kind.REFRESH) {
             drawRefresh(queue, brightness);
         } else {
             fillRect(queue, 0.95f, 0.18f, 0.12f, 1.0f,
                     x + width / 2 - 2, y + height / 2 - 2, 5, 5);
         }
+    }
+
+    private void drawExtractUp(Queue queue, float brightness) {
+        int left = x + (width - 14) / 2;
+        int top = y + (height - 14) / 2;
+        float green = brightness * 0.90f;
+        float blue = brightness * 0.72f;
+        // A compact curved arrow leaving the current row and pointing upward.
+        fillRect(queue, brightness, green, blue, 1.0f, left + 8, top + 2, 2, 10);
+        fillRect(queue, brightness, green, blue, 1.0f, left + 6, top + 4, 2, 2);
+        fillRect(queue, brightness, green, blue, 1.0f, left + 10, top + 4, 2, 2);
+        fillRect(queue, brightness, green, blue, 1.0f, left + 4, top + 8, 4, 2);
+        fillRect(queue, brightness, green, blue, 1.0f, left + 2, top + 10, 2, 3);
+        fillRect(queue, brightness, green, blue, 1.0f, left + 3, top + 12, 5, 2);
     }
 
     private void drawRefresh(Queue queue, float brightness) {

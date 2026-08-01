@@ -4,15 +4,23 @@ import java.util.Objects;
 
 public final class ActionStep implements KeybindStep {
     private final short actionId;
+    private final ItemSelector source;
     private final TargetSpec target;
     private String lastKnownName;
 
     public ActionStep(short actionId, TargetSpec target) {
-        this(actionId, target, "");
+        this(actionId, ItemSelector.currentActive(), target, "");
     }
 
     public ActionStep(short actionId, TargetSpec target, String lastKnownName) {
+        this(actionId, ItemSelector.currentActive(), target, lastKnownName);
+    }
+
+    public ActionStep(short actionId, ItemSelector source, TargetSpec target,
+                      String lastKnownName) {
         this.actionId = actionId;
+        this.source = ActionSourcePolicy.normalize(actionId,
+                Objects.requireNonNull(source, "source"));
         this.target = Objects.requireNonNull(target, "target");
         setLastKnownName(lastKnownName);
     }
@@ -29,6 +37,8 @@ public final class ActionStep implements KeybindStep {
     public TargetSpec getTarget() {
         return target;
     }
+
+    public ItemSelector getSource() { return source; }
 
     /** Presentation metadata only; the numeric ID remains authoritative. */
     public String getLastKnownName() {

@@ -42,6 +42,7 @@ public final class ClientAccess {
     private Method setActiveToolItem;
     private Method removeActiveToolItem;
     private Field inventoryWindows;
+    private Field objectDataName;
 
     public void setup() throws ReflectiveOperationException {
         // Core HUD access is resolved strictly. Optional gameplay capabilities are
@@ -74,6 +75,7 @@ public final class ClientAccess {
         inventoryWindows = optionalDeclaredField(
                 com.wurmonline.client.game.inventory.InventoryMetaWindowManager.class,
                 "inventoryWindows");
+        objectDataName = optionalDeclaredField(ObjectData.class, "name");
     }
 
     public InventoryMetaItem bodyItem(PaperDollInventory paperDoll) throws ReflectiveOperationException {
@@ -160,17 +162,52 @@ public final class ClientAccess {
 
     public String objectType(PickableUnit unit) throws ReflectiveOperationException {
         if (unit instanceof GroundItemCellRenderable) {
-            ObjectData data = ReflectionUtil.getPrivateField(unit,
-                    required(groundItemData, "ground item type"));
-            if (data != null && data.getName() != null && !data.getName().trim().isEmpty())
-                return data.getName();
+            try {
+                ObjectData data = ReflectionUtil.getPrivateField(unit,
+                        required(groundItemData, "ground item type"));
+                String raw = rawObjectName(data);
+                if (!raw.isEmpty()) return raw;
+                if (data != null && data.getName() != null && !data.getName().trim().isEmpty())
+                    return data.getName();
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // The display/hover name below is the fail-open type source.
+            }
         }
         if (unit instanceof CreatureCellRenderable) {
             ObjectData data = ((CreatureCellRenderable) unit).getCreatureData();
+            String raw;
+            try { raw = rawObjectName(data); }
+            catch (ReflectiveOperationException ignored) { raw = ""; }
+            if (!raw.isEmpty()) return raw;
             if (data != null && data.getName() != null && !data.getName().trim().isEmpty())
                 return data.getName();
         }
         return unit.getHoverName();
+    }
+
+    public String objectType(InventoryMetaItem item) {
+        if (item == null) return "";
+        String base = item.getBaseName();
+        return base == null || base.trim().isEmpty() ? item.getDisplayName() : base;
+    }
+
+    public String objectType(HeadsUpDisplay hud, long id) throws ReflectiveOperationException {
+        InventoryMetaItem inventory = inventoryItem(hud, id);
+        if (inventory != null) return objectType(inventory);
+        ServerConnectionListenerClass listener =
+                hud.getWorld().getServerConnection().getServerConnectionListener();
+        GroundItemCellRenderable ground = groundItems(listener).get(id);
+        if (ground != null) return objectType(ground);
+        CreatureCellRenderable creature = listener.getCreatures().get(id);
+        if (creature != null) return objectType(creature);
+        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+        return hovered != null && hovered.getId() == id ? objectType(hovered) : null;
+    }
+
+    private String rawObjectName(ObjectData data) throws ReflectiveOperationException {
+        if (data == null || objectDataName == null) return "";
+        Object value = ReflectionUtil.getPrivateField(data, objectDataName);
+        return value == null ? "" : value.toString().trim();
     }
 
     public WurmConsole console(HeadsUpDisplay hud) throws ReflectiveOperationException {

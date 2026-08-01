@@ -1,0 +1,296 @@
+package org.keybinder.wurm.transfer;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Properties;
+import java.util.UUID;
+import org.keybinder.wurm.command.ItemSelectorCodec;
+import org.keybinder.wurm.command.TargetCodec;
+import org.keybinder.wurm.model.ActionStep;
+import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ConsoleCommandStep;
+import org.keybinder.wurm.model.ItemSelector;
+import org.keybinder.wurm.model.KeybindLimits;
+import org.keybinder.wurm.model.KeybindRecord;
+import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.SmartImproveStep;
+import org.keybinder.wurm.model.StepKind;
+import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.model.VanillaActionStep;
+
+/** Strict codec and atomic file store for portable .keybinder bundles. */
+public final class KeybindTransferStore {
+    public static final String EXTENSION = ".keybinder";
+    public static final int VERSION = 1;
+    public static final int DEFINITION_SCHEMA = 8;
+
+    public void write(Path file, List<KeybindRecord> records, String originUser,
+                      String originServer, String keybinderVersion) throws IOException {
+        if (records.size() > KeybindLimits.MAX_RECORDS_IN_TRANSFER)
+            throw new IOException("Too many records for transfer");
+        Properties properties = new Properties();
+        properties.setProperty("format", "keybinder-transfer");
+        properties.setProperty("version", Integer.toString(VERSION));
+        properties.setProperty("definitionSchema", Integer.toString(DEFINITION_SCHEMA));
+        properties.setProperty("count", Integer.toString(records.size()));
+        properties.setProperty("originUser", encode(originUser));
+        properties.setProperty("originServer", encode(originServer));
+        properties.setProperty("keybinderVersion", encode(keybinderVersion));
+        properties.setProperty("exportedAt", encode(Instant.now().toString()));
+        for (int i = 0; i < records.size(); i++)
+            writeDefinition(properties, "record." + i + ".",
+                    PortableKeybindDefinition.fromRecord(records.get(i)));
+        writeAtomic(file, properties);
+    }
+
+    public List<PortableKeybindDefinition> read(Path file) throws IOException {
+        if (!Files.isRegularFile(file)) throw new IOException("Transfer file does not exist");
+        if (Files.size(file) > KeybindLimits.MAX_TRANSFER_FILE_BYTES)
+            throw new IOException("Transfer file exceeds 10 MiB");
+        Properties properties = new Properties();
+        try (InputStream input = Files.newInputStream(file)) { properties.load(input); }
+        if (!"keybinder-transfer".equals(properties.getProperty("format")))
+            throw new IOException("Invalid Keybinder transfer format");
+        if (parse(properties, "version") != VERSION)
+            throw new IOException("Unsupported Keybinder transfer version");
+        if (parse(properties, "definitionSchema") != DEFINITION_SCHEMA)
+            throw new IOException("Unsupported Keybinder definition schema");
+        int count = parse(properties, "count");
+        if (count < 0 || count > KeybindLimits.MAX_RECORDS_IN_TRANSFER)
+            throw new IOException("Invalid transfer record count");
+        List<PortableKeybindDefinition> result = new ArrayList<PortableKeybindDefinition>();
+        try {
+            for (int i = 0; i < count; i++)
+                result.add(readDefinition(properties, "record." + i + "."));
+        } catch (IllegalArgumentException failure) {
+            throw new IOException("Malformed Keybinder transfer", failure);
+        }
+        return result;
+    }
+
+    private static void writeDefinition(Properties properties, String prefix,
+                                        PortableKeybindDefinition definition) throws IOException {
+        requireLength(definition.getName(), KeybindLimits.MAX_RECORD_NAME_LENGTH, "name");
+        requireLength(definition.getIntendedKey(), KeybindLimits.MAX_ENCODED_FIELD_LENGTH, "key");
+        if (definition.getVariants().isEmpty()
+                || definition.getVariants().size() > KeybindLimits.MAX_VARIANTS)
+            throw new IOException("Invalid variant count");
+        if (definition.getActiveVariantIndex() < 0
+                || definition.getActiveVariantIndex() >= definition.getVariants().size())
+            throw new IOException("Invalid active variant");
+        properties.setProperty(prefix + "name", encode(definition.getName()));
+        properties.setProperty(prefix + "key", encode(definition.getIntendedKey()));
+        properties.setProperty(prefix + "hudMulti", Boolean.toString(definition.isHudMulti()));
+        properties.setProperty(prefix + "activeVariantIndex",
+                Integer.toString(definition.getActiveVariantIndex()));
+        properties.setProperty(prefix + "variantCount",
+                Integer.toString(definition.getVariants().size()));
+        for (int v = 0; v < definition.getVariants().size(); v++) {
+            PortableKeybindDefinition.Variant variant = definition.getVariants().get(v);
+            String vp = prefix + "variant." + v + ".";
+            requireLength(variant.getName(), KeybindLimits.MAX_VARIANT_NAME_LENGTH, "variant name");
+            properties.setProperty(vp + "name", encode(variant.getName()));
+            if (variant.getSteps().size() > KeybindLimits.MAX_STEPS_PER_VARIANT)
+                throw new IOException("Invalid step count");
+            properties.setProperty(vp + "stepCount", Integer.toString(variant.getSteps().size()));
+            for (int s = 0; s < variant.getSteps().size(); s++)
+                writeStep(properties, vp + "step." + s + ".", variant.getSteps().get(s));
+        }
+    }
+
+    private static PortableKeybindDefinition readDefinition(Properties p, String prefix)
+            throws IOException {
+        String name = decoded(p, prefix + "name");
+        String key = decoded(p, prefix + "key");
+        requireLength(name, KeybindLimits.MAX_RECORD_NAME_LENGTH, "name");
+        if (name.trim().isEmpty()) throw new IOException("Transfer record name is missing");
+        requireLength(key, KeybindLimits.MAX_ENCODED_FIELD_LENGTH, "key");
+        int variants = parse(p, prefix + "variantCount");
+        if (variants < 1 || variants > KeybindLimits.MAX_VARIANTS)
+            throw new IOException("Invalid variant count");
+        int active = parse(p, prefix + "activeVariantIndex");
+        if (active < 0 || active >= variants) throw new IOException("Invalid active variant");
+        List<PortableKeybindDefinition.Variant> values =
+                new ArrayList<PortableKeybindDefinition.Variant>();
+        for (int v = 0; v < variants; v++) {
+            String vp = prefix + "variant." + v + ".";
+            String variantName = decoded(p, vp + "name");
+            requireLength(variantName, KeybindLimits.MAX_VARIANT_NAME_LENGTH, "variant name");
+            int stepCount = parse(p, vp + "stepCount");
+            if (stepCount < 0 || stepCount > KeybindLimits.MAX_STEPS_PER_VARIANT)
+                throw new IOException("Invalid step count");
+            List<KeybindStep> steps = new ArrayList<KeybindStep>();
+            for (int s = 0; s < stepCount; s++)
+                steps.add(readStep(p, vp + "step." + s + "."));
+            values.add(new PortableKeybindDefinition.Variant(variantName, steps));
+        }
+        return new PortableKeybindDefinition(name, key,
+                strictBoolean(p, prefix + "hudMulti", false), active, values);
+    }
+
+    private static void writeStep(Properties p, String prefix, KeybindStep step) throws IOException {
+        p.setProperty(prefix + "kind", step.getKind().name());
+        if (step instanceof ActionStep) {
+            ActionStep action = (ActionStep) step;
+            p.setProperty(prefix + "actionId", Short.toString(action.getActionId()));
+            encodedField(p, prefix + "lastKnownName", action.getLastKnownName());
+            p.setProperty(prefix + "sourceKind", action.getSource().getKind().name());
+            p.setProperty(prefix + "sourceSlot", Integer.toString(action.getSource().getSlot()));
+            p.setProperty(prefix + "sourceObjectId", Long.toString(action.getSource().getObjectId()));
+            p.setProperty(prefix + "sourceText", encode(action.getSource().getText()));
+            encodedField(p, prefix + "target", TargetCodec.encode(action.getTarget()));
+            encodedField(p, prefix + "source", ItemSelectorCodec.encode(action.getSource()));
+        } else if (step instanceof ActivateToolStep) {
+            encodedField(p, prefix + "target",
+                    TargetCodec.encode(((ActivateToolStep) step).getTarget()));
+        } else if (step instanceof SmartImproveStep) {
+            encodedField(p, prefix + "target",
+                    TargetCodec.encode(((SmartImproveStep) step).getTarget()));
+        } else if (step instanceof VanillaActionStep) {
+            command(p, prefix, ((VanillaActionStep) step).getCommand(), false);
+        } else if (step instanceof ConsoleCommandStep) {
+            ConsoleCommandStep command = (ConsoleCommandStep) step;
+            command(p, prefix, command.getCommand(), command.isPreserveExactText());
+        } else throw new IOException("Unsupported transfer step");
+    }
+
+    private static KeybindStep readStep(Properties p, String prefix) throws IOException {
+        StepKind kind = StepKind.valueOf(required(p, prefix + "kind"));
+        switch (kind) {
+            case CUSTOM_ACTION: {
+                int value = parse(p, prefix + "actionId");
+                if (value < Short.MIN_VALUE || value > Short.MAX_VALUE)
+                    throw new IOException("Action ID outside short range");
+                String encodedSource = decodedField(p, prefix + "source");
+                int sourceSlot = parse(p, prefix + "sourceSlot");
+                long sourceObjectId;
+                try { sourceObjectId = Long.parseLong(required(p, prefix + "sourceObjectId")); }
+                catch (NumberFormatException failure) {
+                    throw new IOException("Invalid source object ID", failure);
+                }
+                String sourceText = decoded(p, prefix + "sourceText");
+                ItemSelector source = ItemSelectorCodec.fromFields(
+                        required(p, prefix + "sourceKind"),
+                        sourceSlot, sourceObjectId, sourceText);
+                if (source.getSlot() != sourceSlot || source.getObjectId() != sourceObjectId
+                        || !source.getText().equals(sourceText))
+                    throw new IOException("Invalid source parameters");
+                if (!ItemSelectorCodec.encode(source).equals(encodedSource))
+                    throw new IOException("Inconsistent source fields");
+                TargetSpec target = TargetCodec.decode(decodedField(p, prefix + "target"));
+                return new ActionStep((short) value, source, target,
+                        decodedField(p, prefix + "lastKnownName"));
+            }
+            case ACTIVATE_TOOL:
+                return new ActivateToolStep(TargetCodec.decode(decodedField(p, prefix + "target")));
+            case SMART_IMPROVE:
+                return new SmartImproveStep(TargetCodec.decode(decodedField(p, prefix + "target")));
+            case VANILLA_ACTION:
+                return new VanillaActionStep(readCommand(p, prefix));
+            case CONSOLE_COMMAND:
+                return new ConsoleCommandStep(readCommand(p, prefix),
+                        strictBoolean(p, prefix + "preserveExact", false));
+            default: throw new IOException("Unsupported transfer step kind " + kind);
+        }
+    }
+
+    private static void command(Properties p, String prefix, String value, boolean exact)
+            throws IOException {
+        requireLength(value, KeybindLimits.MAX_COMMAND_LENGTH, "command");
+        p.setProperty(prefix + "command", encode(value));
+        p.setProperty(prefix + "preserveExact", Boolean.toString(exact));
+    }
+
+    private static String readCommand(Properties p, String prefix) throws IOException {
+        String value = decoded(p, prefix + "command");
+        requireLength(value, KeybindLimits.MAX_COMMAND_LENGTH, "command");
+        return value;
+    }
+
+    private static void encodedField(Properties p, String key, String value) throws IOException {
+        String encoded = encode(value);
+        if (encoded.length() > KeybindLimits.MAX_ENCODED_FIELD_LENGTH)
+            throw new IOException("Encoded transfer field is too long");
+        p.setProperty(key, encoded);
+    }
+
+    private static String decodedField(Properties p, String key) throws IOException {
+        String encoded = required(p, key);
+        if (encoded.length() > KeybindLimits.MAX_ENCODED_FIELD_LENGTH)
+            throw new IOException("Encoded transfer field is too long");
+        return decode(encoded);
+    }
+
+    private static void writeAtomic(Path file, Properties properties) throws IOException {
+        Path parent = file.toAbsolutePath().getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path temp = file.resolveSibling(file.getFileName() + "." + UUID.randomUUID() + ".tmp");
+        try {
+            try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE);
+                 OutputStream output = Channels.newOutputStream(channel)) {
+                properties.store(output, "Keybinder portable transfer");
+                output.flush();
+                channel.force(true);
+            }
+            try {
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally { Files.deleteIfExists(temp); }
+    }
+
+    private static int parse(Properties p, String key) throws IOException {
+        try { return Integer.parseInt(required(p, key)); }
+        catch (NumberFormatException failure) { throw new IOException("Invalid number " + key, failure); }
+    }
+
+    private static String required(Properties p, String key) throws IOException {
+        String value = p.getProperty(key);
+        if (value == null) throw new IOException("Missing transfer field " + key);
+        return value;
+    }
+
+    private static boolean strictBoolean(Properties p, String key, boolean fallback)
+            throws IOException {
+        String value = p.getProperty(key);
+        if (value == null) return fallback;
+        if ("true".equalsIgnoreCase(value)) return true;
+        if ("false".equalsIgnoreCase(value)) return false;
+        throw new IOException("Invalid boolean " + key);
+    }
+
+    private static String decoded(Properties p, String key) throws IOException {
+        return decode(required(p, key));
+    }
+
+    private static String encode(String value) {
+        return Base64.getEncoder().encodeToString((value == null ? "" : value)
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String decode(String encoded) throws IOException {
+        try { return new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8); }
+        catch (IllegalArgumentException failure) { throw new IOException("Malformed Base64", failure); }
+    }
+
+    private static void requireLength(String value, int maximum, String field) throws IOException {
+        if (value != null && value.length() > maximum)
+            throw new IOException(field + " exceeds " + maximum + " characters");
+    }
+}

@@ -33,6 +33,36 @@ public final class DisableReason {
                 && !value("disabled_by_user").equals(stored);
     }
 
+    /** True when the stored error is only caused by another owner of the same chord. */
+    public static boolean isKeyConflict(String stored) {
+        if (stored == null || stored.trim().isEmpty()) return false;
+        if (stored.startsWith(PREFIX)) {
+            String[] fields = split(stored.substring(PREFIX.length()));
+            if (fields.length == 0) return false;
+            String code = fields[0];
+            return "replaced_by".equals(code) || "key_used".equals(code)
+                    || "key_used_unknown".equals(code) || "key_used_vanilla".equals(code)
+                    || "key_in_use".equals(code) || "extracted_review".equals(code);
+        }
+        return stored.startsWith("replaced by ")
+                || stored.startsWith("key ") && stored.contains(" is already used by ")
+                || "disabled because the selected key is already in use".equals(stored);
+    }
+
+    /** True when the stored conflict can be recomputed from managed records alone. */
+    public static boolean isManagedKeyConflict(String stored) {
+        if (stored == null || stored.trim().isEmpty()) return false;
+        if (stored.startsWith(PREFIX)) {
+            String[] fields = split(stored.substring(PREFIX.length()));
+            if (fields.length == 0) return false;
+            String code = fields[0];
+            return "replaced_by".equals(code) || "key_used".equals(code)
+                    || "extracted_review".equals(code);
+        }
+        return stored.startsWith("replaced by ")
+                || stored.startsWith("key ") && stored.contains(" is already used by ");
+    }
+
     private static String displayLegacy(String stored) {
         if ("disabled by user".equals(stored)) return Messages.text("reason.disabled_by_user");
         if ("not configured".equals(stored)) return Messages.text("reason.not_configured");

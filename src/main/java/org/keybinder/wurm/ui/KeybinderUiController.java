@@ -12,6 +12,10 @@ public interface KeybinderUiController {
     void addNewKeybind();
     void addNewKeybindAfter(String id);
     void moveKeybind(String id, List<String> visibleIds, int insertionIndex);
+    void duplicateKeybind(String id);
+    void requestMerge(String sourceId, String destinationId);
+    void confirmMerge(String sourceId, String destinationId);
+    void cancelMerge();
     void editKeybind(String id);
     void closeEditor();
     void deleteKeybind(String id);
@@ -21,6 +25,8 @@ public interface KeybinderUiController {
     void toggleShadowRecording();
     boolean isShadowRecording();
     void requestImport();
+    void requestImportFile();
+    void requestExportAll();
     void confirmImport();
     void restoreOriginalBindings();
     boolean isLegacyActionInstalled();

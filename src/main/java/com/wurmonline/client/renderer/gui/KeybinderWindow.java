@@ -5,13 +5,18 @@ import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.i18n.Language;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.i18n.DisableReason;
+import org.keybinder.wurm.catalog.InputKeyCatalog;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.KeybindNamePrefixes;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.ui.KeybinderUiController;
 import org.keybinder.wurm.ui.LocalizedLayout;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
+import org.keybinder.wurm.ui.DropZoneClassifier;
+import org.keybinder.wurm.ui.KeybindStatusResolver;
+import org.keybinder.wurm.model.KeybindLimits;
 import com.wurmonline.client.resources.textures.KeybinderTextureFactory;
 import com.wurmonline.client.resources.textures.ResourceTexture;
 
@@ -26,7 +31,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private static final int CHECK_WIDTH = 34;
     private static final int KEY_WIDTH = 90;
     private static final int EDIT_MIN_WIDTH = 58;
-    private static final int DELETE_MIN_WIDTH = 68;
+    private static final int DUPLICATE_MIN_WIDTH = 82;
     private static final int COLUMN_GAP = 8;
     private static final int DEFAULT_HEIGHT = 285;
     private static final int INTRO_MIN_WIDTH = 800;
@@ -44,6 +49,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private final List<TableRow> tableRows = new ArrayList<>();
     private final WButton addButton;
     private final WButton importButton;
+    private final WButton importFileButton;
+    private final WButton exportAllButton;
     private final WButton restoreButton;
     private WButton enableFiltered;
     private WButton disableFiltered;
@@ -69,13 +76,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private final Map<WCheckBox, Boolean> checkboxStates = new HashMap<>();
     private final Map<WButton, RowAction> rowActions = new HashMap<>();
     private final Map<WButton, String> editIds = new HashMap<>();
-    private final Map<WButton, String> deleteIds = new HashMap<>();
+    private final Map<WButton, String> duplicateIds = new HashMap<>();
     private int requiredNameWidth;
     private int requiredKeyWidth;
     private int requiredUserWidth;
     private int requiredServerWidth;
     private int requiredEditWidth;
-    private int requiredDeleteWidth;
+    private int requiredDuplicateWidth;
     private int requiredFilterWidth;
     private int minimumWidth;
     private int minimumHeight = DEFAULT_HEIGHT;
@@ -86,6 +93,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private int dragPressY;
     private int dragInsertion = -1;
     private boolean rowDragging;
+    private String dragMergeDestinationId;
+    private boolean dragMergeOverLimit;
+    private final KeybinderDragIndicator.InsertionGap rowInsertionGap =
+            new KeybinderDragIndicator.InsertionGap("keybinder.drag.keybind.gap", 0);
 
     public KeybinderWindow(KeybinderUiController controller) {
         super("keybinder.window", true);
@@ -94,6 +105,12 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         table = new WurmArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL, true);
         addButton = new WButton(Messages.text("list.add"), this);
         importButton = new WButton(Messages.text("list.import"), this);
+        configureImportConfirmation();
+        importFileButton = new WButton(Messages.text("list.import_file"), this);
+        exportAllButton = new WButton(Messages.text("list.export_all"), this);
+        importButton.setHoverString(Messages.text("list.import.tip"));
+        importFileButton.setHoverString(Messages.text("list.import_file.tip"));
+        exportAllButton.setHoverString(Messages.text("list.export_all.tip"));
         restoreButton = new WButton(Messages.text("list.restore_originals"), this);
         restoreButton.setConfirm(true);
         restoreButton.setConfirmQuestion(Messages.text("list.restore_originals.question"));
@@ -244,6 +261,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         else {
             setTitle(Messages.text("window.title"));
             addButton.setLabel(Messages.text("list.add"));
+            importButton.setLabel(Messages.text("list.import"));
+            configureImportConfirmation();
+            importFileButton.setLabel(Messages.text("list.import_file"));
+            exportAllButton.setLabel(Messages.text("list.export_all"));
             rebuildListTop();
             refresh();
             if (width < minimumWidth) setSize(minimumWidth, height);
@@ -254,6 +275,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         listTop.removeAllComponents();
         listTop.addComponent(new WurmLabel(Messages.text("list.heading")));
         listTop.addComponent(new WurmLabel(Messages.text("list.instructions")));
+        listTop.addComponent(new WurmLabel(Messages.text("list.instructions.merge")));
         listTop.addComponent(spacer(5));
         listTop.addComponent(filterControls);
         listTop.addComponent(spacer(5));
@@ -261,10 +283,18 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                 new WurmArrayPanel<>("keybinder.list.migration", WurmArrayPanel.DIR_HORIZONTAL);
         migrationControls.componentWidthOffset = COLUMN_GAP;
         migrationControls.addComponent(importButton);
+        migrationControls.addComponent(importFileButton);
+        migrationControls.addComponent(exportAllButton);
         migrationControls.addComponent(restoreButton);
         listTop.addComponent(migrationControls);
         listTop.addComponent(spacer(5));
         listTop.componentResized();
+    }
+
+    private void configureImportConfirmation() {
+        importButton.setConfirm(true);
+        importButton.setConfirmQuestion(Messages.text("list.import.question"));
+        importButton.setConfirmMessage(Messages.text("list.import.confirm"));
     }
 
     private static FlexComponent centeredButton(WButton button) {
@@ -313,18 +343,19 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
     private void rebuildTable() {
         table.removeAllComponents();
+        rowInsertionGap.setIndicatorVisible(true);
         tableRows.clear();
         checkboxIds.clear();
         checkboxStates.clear();
         rowActions.clear();
         editIds.clear();
-        deleteIds.clear();
+        duplicateIds.clear();
         requiredNameWidth = 0;
         requiredKeyWidth = KEY_WIDTH;
         requiredUserWidth = 90;
         requiredServerWidth = 100;
         requiredEditWidth = localizedButtonColumnWidth("common.edit", EDIT_MIN_WIDTH);
-        requiredDeleteWidth = localizedButtonColumnWidth("common.delete", DELETE_MIN_WIDTH);
+        requiredDuplicateWidth = localizedButtonColumnWidth("common.duplicate", DUPLICATE_MIN_WIDTH);
         table.addComponent(header());
         for (KeybindRecord record : filteredRecords()) table.addComponent(row(record));
         WurmArrayPanel<FlexComponent> addRow =
@@ -332,7 +363,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         addRow.addComponent(addButton);
         table.addComponent(addRow);
         minimumWidth = WINDOW_CHROME + CONTROLS_WIDTH + CHECK_WIDTH
-                + requiredEditWidth + requiredDeleteWidth
+                + requiredEditWidth + requiredDuplicateWidth
                 + requiredNameWidth + requiredKeyWidth + requiredUserWidth + requiredServerWidth
                 + COLUMN_GAP * 7;
         minimumWidth = Math.max(Math.max(360, minimumWidth),
@@ -355,8 +386,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         enabled.checked = record.isEnabled();
         checkboxIds.put(enabled, record.getId());
         checkboxStates.put(enabled, record.isEnabled());
-        WurmLabel name = new SelectableLabel(record.getName()
-                + (record.isMultiPurpose() ? Messages.text("keybind.multi_suffix") : ""), record.getId());
+        WurmLabel name = new ModeNameLabel(record);
         WurmLabel key = new SelectableLabel(
                 org.keybinder.wurm.catalog.InputKeyCatalog.displayChord(record.getKey()),
                 record.getId());
@@ -367,12 +397,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         edit.setHoverString(Messages.text("keybind.edit.tip"));
         editIds.put(edit, record.getId());
 
-        WButton delete = new WButton(Messages.text("common.delete"), this);
-        delete.setHoverString(Messages.text("keybind.delete.tip"));
-        deleteIds.put(delete, record.getId());
-        delete.setConfirm(true);
-        delete.setConfirmQuestion(Messages.text("keybind.delete.question"));
-        delete.setConfirmMessage(Messages.text("keybind.delete.named", record.getName()));
+        WButton duplicate = new WButton(Messages.text("common.duplicate"), this);
+        duplicate.setHoverString(Messages.text("keybind.duplicate.tip"));
+        duplicateIds.put(duplicate, record.getId());
+
         WurmArrayPanel<FlexComponent> controls =
                 new WurmArrayPanel<>("keybinder.controls." + record.getId(), WurmArrayPanel.DIR_HORIZONTAL);
         controls.componentWidthOffset = 1;
@@ -382,11 +410,11 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                 RowAction.REMOVE, record.getId()));
         RowStatus status = rowStatus(record);
         FlexComponent row = createTableRow("keybinder.row." + record.getId(), record.getId(), status.red,
-                controls, enabled, name, key, createdBy, createdOn, edit, delete);
+                controls, enabled, name, key, createdBy, createdOn, edit, duplicate);
         if (status.red) {
             enabled.setHoverString(status.hoverText);
             edit.setHoverString(status.hoverText);
-            delete.setHoverString(status.hoverText);
+            duplicate.setHoverString(Messages.text("keybind.duplicate.tip"));
         }
         return row;
     }
@@ -407,25 +435,25 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private FlexComponent createTableRow(String id, FlexComponent controls, FlexComponent enabled,
                                          FlexComponent name, FlexComponent key,
                                          FlexComponent user, FlexComponent server,
-                                         FlexComponent edit, FlexComponent delete) {
+                                         FlexComponent edit, FlexComponent duplicate) {
         return createTableRow(id, null, false, controls, enabled, name, key,
-                user, server, edit, delete);
+                user, server, edit, duplicate);
     }
 
     private FlexComponent createTableRow(String id, String recordId, FlexComponent controls,
                                          FlexComponent enabled, FlexComponent name,
                                          FlexComponent key,
                                          FlexComponent user, FlexComponent server,
-                                         FlexComponent edit, FlexComponent delete) {
+                                         FlexComponent edit, FlexComponent duplicate) {
         return createTableRow(id, recordId, false, controls, enabled, name, key,
-                user, server, edit, delete);
+                user, server, edit, duplicate);
     }
 
     private FlexComponent createTableRow(String id, String recordId, boolean overLimit,
                                          FlexComponent controls, FlexComponent enabled,
                                          FlexComponent name, FlexComponent key,
                                          FlexComponent user, FlexComponent server,
-                                         FlexComponent edit, FlexComponent delete) {
+                                         FlexComponent edit, FlexComponent duplicate) {
         requiredNameWidth = Math.max(requiredNameWidth, name.width);
         requiredKeyWidth = Math.max(requiredKeyWidth, key.width);
         requiredUserWidth = Math.max(requiredUserWidth, user.width);
@@ -439,9 +467,9 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         panel.addComponent(user);
         panel.addComponent(server);
         panel.addComponent(edit);
-        panel.addComponent(delete);
+        panel.addComponent(duplicate);
         tableRows.add(new TableRow(recordId, panel, controls, enabled, name, key,
-                user, server, edit, delete));
+                user, server, edit, duplicate));
         return panel;
     }
 
@@ -451,7 +479,14 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             reasons.add(Messages.text("status.no_key"));
         if (record.getKeybindSteps() == null || record.getKeybindSteps().isEmpty())
             reasons.add(Messages.text("status.no_steps"));
-        if (!record.isEnabled() && DisableReason.blocksEnable(record.getDisabledReason()))
+        KeybindRecord managedBlocker = KeybindStatusResolver
+                .enabledManagedBlocker(record, controller.getRecords());
+        if (managedBlocker != null)
+            reasons.add(Messages.text("reason.key_used",
+                    InputKeyCatalog.displayChord(record.getKey()),
+                    managedBlocker.getName()));
+        if (!record.isEnabled() && DisableReason.blocksEnable(record.getDisabledReason())
+                && !DisableReason.isManagedKeyConflict(record.getDisabledReason()))
             reasons.add(DisableReason.display(record.getDisabledReason()));
         QueueCost cost = new ActionQueueCostCalculator().keybindCost(record);
         if (cost.getKind() == QueueCost.Kind.FIXED && controller.getQueueLimit() > 0
@@ -649,7 +684,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         lastLayoutWidth = width;
         int available = Math.max(requiredNameWidth + requiredKeyWidth + requiredUserWidth + requiredServerWidth,
                 width - WINDOW_CHROME - CONTROLS_WIDTH - CHECK_WIDTH
-                        - requiredEditWidth - requiredDeleteWidth
+                        - requiredEditWidth - requiredDuplicateWidth
                         - COLUMN_GAP * 7);
         int extra = Math.max(0,
                 available - requiredNameWidth - requiredKeyWidth - requiredUserWidth - requiredServerWidth);
@@ -664,7 +699,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             row.user.setSize(userWidth, row.user.height);
             row.server.setSize(serverWidth, row.server.height);
             row.edit.setSize(requiredEditWidth, row.edit.height);
-            row.delete.setSize(requiredDeleteWidth, row.delete.height);
+            row.duplicate.setSize(requiredDuplicateWidth, row.duplicate.height);
             row.panel.componentResized();
         }
         table.componentResized();
@@ -704,20 +739,22 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             if (recordId != null && recordId.equals(selectedRowId))
                 fillRect(queue, 0.20f, 0.34f, 0.50f, 0.55f, x, y, width, height);
             super.renderComponent(queue, alpha);
-            if (recordId != null && rowDragging) {
-                int index = draggableRowIndex(recordId);
-                if (dragInsertion == index)
-                    fillRect(queue, 0.92f, 0.77f, 0.42f, 1.0f, x, y, width, 2);
-                if (index >= 0 && index + 1 == draggableRowCount() && dragInsertion == index + 1)
-                    fillRect(queue, 0.92f, 0.77f, 0.42f, 1.0f,
-                            x, y + height - 2, width, 2);
-            }
+            if (recordId != null && recordId.equals(dragMergeDestinationId))
+                KeybinderDragIndicator.paintMerge(this, queue,
+                        x, y, width, height, dragMergeOverLimit);
         }
 
         @Override
         void leftPressed(int mouseX, int mouseY, int clickCount) {
             if (recordId != null) {
                 selectedRowId = recordId;
+                if (clickCount == 2) {
+                    cancelRowDrag();
+                    KeybinderMod.deferUi(new Runnable() {
+                        @Override public void run() { controller.editKeybind(recordId); }
+                    });
+                    return;
+                }
                 beginRowDrag(recordId, mouseY);
             }
             super.leftPressed(mouseX, mouseY, clickCount);
@@ -734,7 +771,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         }
     }
 
-    private final class SelectableLabel extends WurmLabel {
+    private class SelectableLabel extends WurmLabel {
         private final String recordId;
 
         private SelectableLabel(String text, String recordId) {
@@ -745,6 +782,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         @Override
         void leftPressed(int mouseX, int mouseY, int clickCount) {
             selectedRowId = recordId;
+            if (clickCount == 2) {
+                cancelRowDrag();
+                KeybinderMod.deferUi(new Runnable() {
+                    @Override public void run() { controller.editKeybind(recordId); }
+                });
+                return;
+            }
             beginRowDrag(recordId, mouseY);
             super.leftPressed(mouseX, mouseY, clickCount);
         }
@@ -757,6 +801,47 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         @Override void leftReleased(int mouseX, int mouseY) {
             finishRowDrag();
             super.leftReleased(mouseX, mouseY);
+        }
+    }
+
+    /** Name label with fixed-alpha, high-contrast mode tags. */
+    private final class ModeNameLabel extends SelectableLabel {
+        private static final float HUD_RED = 0.35f;
+        private static final float HUD_GREEN = 0.68f;
+        private static final float HUD_BLUE = 1.00f;
+        private static final float MULTI_RED = 0.35f;
+        private static final float MULTI_GREEN = 1.00f;
+        private static final float MULTI_BLUE = 0.45f;
+
+        private final boolean hudMode;
+        private final boolean multiMode;
+        private final String baseName;
+
+        private ModeNameLabel(KeybindRecord record) {
+            super(KeybindNamePrefixes.apply(record.getName(), record.getVariants().size(),
+                    record.isHudMulti()), record.getId());
+            hudMode = record.isHudMulti();
+            multiMode = record.isMultiPurpose();
+            baseName = KeybindNamePrefixes.baseName(record.getName());
+        }
+
+        @Override
+        protected void renderComponent(Queue queue, float ignoredAlpha) {
+            int drawX = x + 4;
+            int baseline = y + text.getHeight() + 1;
+            if (hudMode)
+                drawX += paintSegment(queue, KeybindNamePrefixes.HUD, drawX, baseline,
+                        HUD_RED, HUD_GREEN, HUD_BLUE);
+            if (multiMode)
+                drawX += paintSegment(queue, KeybindNamePrefixes.MULTI, drawX, baseline,
+                        MULTI_RED, MULTI_GREEN, MULTI_BLUE);
+            paintSegment(queue, baseName, drawX, baseline, 1.0f, 1.0f, 1.0f);
+        }
+
+        private int paintSegment(Queue queue, String value, int drawX, int baseline,
+                                 float red, float green, float blue) {
+            text.moveTo(drawX, baseline);
+            return text.paint(queue, value, red, green, blue, 1.0f);
         }
     }
 
@@ -791,13 +876,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         private final FlexComponent user;
         private final FlexComponent server;
         private final FlexComponent edit;
-        private final FlexComponent delete;
+        private final FlexComponent duplicate;
 
         private TableRow(String recordId, WurmArrayPanel<FlexComponent> panel, FlexComponent controls,
                          FlexComponent enabled, FlexComponent name,
                          FlexComponent key,
                          FlexComponent user, FlexComponent server,
-                         FlexComponent edit, FlexComponent delete) {
+                         FlexComponent edit, FlexComponent duplicate) {
             this.recordId = recordId;
             this.panel = panel;
             this.controls = controls;
@@ -807,7 +892,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             this.user = user;
             this.server = server;
             this.edit = edit;
-            this.delete = delete;
+            this.duplicate = duplicate;
         }
     }
 
@@ -839,10 +924,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         else if (button == disableFiltered)
             controller.setKeybindsEnabled(filteredIds(), false);
         else if (button == addButton) controller.addNewKeybind();
-        else if (button == importButton) controller.requestImport();
+        else if (button == importButton) controller.confirmImport();
+        else if (button == importFileButton) controller.requestImportFile();
+        else if (button == exportAllButton) controller.requestExportAll();
         else if (button == restoreButton) controller.restoreOriginalBindings();
         else if (editIds.containsKey(button)) controller.editKeybind(editIds.get(button));
-        else if (deleteIds.containsKey(button)) controller.deleteKeybind(deleteIds.get(button));
+        else if (duplicateIds.containsKey(button))
+            controller.duplicateKeybind(duplicateIds.get(button));
         else {
             RowAction action = rowActions.get(button);
             if (action == null) return;
@@ -860,16 +948,35 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     }
 
     private void beginRowDrag(String recordId, int mouseY) {
+        hideRowInsertionGap();
         draggedRowId = recordId;
         dragPressY = mouseY;
         dragInsertion = -1;
         rowDragging = false;
+        dragMergeDestinationId = null;
+        dragMergeOverLimit = false;
     }
 
     private void updateRowDrag(int mouseY) {
         if (draggedRowId == null) return;
         if (!rowDragging && Math.abs(mouseY - dragPressY) < 4) return;
         rowDragging = true;
+        dragMergeDestinationId = null;
+        dragMergeOverLimit = false;
+        for (TableRow row : tableRows) {
+            if (row.recordId == null || row.recordId.equals(draggedRowId)) continue;
+            if (DropZoneClassifier.classify(mouseY, row.panel.y, row.panel.height)
+                    == DropZoneClassifier.Zone.MERGE) {
+                dragMergeDestinationId = row.recordId;
+                dragMergeOverLimit = variantCount(draggedRowId) + variantCount(row.recordId)
+                        > KeybindLimits.MAX_VARIANTS;
+                dragInsertion = -1;
+                // Preserve the space already opened for insertion so the row
+                // under the pointer cannot jump while entering merge mode.
+                rowInsertionGap.setIndicatorVisible(false);
+                return;
+            }
+        }
         List<Integer> tops = new ArrayList<>();
         List<Integer> heights = new ArrayList<>();
         for (TableRow row : tableRows) {
@@ -878,32 +985,48 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             heights.add(row.panel.height);
         }
         dragInsertion = RowInsertionCalculator.insertionIndex(mouseY, tops, heights);
+        showRowInsertionGap(dragInsertion);
     }
 
     private void finishRowDrag() {
         String id = draggedRowId;
+        String mergeDestination = dragMergeDestinationId;
         int insertion = dragInsertion;
-        boolean apply = rowDragging && insertion >= 0;
+        boolean merge = rowDragging && mergeDestination != null;
+        boolean apply = rowDragging && !merge && insertion >= 0;
+        cancelRowDrag();
+        if (merge) controller.requestMerge(id, mergeDestination);
+        else if (apply) controller.moveKeybind(id, filteredIds(), insertion);
+    }
+
+    private void cancelRowDrag() {
+        hideRowInsertionGap();
         draggedRowId = null;
         dragInsertion = -1;
         rowDragging = false;
-        if (apply) controller.moveKeybind(id, filteredIds(), insertion);
+        dragMergeDestinationId = null;
+        dragMergeOverLimit = false;
     }
 
-    private int draggableRowIndex(String id) {
-        int index = 0;
-        for (TableRow row : tableRows) {
-            if (row.recordId == null) continue;
-            if (row.recordId.equals(id)) return index;
-            index++;
+    private void showRowInsertionGap(int insertion) {
+        if (insertion < 0) {
+            hideRowInsertionGap();
+            return;
         }
-        return -1;
+        rowInsertionGap.setIndicatorVisible(true);
+        KeybinderDragIndicator.place(table, rowInsertionGap,
+                KeybinderDragIndicator.keybindGapComponentIndex(insertion));
     }
 
-    private int draggableRowCount() {
-        int count = 0;
-        for (TableRow row : tableRows) if (row.recordId != null) count++;
-        return count;
+    private void hideRowInsertionGap() {
+        KeybinderDragIndicator.remove(table, rowInsertionGap);
+        rowInsertionGap.setIndicatorVisible(true);
+    }
+
+    private int variantCount(String id) {
+        for (KeybindRecord record : controller.getRecords())
+            if (record.getId().equals(id)) return record.getVariants().size();
+        return 0;
     }
 
     @Override

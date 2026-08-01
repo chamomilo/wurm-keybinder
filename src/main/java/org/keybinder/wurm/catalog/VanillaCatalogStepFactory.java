@@ -4,6 +4,7 @@ import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
 
@@ -29,6 +30,14 @@ public final class VanillaCatalogStepFactory {
             VanillaKeybindCatalog.Category category,
             VanillaKeybindCatalog.Entry entry,
             TargetSpec selectedTarget) {
+        return create(category, entry, ItemSelector.currentActive(), selectedTarget);
+    }
+
+    public KeybindStep create(
+            VanillaKeybindCatalog.Category category,
+            VanillaKeybindCatalog.Entry entry,
+            ItemSelector selectedSource,
+            TargetSpec selectedTarget) {
         if (entry == null)
             throw new IllegalArgumentException(Messages.text("validation.vanilla_missing"));
         if (!usesTarget(category, entry))
@@ -37,6 +46,8 @@ public final class VanillaCatalogStepFactory {
             throw new IllegalArgumentException(Messages.text("validation.target_missing"));
         if (entry.isActivateTool())
             return new ActivateToolStep(selectedTarget);
-        return new ActionStep(entry.getActionId(), selectedTarget, entry.getDisplayName());
+        return new ActionStep(entry.getActionId(),
+                selectedSource == null ? ItemSelector.currentActive() : selectedSource,
+                selectedTarget, entry.getDisplayName());
     }
 }

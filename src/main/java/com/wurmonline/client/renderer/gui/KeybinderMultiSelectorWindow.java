@@ -5,6 +5,9 @@ import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.ui.CursorWarpCoordinates;
+import org.lwjgl.input.Mouse;
+import org.lwjgl.opengl.Display;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -15,11 +18,15 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
     private static final int WINDOW_VERTICAL_CHROME = 25;
     private final String recordId;
     private final Map<WButton, String> variants = new LinkedHashMap<WButton, String>();
+    private final boolean hudSelection;
+    private WButton activeButton;
     private boolean centered;
+    private boolean warpAttempted;
 
-    public KeybinderMultiSelectorWindow(KeybindRecord record) {
+    public KeybinderMultiSelectorWindow(KeybindRecord record, boolean hudSelection) {
         super("keybinder.multi.selector", false);
         this.recordId = record.getId();
+        this.hudSelection = hudSelection;
         setTitle(record.getName());
         resizable = false;
         WurmArrayPanel<FlexComponent> content =
@@ -32,10 +39,15 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
         int index = 0;
         for (KeybindVariant variant : record.getVariants()) {
             String label = variant.getSubName().trim();
-            if (label.isEmpty()) label = index == 0 ? Messages.text("multi.default")
+            if (label.isEmpty()) label = hudSelection
+                    ? Messages.text("multi.variant", index + 1)
+                    : index == 0 ? Messages.text("multi.default")
                     : Messages.text("multi.alternative", index);
-            if (variant.getId().equals(record.getActiveVariantId())) label = "> " + label;
+            boolean active = !hudSelection
+                    && variant.getId().equals(record.getActiveVariantId());
+            if (active) label = "> " + label;
             WButton button = new WButton(label, this);
+            if (active) activeButton = button;
             widest = Math.max(widest, button.width);
             variants.put(button, variant.getId());
             content.addComponent(button);
@@ -57,15 +69,36 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
             centered = true;
             setPosition(Math.max(0, (WurmClientBase.getGameWindow().getWidth() - width) / 2),
                     Math.max(0, (WurmClientBase.getGameWindow().getHeight() - height) / 2));
+            return;
+        }
+        if (centered && !warpAttempted) {
+            warpAttempted = true;
+            try {
+                WButton target = activeButton;
+                if (target == null && !variants.isEmpty()) target = variants.keySet().iterator().next();
+                if (target != null && Mouse.isCreated() && Mouse.isInsideWindow()) {
+                    CursorWarpCoordinates.Point point = CursorWarpCoordinates.fromGuiCenter(
+                            target.x, target.y, target.width, target.height,
+                            Display.getWidth(), Display.getHeight());
+                    Mouse.setCursorPosition(point.getX(), point.getY());
+                }
+            } catch (RuntimeException failure) {
+                KeybinderMod.debugMultiPointerWarp(failure);
+            }
         }
     }
 
     @Override public void buttonClicked(WButton button) {
         String variantId = variants.get(button);
-        if (variantId != null) KeybinderMod.chooseMultiVariant(recordId, variantId);
+        if (variantId != null)
+            KeybinderMod.chooseMultiVariant(recordId, variantId, hudSelection);
     }
 
     @Override protected void closePressed() {
         KeybinderMod.closeMultiSelector();
+    }
+
+    public boolean selectsRecord(String id) {
+        return id != null && id.equals(recordId);
     }
 }

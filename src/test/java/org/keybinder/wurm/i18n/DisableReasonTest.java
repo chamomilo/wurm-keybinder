@@ -36,4 +36,30 @@ public class DisableReasonTest {
         assertTrue(DisableReason.blocksEnable(
                 DisableReason.value("key_in_use")));
     }
+
+    @Test public void identifiesOnlyKeyConflictReasonsAsReleasable() {
+        assertTrue(DisableReason.isKeyConflict(
+                DisableReason.value("replaced_by", "Another bind")));
+        assertTrue(DisableReason.isKeyConflict(
+                DisableReason.value("extracted_review", "F4")));
+        assertFalse(DisableReason.isKeyConflict(
+                DisableReason.value("duplicate_review")));
+        assertFalse(DisableReason.isKeyConflict(
+                DisableReason.value("queue_exceeded", 9, 5)));
+    }
+
+    @Test public void distinguishesManagedConflictsFromExternalOwners() {
+        assertTrue(DisableReason.isManagedKeyConflict(
+                DisableReason.value("replaced_by", "Another bind")));
+        assertTrue(DisableReason.isManagedKeyConflict(
+                DisableReason.value("key_used", "R", "Another bind")));
+        assertTrue(DisableReason.isManagedKeyConflict(
+                DisableReason.value("extracted_review", "R")));
+        assertFalse(DisableReason.isManagedKeyConflict(
+                DisableReason.value("key_used_vanilla", "R", "bind R examine")));
+        assertFalse(DisableReason.isManagedKeyConflict(
+                DisableReason.value("key_used_unknown", "R")));
+        assertFalse(DisableReason.isManagedKeyConflict(
+                DisableReason.value("key_in_use")));
+    }
 }

@@ -19,6 +19,7 @@ public final class KeybindRecord {
     private String previousManagedCommand = "";
     private String createdByUser = "";
     private String createdOnServer = "";
+    private boolean hudMulti;
 
     public KeybindRecord(String id, String name, String key, RecordType type,
                          List<ActionStep> steps, String command) {
@@ -37,6 +38,7 @@ public final class KeybindRecord {
         this.activeVariantId = variant.getId();
         this.enabled = true;
         this.disabledReason = "";
+        this.hudMulti = false;
     }
 
     public KeybindRecord(String id, String name, String key, List<? extends KeybindStep> steps) {
@@ -49,6 +51,7 @@ public final class KeybindRecord {
         this.activeVariantId = variant.getId();
         this.enabled = true;
         this.disabledReason = "";
+        this.hudMulti = false;
     }
 
     public KeybindRecord(String id, String name, String key, List<KeybindVariant> variants,
@@ -63,6 +66,7 @@ public final class KeybindRecord {
                 ? this.variants.get(0).getId() : activeVariantId;
         this.enabled = true;
         this.disabledReason = "";
+        this.hudMulti = false;
     }
 
     public static KeybindRecord actionChain(String name, String key, List<ActionStep> steps) {
@@ -86,6 +90,8 @@ public final class KeybindRecord {
     }
     public List<KeybindVariant> getVariants() { return Collections.unmodifiableList(variants); }
     public boolean isMultiPurpose() { return variants.size() > 1; }
+    public boolean isHudMulti() { return isMultiPurpose() && hudMulti; }
+    public void setHudMulti(boolean value) { hudMulti = value && isMultiPurpose(); }
     public String getActiveVariantId() { return activeVariantId; }
     public KeybindVariant getActiveVariant() {
         KeybindVariant found = findVariant(activeVariantId);
@@ -101,6 +107,21 @@ public final class KeybindRecord {
         if (findVariant(variantId) == null)
             throw new IllegalArgumentException(Messages.text("validation.variant_unknown"));
         activeVariantId = variantId;
+    }
+    /** Read-only execution view used when a HUD choice must not become the default. */
+    public KeybindRecord executionViewForVariant(String variantId) {
+        if (findVariant(variantId) == null)
+            throw new IllegalArgumentException(Messages.text("validation.variant_unknown"));
+        KeybindRecord result = new KeybindRecord(id, name, key, variants, variantId);
+        result.setEnabled(enabled);
+        result.setDisabledReason(disabledReason);
+        result.setOriginalKey(originalKey);
+        result.setOriginalCommand(originalCommand);
+        result.setPreviousManagedCommand(previousManagedCommand);
+        result.setCreatedByUser(createdByUser);
+        result.setCreatedOnServer(createdOnServer);
+        result.setHudMulti(hudMulti);
+        return result;
     }
     public String getDisplayName() {
         KeybindVariant active = getActiveVariant();

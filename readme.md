@@ -2,7 +2,7 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.6.2 for Wurm Unlimited
+# Keybinder 0.7.0 for Wurm Unlimited
 
 Tired of managing keybinds through console commands, juggling toolbelt setup
 files, and remembering dozens of keys? Keybinder replaces all of that with one
@@ -11,7 +11,8 @@ All your keybinds are visible in one place, where you can create, edit, disable,
 without using the console, digging through configuration files, or memorizing commands.
 
 Start with a single key binding. Let Keybinder capture your action and convert it into a keybind.
-Add target selection like an exact object, nearby item, or toolbelt slot. Add tool selection to the same keybind.
+Add target selection like an exact object, nearby item, or toolbelt slot. Each custom action has an independent
+**Tool | Action | Target** row, so it can resolve a tool without changing the active item.
 So, with your keypress you do it all - select the tool, target, and do the action.
 Then, add more actions to the same keybind - "select rake"+"farm hovered tile 7x7"+"harvest and replant 7x7 over hovered tile".
 Enjoy a complex action by pressing one key. Nice?
@@ -25,7 +26,46 @@ Then bind embark to Tab, disembark to Shift-Tab. Super convenient. When embarkin
 Get rid of a 10-year-old mod with complex programming and console usage.
 The future has come, and it's convenient.
 
-## What's new in 0.6.2
+## What's new in 0.7.0
+
+- Every custom action now has its own portable **Tool** selector: current active item,
+  empty hand, hovered inventory item, toolbelt slot, equipment slot, or an exact
+  inventory object. The advanced **Switch active item** step remains available when
+  later actions really should inherit a new active item.
+- Added **Hovered + filter** and renamed the visible nearby option to
+  **Nearby + filter**. Both compare normalized object types without
+  material, articles, or creature condition prefixes.
+- Added **Duplicate**, row double-click editing, and drag-to-merge. A center drop
+  appends all alternatives after confirmation; the destination keeps its key,
+  HUD mode, active alternative, and restore history. The source record and its
+  independent restore history are removed.
+- Alternative actions can now be extracted with the curved-arrow icon beside
+  Remove. Extraction saves current editor changes, removes that alternative from
+  its parent, and inserts a disabled standalone keybind directly below it. Names
+  receive derived `Multi` and `HUD Multi` prefixes; the prefixes and multi/HUD
+  tracking are removed automatically when only one alternative remains.
+- Added portable `.keybinder` **Import file** and **Export all**. Imported records
+  receive new identities and stay disabled until reviewed. Exact object IDs are
+  deliberately marked non-portable and require extra review.
+- Multi-keybinds now offer separate **Ordinary Multi** and **HUD Multi** behavior.
+  Ordinary Multi runs the active choice on a short press and opens a select-only
+  menu on a long press; the pointer moves to the active choice once. HUD Multi
+  opens immediately and executes the item chosen from the menu.
+- Smart Improve now fills only the currently free queue slots. A damaged inventory
+  item normally costs exactly two actions (Repair + Improve), while an undamaged
+  item costs one. A metal target that is not glowing is repaired when damaged but
+  is not improved, so it costs one action when damaged and zero otherwise. A cold
+  metal lump is not used as an improve material; Keybinder prefers another matching
+  glowing lump and otherwise applies only the optional Repair. Large selections are
+  trimmed to a deterministic fitting prefix instead of being rejected in full.
+  Damage is checked again immediately before sending, and the real sequential
+  `Repair, Improve` / `Improve` command list is never expanded by a hidden queue.
+- The persisted definition format is now schema 8. Before the first successful
+  schema-8 save, Keybinder creates `mods/keybinder/keybinds.pre-v8.properties`
+  once. To downgrade, close the client and manually restore that file as
+  `keybinds.properties`; the normal rolling `.bak` remains a separate recovery file.
+
+## Previously in 0.6.2
 
 - Fixed **Nearby by type** targets reverting to **Hovered** when a keybind was
   saved immediately after selecting an object.
@@ -72,7 +112,7 @@ The future has come, and it's convenient.
 ## Installation
 
 1. Disable the old `action` and `i2improve` client mods.
-2. Extract `keybinder-0.6.2.zip` into the Wurm Unlimited client directory using
+2. Extract `keybinder-0.7.0.zip` into the Wurm Unlimited client directory using
    Ago's mod loader as usual.
 3. If the Keybinder introduction does not appear after startup, enable
    **Keybinder** in HUD Settings.

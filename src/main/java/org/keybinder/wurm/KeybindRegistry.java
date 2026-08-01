@@ -15,12 +15,19 @@ import org.keybinder.wurm.model.KeybindConflict;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.KeybindLimits;
+import org.keybinder.wurm.model.KeybindNamePrefixes;
+import org.keybinder.wurm.model.KeybindDefinitionCopier;
+import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.storage.KeybindStore;
 import org.keybinder.wurm.storage.AccountKeybindStateStore;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
 import org.keybinder.wurm.catalog.InputKeyCatalog;
+import org.keybinder.wurm.transfer.PortableKeybindDefinition;
+import org.keybinder.wurm.transfer.SemanticFingerprint;
+import org.keybinder.wurm.transfer.TransferImportResult;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -38,6 +45,7 @@ public final class KeybindRegistry {
     private final ActionQueueCostCalculator costs;
     private final EventLogger log;
     private final VanillaImportPolicy importPolicy = new VanillaImportPolicy();
+    private final KeybindDefinitionCopier copier = new KeybindDefinitionCopier();
     private String currentUser = "";
     private String currentServer = "";
     private String activeAccount = "";
@@ -67,6 +75,7 @@ public final class KeybindRegistry {
             List<KeybindRecord> loaded = store.load();
             records.clear();
             records.addAll(loaded);
+            normalizeNames();
             observedStoreModified = store.lastModifiedMillis();
             if (store.wasRecoveredFromBackup())
                 log.warning(Messages.text("registry.recovered", records.size()));
@@ -146,6 +155,7 @@ public final class KeybindRegistry {
             }
             records.clear();
             records.addAll(incoming);
+            normalizeNames();
             observedStoreModified = modified;
             persistAccountState();
             log.info(Messages.text("registry.synchronized"));
@@ -411,8 +421,26 @@ public final class KeybindRegistry {
             boolean oldEnabled = record.isEnabled();
             String oldReason = record.getDisabledReason();
             String command = commandFor(record);
+            BindSnapshot liveBefore = findLive(console, record.getKey());
+            boolean releasesChord = liveBefore == null
+                    || liveBefore.getCommand().equalsIgnoreCase(command);
+            for (KeybindRecord candidate : records)
+                if (candidate != record && candidate.isEnabled()
+                        && sameChord(candidate.getKey(), record.getKey())) releasesChord = false;
+            List<KeybindRecord> unblocked = new ArrayList<KeybindRecord>();
+            List<String> unblockedReasons = new ArrayList<String>();
             record.setEnabled(false);
             record.setDisabledReason(DisableReason.value("disabled_by_user"));
+            if (releasesChord) {
+                for (KeybindRecord candidate : records) {
+                    if (candidate == record || candidate.isEnabled()
+                            || !sameChord(candidate.getKey(), record.getKey())
+                            || !DisableReason.isKeyConflict(candidate.getDisabledReason())) continue;
+                    unblocked.add(candidate);
+                    unblockedReasons.add(candidate.getDisabledReason());
+                    candidate.setDisabledReason(DisableReason.value("disabled_by_user"));
+                }
+            }
             try {
                 saveRecords();
                 if (!record.getKey().isEmpty() && !record.getKeybindSteps().isEmpty())
@@ -420,6 +448,8 @@ public final class KeybindRegistry {
             } catch (RuntimeException | IOException | ReflectiveOperationException e) {
                 record.setEnabled(oldEnabled);
                 record.setDisabledReason(oldReason);
+                for (int i = 0; i < unblocked.size(); i++)
+                    unblocked.get(i).setDisabledReason(unblockedReasons.get(i));
                 rollbackStore(e);
                 if (oldEnabled && findLive(console, record.getKey()) == null)
                     installLive(console, record.getKey(), command);
@@ -586,13 +616,15 @@ public final class KeybindRegistry {
 
     public synchronized void updateVariants(String id, String name, String key,
                                             List<org.keybinder.wurm.model.KeybindVariant> variants,
-                                            String activeVariantId, String createdByUser,
+                                            String activeVariantId, boolean hudMulti,
+                                            String createdByUser,
                                             String createdOnServer, WurmConsole console, int limit)
             throws IOException, ReflectiveOperationException {
         KeybindRecord found = find(id);
         if (found == null)
             throw new IllegalArgumentException(Messages.text("event.record_missing", id));
         KeybindRecord persisted = new KeybindRecord(found.getId(), name, key, variants, activeVariantId);
+        persisted.setHudMulti(hudMulti);
         persisted.setOriginalKey(found.getOriginalKey());
         persisted.setOriginalCommand(found.getOriginalCommand());
         persisted.setPreviousManagedCommand(found.getPreviousManagedCommand());
@@ -637,7 +669,7 @@ public final class KeybindRegistry {
     public synchronized void updateVariantsDisabled(
             String id, String name, String key,
             List<org.keybinder.wurm.model.KeybindVariant> variants, String activeVariantId,
-            String reason, String createdByUser, String createdOnServer,
+            boolean hudMulti, String reason, String createdByUser, String createdOnServer,
             WurmConsole console, int limit)
             throws IOException, ReflectiveOperationException {
         KeybindRecord found = find(id);
@@ -645,6 +677,7 @@ public final class KeybindRegistry {
             throw new IllegalArgumentException(Messages.text("event.record_missing", id));
         KeybindRecord persisted =
                 new KeybindRecord(found.getId(), name, key, variants, activeVariantId);
+        persisted.setHudMulti(hudMulti);
         persisted.setOriginalKey(found.getOriginalKey());
         persisted.setOriginalCommand(found.getOriginalCommand());
         persisted.setPreviousManagedCommand(found.getPreviousManagedCommand());
@@ -750,9 +783,19 @@ public final class KeybindRegistry {
     }
 
     private void saveRecords() throws IOException {
+        normalizeNames();
         store.save(records);
         observedStoreModified = store.lastModifiedMillis();
         persistAccountState();
+    }
+
+    private void normalizeNames() {
+        for (KeybindRecord record : records) normalizeName(record);
+    }
+
+    private static void normalizeName(KeybindRecord record) {
+        record.setName(KeybindNamePrefixes.apply(record.getName(),
+                record.getVariants().size(), record.isHudMulti()));
     }
 
     private void persistAccountState() {
@@ -799,6 +842,284 @@ public final class KeybindRegistry {
             if (!managed) candidates.add(bind);
         }
         return candidates;
+    }
+
+    public synchronized KeybindRecord duplicate(String sourceId) throws IOException {
+        KeybindRecord source = find(sourceId);
+        if (source == null)
+            throw new IllegalArgumentException(Messages.text("event.record_missing", sourceId));
+        String name = Messages.text("keybind.copy_name", source.getName());
+        KeybindRecord duplicate = copier.copyRecordWithNewIdentity(source, name);
+        duplicate.setEnabled(false);
+        duplicate.setDisabledReason(DisableReason.value("duplicate_review"));
+        duplicate.setOriginalKey("");
+        duplicate.setOriginalCommand("");
+        duplicate.setPreviousManagedCommand("");
+        duplicate.setCreatedByUser(currentUser);
+        duplicate.setCreatedOnServer(currentServer);
+        int sourceIndex = indexOf(sourceId);
+        records.add(sourceIndex + 1, duplicate);
+        try {
+            saveRecords();
+        } catch (IOException | RuntimeException failure) {
+            records.remove(duplicate);
+            rollbackStore(failure);
+            throw failure;
+        }
+        log.info(Messages.text("registry.duplicated", source.getName(), duplicate.getName()));
+        return duplicate;
+    }
+
+    /**
+     * Persists the editor's current parent definition without one alternative and inserts a
+     * disabled, independently identified copy of that alternative immediately after it.
+     */
+    public synchronized KeybindRecord extractVariant(
+            String sourceId, String name, String key, List<KeybindVariant> variants,
+            String activeVariantId, boolean hudMulti, String extractedVariantId,
+            String createdByUser, String createdOnServer, String parentDisabledReason,
+            WurmConsole console, int limit)
+            throws IOException, ReflectiveOperationException {
+        KeybindRecord source = find(sourceId);
+        if (source == null)
+            throw new IllegalArgumentException(Messages.text("event.record_missing", sourceId));
+        if (variants == null || variants.size() <= 1)
+            throw new IllegalArgumentException(Messages.text("extract.last_variant"));
+
+        KeybindVariant extractedVariant = null;
+        int extractedIndex = -1;
+        List<KeybindVariant> remaining = new ArrayList<KeybindVariant>();
+        for (int i = 0; i < variants.size(); i++) {
+            KeybindVariant variant = variants.get(i);
+            if (variant.getId().equals(extractedVariantId)) {
+                extractedVariant = variant;
+                extractedIndex = i;
+            } else {
+                remaining.add(variant);
+            }
+        }
+        if (extractedVariant == null)
+            throw new IllegalArgumentException(Messages.text("validation.variant_unknown"));
+        if (extractedIndex == 0)
+            throw new IllegalArgumentException(Messages.text("extract.default_variant"));
+
+        String remainingActive = activeVariantId;
+        boolean activeRemains = false;
+        for (KeybindVariant variant : remaining)
+            if (variant.getId().equals(remainingActive)) activeRemains = true;
+        if (!activeRemains) remainingActive = remaining.get(0).getId();
+
+        KeybindRecord parent = new KeybindRecord(source.getId(), name, key,
+                remaining, remainingActive);
+        parent.setHudMulti(hudMulti);
+        normalizeName(parent);
+        parent.setOriginalKey(source.getOriginalKey());
+        parent.setOriginalCommand(source.getOriginalCommand());
+        parent.setPreviousManagedCommand(source.getPreviousManagedCommand());
+        parent.setCreatedByUser(createdByUser);
+        parent.setCreatedOnServer(createdOnServer);
+        parent.setEnabled(source.isEnabled());
+        parent.setDisabledReason(source.getDisabledReason());
+        if (parentDisabledReason != null && !parentDisabledReason.trim().isEmpty()) {
+            parent.setEnabled(false);
+            parent.setDisabledReason(parentDisabledReason);
+        }
+        validate(parent);
+        if (parent.isEnabled()) applyLimit(parent, limit);
+
+        String variantName = extractedVariant.getSubName().trim();
+        if (variantName.isEmpty())
+            variantName = Messages.text("editor.variant.number", extractedIndex);
+        List<KeybindVariant> copied = copier.copyVariantsWithNewIdentity(
+                Collections.singletonList(extractedVariant));
+        KeybindRecord extracted = new KeybindRecord(null,
+                Messages.text("keybind.extracted_name", variantName,
+                        KeybindNamePrefixes.baseName(parent.getName())), key,
+                copied, copied.get(0).getId());
+        extracted.setEnabled(false);
+        extracted.setDisabledReason(DisableReason.value("extracted_review", key));
+        extracted.setOriginalKey("");
+        extracted.setOriginalCommand("");
+        extracted.setPreviousManagedCommand("");
+        extracted.setCreatedByUser(currentUser);
+        extracted.setCreatedOnServer(currentServer);
+        normalizeName(extracted);
+        validate(extracted);
+
+        String oldKey = source.getKey();
+        String oldCommand = commandFor(source);
+        String newCommand = commandFor(parent);
+        BindSnapshot oldLive = findLive(console, oldKey);
+        BindSnapshot newLive = sameChord(oldKey, key) ? oldLive : findLive(console, key);
+        KeybindRecord displaced = parent.isEnabled() ? findManagedConflict(source, key) : null;
+        boolean displacedEnabled = displaced != null && displaced.isEnabled();
+        String displacedReason = displaced == null ? "" : displaced.getDisabledReason();
+        List<KeybindRecord> before = new ArrayList<KeybindRecord>(records);
+        int sourceIndex = records.indexOf(source);
+        if (displaced != null) {
+            displaced.setEnabled(false);
+            displaced.setDisabledReason(DisableReason.value("replaced_by", parent.getName()));
+        }
+        records.set(sourceIndex, parent);
+        records.add(sourceIndex + 1, extracted);
+        try {
+            saveRecords();
+            if (displaced != null)
+                removeLive(console, displaced.getKey(), commandFor(displaced));
+            if (source.isEnabled() && (!parent.isEnabled() || !sameChord(oldKey, key)))
+                removeLive(console, oldKey, oldCommand);
+            if (parent.isEnabled()) installLive(console, key, newCommand);
+        } catch (RuntimeException | IOException | ReflectiveOperationException failure) {
+            if (displaced != null) {
+                displaced.setEnabled(displacedEnabled);
+                displaced.setDisabledReason(displacedReason);
+            }
+            records.clear();
+            records.addAll(before);
+            rollbackStore(failure);
+            if (sameChord(oldKey, key)) {
+                restoreLiveBind(console, oldKey, newCommand, oldLive, failure);
+            } else {
+                restoreLiveBind(console, oldKey, oldCommand, oldLive, failure);
+                restoreLiveBind(console, key, newCommand, newLive, failure);
+            }
+            throw failure;
+        }
+        if (displaced != null)
+            log.warning(Messages.text("registry.displaced", key, displaced.getName()));
+        log.info(Messages.text("registry.extracted", variantName, source.getName(),
+                extracted.getName()));
+        return extracted;
+    }
+
+    public synchronized KeybindRecord merge(String sourceId, String destinationId,
+                                             WurmConsole console)
+            throws IOException, ReflectiveOperationException {
+        if (sourceId == null || sourceId.equals(destinationId))
+            throw new IllegalArgumentException(Messages.text("merge.self"));
+        KeybindRecord source = find(sourceId);
+        KeybindRecord destination = find(destinationId);
+        if (source == null || destination == null)
+            throw new IllegalArgumentException(Messages.text("merge.record_missing"));
+        int resultCount = source.getVariants().size() + destination.getVariants().size();
+        if (resultCount > KeybindLimits.MAX_VARIANTS)
+            throw new IllegalArgumentException(Messages.text("merge.too_many",
+                    destination.getVariants().size(), source.getVariants().size(), resultCount,
+                    KeybindLimits.MAX_VARIANTS));
+
+        String sourceCommand = commandFor(source);
+        BindSnapshot sourceLive = findLive(console, source.getKey());
+        boolean sourceLiveOwned = sourceLive != null
+                && sourceLive.getCommand().equalsIgnoreCase(sourceCommand);
+        if (!InputKeyCatalog.isVirtual(source.getKey())) {
+            if (source.isEnabled() && !sourceLiveOwned)
+                throw new IllegalStateException(Messages.text("merge.ownership_mismatch",
+                        source.getKey()));
+        }
+        BindSnapshot destinationLive = findLive(console, destination.getKey());
+        List<KeybindRecord> before = new ArrayList<KeybindRecord>(records);
+        KeybindRecord merged = buildMerged(source, destination);
+        int destinationIndex = records.indexOf(destination);
+        records.set(destinationIndex, merged);
+        records.remove(source);
+        try {
+            validate(merged);
+            saveRecords();
+            if (sourceLiveOwned && !removeLive(console, source.getKey(), sourceCommand))
+                throw new IllegalStateException(Messages.text("merge.ownership_mismatch",
+                        source.getKey()));
+            BindSnapshot afterSource = findLive(console, source.getKey());
+            if (afterSource != null
+                    && afterSource.getCommand().equalsIgnoreCase(sourceCommand))
+                throw new IllegalStateException(Messages.text("merge.source_bind_remains"));
+            BindSnapshot afterDestination = findLive(console, destination.getKey());
+            if (!sameBind(destinationLive, afterDestination))
+                throw new IllegalStateException(Messages.text("merge.destination_changed"));
+        } catch (RuntimeException | IOException | ReflectiveOperationException failure) {
+            records.clear();
+            records.addAll(before);
+            rollbackStore(failure);
+            if (sourceLiveOwned) {
+                try {
+                    BindSnapshot current = findLive(console, sourceLive.getKey());
+                    if (current == null) installLive(console,
+                            sourceLive.getKey(), sourceLive.getCommand());
+                } catch (Throwable rollbackFailure) {
+                    failure.addSuppressed(rollbackFailure);
+                }
+            }
+            throw failure;
+        }
+        log.info(Messages.text("registry.merged", source.getName(), destination.getName(),
+                merged.getVariants().size()));
+        return merged;
+    }
+
+    public synchronized TransferImportResult importPortable(
+            List<PortableKeybindDefinition> definitions) throws IOException {
+        java.util.Set<String> fingerprints = new java.util.HashSet<String>();
+        for (KeybindRecord record : records)
+            fingerprints.add(SemanticFingerprint.of(
+                    PortableKeybindDefinition.fromRecord(record)));
+        List<KeybindRecord> before = new ArrayList<KeybindRecord>(records);
+        int imported = 0;
+        int skipped = 0;
+        for (PortableKeybindDefinition definition : definitions) {
+            String fingerprint = SemanticFingerprint.of(definition);
+            if (!fingerprints.add(fingerprint)) { skipped++; continue; }
+            KeybindRecord record = definition.toRecord(currentUser, currentServer);
+            record.setEnabled(false);
+            record.setDisabledReason(DisableReason.value(definition.hasExactObject()
+                    ? "nonportable_object_review" : "import_review"));
+            records.add(record);
+            imported++;
+        }
+        try {
+            saveRecords();
+        } catch (IOException | RuntimeException failure) {
+            records.clear();
+            records.addAll(before);
+            rollbackStore(failure);
+            throw failure;
+        }
+        return new TransferImportResult(imported, skipped, 0);
+    }
+
+    private KeybindRecord buildMerged(KeybindRecord source, KeybindRecord destination) {
+        List<KeybindVariant> variants = new ArrayList<KeybindVariant>(destination.getVariants());
+        String sourceBaseName = KeybindNamePrefixes.baseName(source.getName());
+        java.util.Set<String> names = new java.util.HashSet<String>();
+        for (KeybindVariant variant : variants)
+            names.add(variant.getSubName().toLowerCase(java.util.Locale.ENGLISH));
+        for (KeybindVariant copied : copier.copyVariantsWithNewIdentity(source.getVariants())) {
+            String base = copied.getSubName().trim().isEmpty() ? sourceBaseName
+                    : sourceBaseName + " — " + copied.getSubName();
+            String candidate = base;
+            int suffix = 2;
+            while (names.contains(candidate.toLowerCase(java.util.Locale.ENGLISH)))
+                candidate = base + Messages.text("merge.name_suffix", suffix++);
+            copied.setSubName(candidate);
+            names.add(candidate.toLowerCase(java.util.Locale.ENGLISH));
+            variants.add(copied);
+        }
+        KeybindRecord merged = new KeybindRecord(destination.getId(), destination.getName(),
+                destination.getKey(), variants, destination.getActiveVariantId());
+        merged.setHudMulti(destination.isHudMulti());
+        normalizeName(merged);
+        merged.setEnabled(destination.isEnabled());
+        merged.setDisabledReason(destination.getDisabledReason());
+        merged.setOriginalKey(destination.getOriginalKey());
+        merged.setOriginalCommand(destination.getOriginalCommand());
+        merged.setPreviousManagedCommand(destination.getPreviousManagedCommand());
+        merged.setCreatedByUser(destination.getCreatedByUser());
+        merged.setCreatedOnServer(destination.getCreatedOnServer());
+        return merged;
+    }
+
+    private static boolean sameBind(BindSnapshot left, BindSnapshot right) {
+        if (left == null || right == null) return left == right;
+        return left.getKey().equalsIgnoreCase(right.getKey())
+                && left.getCommand().equalsIgnoreCase(right.getCommand());
     }
 
     public static final class RestoreResult {
@@ -1009,6 +1330,32 @@ public final class KeybindRegistry {
             throw new IllegalArgumentException(Messages.text("validation.key_missing"));
         if (record.getKeybindSteps().isEmpty())
             throw new IllegalArgumentException(Messages.text("validation.step_missing"));
+        if (record.getName().length() > KeybindLimits.MAX_RECORD_NAME_LENGTH)
+            throw new IllegalArgumentException(Messages.text("validation.name_too_long",
+                    KeybindLimits.MAX_RECORD_NAME_LENGTH));
+        if (record.getVariants().size() > KeybindLimits.MAX_VARIANTS)
+            throw new IllegalArgumentException(Messages.text("editor.max_variants",
+                    KeybindLimits.MAX_VARIANTS));
+        for (org.keybinder.wurm.model.KeybindVariant variant : record.getVariants()) {
+            if (variant.getSubName().length() > KeybindLimits.MAX_VARIANT_NAME_LENGTH)
+                throw new IllegalArgumentException(Messages.text("validation.variant_name_too_long",
+                        KeybindLimits.MAX_VARIANT_NAME_LENGTH));
+            if (variant.getSteps().size() > KeybindLimits.MAX_STEPS_PER_VARIANT)
+                throw new IllegalArgumentException(Messages.text("validation.steps_too_many",
+                        KeybindLimits.MAX_STEPS_PER_VARIANT));
+            for (KeybindStep step : variant.getSteps()) {
+                if (step instanceof ConsoleCommandStep
+                        && ((ConsoleCommandStep) step).getCommand().length()
+                        > KeybindLimits.MAX_COMMAND_LENGTH)
+                    throw new IllegalArgumentException(Messages.text("validation.command_too_long",
+                            KeybindLimits.MAX_COMMAND_LENGTH));
+                if (step instanceof org.keybinder.wurm.model.VanillaActionStep
+                        && ((org.keybinder.wurm.model.VanillaActionStep) step)
+                        .getCommand().length() > KeybindLimits.MAX_COMMAND_LENGTH)
+                    throw new IllegalArgumentException(Messages.text("validation.command_too_long",
+                            KeybindLimits.MAX_COMMAND_LENGTH));
+            }
+        }
     }
 
     private static String validationDisabledReason(KeybindRecord record) {

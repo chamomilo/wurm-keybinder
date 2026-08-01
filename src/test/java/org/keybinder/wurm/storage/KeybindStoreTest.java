@@ -11,6 +11,7 @@ import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.VanillaActionStep;
+import org.keybinder.wurm.model.ItemSelector;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -25,6 +26,8 @@ import java.util.Properties;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertArrayEquals;
 
 public class KeybindStoreTest {
     @Test
@@ -143,6 +146,92 @@ public class KeybindStoreTest {
     }
 
     @Test
+    public void schemaEightRoundTripsPerActionSourceAndHudMulti() throws Exception {
+        Path file = Files.createTempDirectory("keybinder-v8-test").resolve("keybinds.properties");
+        KeybindStore store = new KeybindStore(file);
+        KeybindVariant first = new KeybindVariant("one", "One",
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 7,
+                        ItemSelector.toolbeltSlot(4), TargetSpec.hoverType("iron pickaxe"),
+                        "Improve")));
+        KeybindVariant second = new KeybindVariant("two", "Two",
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 8,
+                        ItemSelector.exactObject(123L, "rare hammer"),
+                        TargetSpec.simple(TargetKind.HOVER), "Use")));
+        KeybindRecord record = new KeybindRecord("record-id", "Sources", "G",
+                Arrays.asList(first, second), "two");
+        record.setHudMulti(true);
+        store.save(Collections.singletonList(record));
+
+        KeybindRecord loaded = store.load().get(0);
+        assertTrue(loaded.isHudMulti());
+        assertEquals("two", loaded.getActiveVariantId());
+        assertEquals(ItemSelector.toolbeltSlot(4),
+                ((ActionStep) loaded.getVariants().get(0).getSteps().get(0)).getSource());
+        assertEquals(ItemSelector.exactObject(123L, "rare hammer"),
+                ((ActionStep) loaded.getVariants().get(1).getSteps().get(0)).getSource());
+    }
+
+    @Test
+    public void schemaSevenMigratesOnceAndPreservesOriginalBytes() throws Exception {
+        Path dir = Files.createTempDirectory("keybinder-pre-v8-test");
+        Path file = dir.resolve("keybinds.properties");
+        Properties props = schemaSevenRecord();
+        try (OutputStream out = Files.newOutputStream(file)) { props.store(out, "schema seven"); }
+        byte[] original = Files.readAllBytes(file);
+        KeybindStore store = new KeybindStore(file);
+        List<KeybindRecord> records = store.load();
+        ActionStep migrated = (ActionStep) records.get(0).getKeybindSteps().get(0);
+        assertEquals(ItemSelector.currentActive(), migrated.getSource());
+        assertFalse(records.get(0).isHudMulti());
+
+        store.save(records);
+        assertArrayEquals(original, Files.readAllBytes(store.preV8BackupFile()));
+        byte[] firstBackup = Files.readAllBytes(store.preV8BackupFile());
+        records.get(0).setName("Changed");
+        store.save(records);
+        assertArrayEquals(firstBackup, Files.readAllBytes(store.preV8BackupFile()));
+    }
+
+    @Test
+    public void everyLegacySchemaOneThroughSevenDefaultsActionSourceAndHudMode() throws Exception {
+        for (int schema = 1; schema <= 7; schema++) {
+            Path file = Files.createTempDirectory("keybinder-schema-" + schema)
+                    .resolve("keybinds.properties");
+            Properties fixture = legacySchemaRecord(schema);
+            try (OutputStream out = Files.newOutputStream(file)) {
+                fixture.store(out, "schema " + schema);
+            }
+            KeybindRecord loaded = new KeybindStore(file).load().get(0);
+            assertEquals("schema-" + schema, loaded.getId());
+            assertFalse(loaded.isHudMulti());
+            assertEquals(ItemSelector.currentActive(),
+                    ((ActionStep) loaded.getKeybindSteps().get(0)).getSource());
+        }
+    }
+
+    @Test
+    public void recoveredLegacyBackupIsThePreV8SourceAndIsNotOverwrittenByCorruptMain()
+            throws Exception {
+        Path dir = Files.createTempDirectory("keybinder-recovered-v7");
+        Path file = dir.resolve("keybinds.properties");
+        Path backup = file.resolveSibling("keybinds.properties.bak");
+        Files.write(file, Arrays.asList("schema=broken"), StandardCharsets.ISO_8859_1);
+        try (OutputStream out = Files.newOutputStream(backup)) {
+            schemaSevenRecord().store(out, "good schema seven backup");
+        }
+        byte[] goodBackup = Files.readAllBytes(backup);
+        KeybindStore store = new KeybindStore(file);
+        List<KeybindRecord> recovered = store.load();
+        assertTrue(store.wasRecoveredFromBackup());
+
+        store.save(recovered);
+
+        assertArrayEquals(goodBackup, Files.readAllBytes(store.preV8BackupFile()));
+        assertArrayEquals(goodBackup, Files.readAllBytes(backup));
+        assertEquals("old-id", store.load().get(0).getId());
+    }
+
+    @Test
     public void recoversFromBackupWhenPrimaryIsMalformed() throws Exception {
         Path dir = Files.createTempDirectory("keybinder-recovery-test");
         Path file = dir.resolve("records.properties");
@@ -201,5 +290,72 @@ public class KeybindStoreTest {
 
     private static String encoded(String value) {
         return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Properties schemaSevenRecord() {
+        Properties props = new Properties();
+        props.setProperty("schema", "7");
+        props.setProperty("count", "1");
+        props.setProperty("record.0.id", encoded("old-id"));
+        props.setProperty("record.0.name", encoded("Old"));
+        props.setProperty("record.0.key", encoded("R"));
+        props.setProperty("record.0.variantCount", "1");
+        props.setProperty("record.0.activeVariantId", encoded("old-variant"));
+        props.setProperty("record.0.variant.0.id", encoded("old-variant"));
+        props.setProperty("record.0.variant.0.subName", encoded(""));
+        props.setProperty("record.0.variant.0.stepCount", "1");
+        props.setProperty("record.0.variant.0.step.0.kind", "CUSTOM_ACTION");
+        props.setProperty("record.0.variant.0.step.0.actionId", "1");
+        props.setProperty("record.0.variant.0.step.0.target", encoded("hover"));
+        props.setProperty("record.0.variant.0.step.0.lastKnownName", encoded("Examine"));
+        props.setProperty("record.0.enabled", "true");
+        props.setProperty("record.0.reason", encoded(""));
+        props.setProperty("record.0.originalKey", encoded("F1"));
+        props.setProperty("record.0.originalCommand", encoded("EXAMINE"));
+        props.setProperty("record.0.previousManagedCommand", encoded("keybinder_run old-id"));
+        props.setProperty("record.0.createdByUser", encoded("User"));
+        props.setProperty("record.0.createdOnServer", encoded("Server"));
+        return props;
+    }
+
+    private static Properties legacySchemaRecord(int schema) {
+        Properties props = new Properties();
+        props.setProperty("schema", Integer.toString(schema));
+        props.setProperty("count", "1");
+        String prefix = "record.0.";
+        props.setProperty(prefix + "id", encoded("schema-" + schema));
+        props.setProperty(prefix + "name", encoded("Legacy"));
+        props.setProperty(prefix + "key", encoded("R"));
+        if (schema < 3) {
+            props.setProperty(prefix + "type", "ACTION_CHAIN");
+            props.setProperty(prefix + "command", encoded("act 1 hover"));
+            return props;
+        }
+        String steps = prefix;
+        if (schema >= 5) {
+            props.setProperty(prefix + "variantCount", "1");
+            props.setProperty(prefix + "activeVariantId", encoded("variant-" + schema));
+            props.setProperty(prefix + "variant.0.id", encoded("variant-" + schema));
+            props.setProperty(prefix + "variant.0.subName", encoded(""));
+            steps = prefix + "variant.0.";
+        }
+        props.setProperty(steps + "stepCount", "1");
+        props.setProperty(steps + "step.0.kind", "CUSTOM_ACTION");
+        props.setProperty(steps + "step.0.actionId", "1");
+        props.setProperty(steps + "step.0." + (schema >= 6 ? "target" : "value"),
+                encoded("hover"));
+        if (schema >= 7)
+            props.setProperty(steps + "step.0.lastKnownName", encoded("Examine"));
+        props.setProperty(prefix + "enabled", "true");
+        props.setProperty(prefix + "reason", encoded(""));
+        props.setProperty(prefix + "originalKey", encoded(""));
+        props.setProperty(prefix + "originalCommand", encoded(""));
+        if (schema >= 3)
+            props.setProperty(prefix + "previousManagedCommand", encoded(""));
+        if (schema >= 4) {
+            props.setProperty(prefix + "createdByUser", encoded("User"));
+            props.setProperty(prefix + "createdOnServer", encoded("Server"));
+        }
+        return props;
     }
 }

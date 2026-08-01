@@ -12,6 +12,8 @@ import org.keybinder.wurm.command.KeybindExecutionService;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.ItemSelector;
+import org.keybinder.wurm.model.ItemSelectorKind;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
@@ -41,6 +43,21 @@ public class VanillaCatalogStepFactoryTest {
         assertEquals(PlayerAction.EXAMINE.getId(), action.getActionId());
         assertSame(target, action.getTarget());
         assertEquals(1, new ActionExecutor(null).runtimeQueueCost(action, null));
+    }
+
+    @Test
+    public void gameplayCatalogSelectionPreservesSelectedToolSource() {
+        VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
+        ItemSelector source = ItemSelector.toolbeltSlot(4);
+
+        KeybindStep created = factory.create(catalog.categoryFor("EXAMINE"),
+                catalog.find("EXAMINE"), source,
+                TargetSpec.simple(TargetKind.HOVER));
+
+        assertTrue(created instanceof ActionStep);
+        assertEquals(ItemSelectorKind.TOOLBELT_SLOT,
+                ((ActionStep) created).getSource().getKind());
+        assertEquals(4, ((ActionStep) created).getSource().getSlot());
     }
 
     @Test
@@ -112,6 +129,29 @@ public class VanillaCatalogStepFactoryTest {
         ActionStep loaded = (ActionStep) store.load().get(0).getKeybindSteps().get(0);
         assertEquals(created.getActionId(), loaded.getActionId());
         assertEquals(TargetKind.HOVER, loaded.getTarget().getKind());
+    }
+
+    @Test
+    public void takeWithAutomaticNearbyPreservesItsTargetAcrossStorageRoundTrip()
+            throws Exception {
+        VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
+        TargetSpec nearby = TargetSpec.simple(TargetKind.NEARBY);
+        KeybindStep selected = factory.create(catalog.categoryFor("TAKE"),
+                catalog.find("TAKE"), nearby);
+        assertTrue(selected instanceof ActionStep);
+
+        KeybindRecord record = new KeybindRecord("take-nearby", "Take nearby", "T",
+                Collections.singletonList(selected));
+        KeybindStore store = new KeybindStore(Files.createTempDirectory(
+                "keybinder-take-nearby").resolve("records.properties"));
+        store.save(Collections.singletonList(record));
+
+        ActionStep loaded = (ActionStep) store.load().get(0).getKeybindSteps().get(0);
+        assertEquals(PlayerAction.TAKE.getId(), loaded.getActionId());
+        assertEquals(ItemSelectorKind.EMPTY_HAND, loaded.getSource().getKind());
+        assertEquals(TargetKind.NEARBY, loaded.getTarget().getKind());
+        assertEquals("nearby", org.keybinder.wurm.command.TargetCodec.encode(
+                loaded.getTarget()));
     }
 
     @Test

@@ -21,7 +21,12 @@ public interface KeybindEditorController {
     boolean saveKeybind(String id, String name, String key, List<KeybindStep> steps,
                         String createdByUser, String createdOnServer);
     boolean saveVariants(String id, String name, String key, List<KeybindVariant> variants,
-                         String activeVariantId, String createdByUser, String createdOnServer);
+                         String activeVariantId, boolean hudMulti,
+                         String createdByUser, String createdOnServer);
+    boolean extractVariant(String id, String name, String key, List<KeybindVariant> variants,
+                           String activeVariantId, boolean hudMulti,
+                           String extractedVariantId,
+                           String createdByUser, String createdOnServer);
     String currentUser();
     String currentServer();
     void resolveKeybindConflict(ConflictResolution resolution);
