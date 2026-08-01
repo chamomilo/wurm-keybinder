@@ -2,7 +2,7 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.6.1 for Wurm Unlimited
+# Keybinder 0.6.2 for Wurm Unlimited
 
 Tired of managing keybinds through console commands, juggling toolbelt setup
 files, and remembering dozens of keys? Keybinder replaces all of that with one
@@ -22,7 +22,16 @@ Keybinder even makes the mouse wheel useful: bind it to actions such as moving
 and rotating objects. Less console work, less clicking, fewer keys to remember:
 just press a key or turn the wheel and get back to playing.
 
-## What's new in 0.6.1
+## What's new in 0.6.2
+
+- Fixed **Nearby by type** targets reverting to **Hovered** when a keybind was
+  saved immediately after selecting an object.
+- Smart Improve can now find the required tool inside a backpack or another
+  container placed in a toolbelt slot.
+- Smart Improve processes inventory targets in a predictable order without
+  changing their visible order in Wurm and ignores duplicate target entries.
+
+## Previously in 0.6.1
 
 - Target selection is now more reliable across inventories, containers, the
   toolbelt, equipment, and the game world. Keybinder can select a tool from
@@ -55,7 +64,7 @@ just press a key or turn the wheel and get back to playing.
 ## Installation
 
 1. Disable the old `action` and `i2improve` client mods.
-2. Extract `keybinder-0.6.1.zip` into the Wurm Unlimited client directory using
+2. Extract `keybinder-0.6.2.zip` into the Wurm Unlimited client directory using
    Ago's mod loader as usual.
 3. If the Keybinder introduction does not appear after startup, enable
    **Keybinder** in HUD Settings.

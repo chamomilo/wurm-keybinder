@@ -353,6 +353,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     private void save() {
         try {
+            applyCompletedTargetSelection(false);
             List<KeybindVariant> variants = new ArrayList<KeybindVariant>();
             for (VariantZone zone : zones) variants.add(zone.toVariant());
             controller.saveVariants(recordId, nameField.getText(), selectedKey(),
@@ -438,10 +439,23 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
         String selected = controller.consumeSelectedTarget();
         if (selected != null && pendingTargetRow != null) {
-            ActionRow targetRow = pendingTargetRow;
-            pendingTargetRow = null;
-            KeybinderMod.deferUi(() -> targetRow.setSelectedTarget(selected));
+            applyCompletedTargetSelection(selected, true);
         }
+    }
+
+    private void applyCompletedTargetSelection(boolean rebuild) {
+        String selected = controller.consumeSelectedTarget();
+        if (selected != null) applyCompletedTargetSelection(selected, rebuild);
+    }
+
+    private void applyCompletedTargetSelection(String selected, boolean rebuild) {
+        ActionRow targetRow = pendingTargetRow;
+        if (targetRow == null) return;
+        pendingTargetRow = null;
+        // Update editor state synchronously. Rebuilding Wurm controls is deferred,
+        // but Save must never observe the old target in the intervening frame.
+        targetRow.selectedTarget = selected;
+        if (rebuild) KeybinderMod.deferUi(targetRow::refreshSelectedTarget);
     }
 
     @Override
@@ -1159,6 +1173,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private void setSelectedTarget(String selected) {
             selectedTarget = selected;
+            refreshSelectedTarget();
+        }
+
+        private void refreshSelectedTarget() {
             createTarget();
             rebuildPanel();
             applyActionLayout(Math.max(300, width - WINDOW_CHROME));

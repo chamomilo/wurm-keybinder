@@ -15,7 +15,12 @@ import org.keybinder.wurm.model.TargetSpec;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Predicate;
 
 public final class SmartImproveExecutor {
     private final ClientAccess access;
@@ -59,7 +64,6 @@ public final class SmartImproveExecutor {
         TargetSpec target = step.getTarget();
         List<InventoryMetaItem> items = inventoryTargets(target, hud);
         if (!items.isEmpty()) {
-            items.sort(Comparator.comparing(InventoryMetaItem::getQuality));
             for (InventoryMetaItem item : items) {
                 ToolbeltTool selected = improveTool(item, hud);
                 String itemName = displayName(item);
@@ -68,8 +72,7 @@ public final class SmartImproveExecutor {
                     throw missingTool(required, itemName);
                 }
                 InventoryMetaItem tool = selected.item;
-                log.info(Messages.text("improve.using", tool.getBaseName(),
-                        selected.slot, itemName));
+                logSelection(selected, itemName);
                 tracker.expect(item.getId());
                 if (item.getDamage() > 0) hud.sendAction(PlayerAction.REPAIR, item.getId());
                 if (tool.getDamage() > 1.0f) hud.sendAction(PlayerAction.REPAIR, tool.getId());
@@ -127,8 +130,7 @@ public final class SmartImproveExecutor {
             throw missingTool(required, itemName);
         }
         InventoryMetaItem tool = toolSelection.item;
-        log.info(Messages.text("improve.using",
-                tool.getBaseName(), toolSelection.slot, itemName));
+        logSelection(toolSelection, itemName);
         tracker.expect(id);
         hud.sendAction(PlayerAction.REPAIR, id);
         tracker.repaired(id);
@@ -137,46 +139,93 @@ public final class SmartImproveExecutor {
 
     private List<InventoryMetaItem> inventoryTargets(TargetSpec target, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
-        List<InventoryMetaItem> result = new ArrayList<InventoryMetaItem>();
+        Map<Long, InventoryMetaItem> result = new LinkedHashMap<Long, InventoryMetaItem>();
         if (target.getKind() == TargetKind.ACTIVE_TOOL) {
             InventoryMetaItem item = access.activeTool(hud);
-            if (item != null) result.add(item);
-            return result;
+            addTarget(result, item);
+            return orderedTargets(result.values());
         }
         if (target.getKind() == TargetKind.TOOLBELT_SLOT) {
             InventoryMetaItem item = hud.getToolBelt().getItemInSlot(target.getSlot() - 1);
-            if (item != null) result.add(item);
-            return result;
+            addTarget(result, item);
+            return orderedTargets(result.values());
         }
         if (target.getKind() == TargetKind.EQUIPMENT_SLOT) {
             PaperDollSlot frame = access.equipmentSlot(
                     hud.getPaperDollInventory(), (byte) target.getSlot());
-            if (frame != null && frame.getEquippedItem() != null) result.add(frame.getEquippedItem().getItem());
-            return result;
+            if (frame != null && frame.getEquippedItem() != null)
+                addTarget(result, frame.getEquippedItem().getItem());
+            return orderedTargets(result.values());
         }
         if (target.getKind() == TargetKind.EXACT_OBJECT) {
             InventoryMetaItem item = access.inventoryItem(hud, target.getObjectId());
-            if (item != null) result.add(item);
-            return result;
+            addTarget(result, item);
+            return orderedTargets(result.values());
         }
         if (target.getKind() == TargetKind.HOVER) {
             com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
             long[] ids = hud.getCommandTargetsFrom(client.getXMouse(), client.getYMouse());
             if (ids != null) for (long id : ids) {
                 InventoryMetaItem item = access.inventoryItem(hud, id);
-                if (item != null) result.add(item);
+                addTarget(result, item);
             }
         }
-        return result;
+        return orderedTargets(result.values());
     }
 
     private ToolbeltTool improveTool(InventoryMetaItem target, HeadsUpDisplay hud) {
+        final short requiredType = target.getImproveIconId();
+        // Preserve the old behaviour when a matching item is directly on the belt.
         for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
             InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
-            if (candidate != null && candidate.getType() == target.getImproveIconId())
+            if (candidate != null && candidate.getType() == requiredType)
                 return new ToolbeltTool(candidate, i + 1);
         }
+        // A belt slot may itself be a backpack, quiver, bucket, etc. Search its
+        // contents without changing the active item or the inventory tree order.
+        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
+            InventoryMetaItem container = hud.getToolBelt().getItemInSlot(i);
+            InventoryMetaItem candidate = findDescendant(container,
+                    item -> item.getType() == requiredType);
+            if (candidate != null)
+                return new ToolbeltTool(candidate, i + 1, displayName(container));
+        }
         return null;
+    }
+
+    static List<InventoryMetaItem> orderedTargets(
+            java.util.Collection<InventoryMetaItem> targets) {
+        List<InventoryMetaItem> ordered = new ArrayList<InventoryMetaItem>(targets);
+        // ID is a stable tie breaker. Sorting this detached list changes only the
+        // order in which actions are queued; Wurm's visible inventory stays intact.
+        ordered.sort(Comparator.comparingDouble(InventoryMetaItem::getQuality)
+                .thenComparingLong(InventoryMetaItem::getId));
+        return ordered;
+    }
+
+    static InventoryMetaItem findDescendant(InventoryMetaItem container,
+                                             Predicate<InventoryMetaItem> matches) {
+        if (container == null || container.getChildren() == null) return null;
+        Set<Long> visited = new HashSet<Long>();
+        visited.add(container.getId());
+        java.util.ArrayDeque<InventoryMetaItem> pending =
+                new java.util.ArrayDeque<InventoryMetaItem>();
+        for (InventoryMetaItem child : container.getChildren())
+            if (child != null) pending.addLast(child);
+        while (!pending.isEmpty()) {
+            InventoryMetaItem item = pending.removeFirst();
+            if (!visited.add(item.getId())) continue;
+            if (matches.test(item)) return item;
+            if (item.getChildren() != null)
+                for (InventoryMetaItem child : item.getChildren())
+                    if (child != null) pending.addLast(child);
+        }
+        return null;
+    }
+
+    private static void addTarget(Map<Long, InventoryMetaItem> result,
+                                  InventoryMetaItem item) {
+        if (item != null) result.put(item.getId(), item);
     }
 
     private static String displayName(InventoryMetaItem item) {
@@ -188,10 +237,27 @@ public final class SmartImproveExecutor {
     private static final class ToolbeltTool {
         private final InventoryMetaItem item;
         private final int slot;
+        private final String container;
 
         private ToolbeltTool(InventoryMetaItem item, int slot) {
+            this(item, slot, null);
+        }
+
+        private ToolbeltTool(InventoryMetaItem item, int slot, String container) {
             this.item = item;
             this.slot = slot;
+            this.container = container;
+        }
+    }
+
+    private void logSelection(ToolbeltTool selection, String itemName) {
+        if (selection.container == null) {
+            log.info(Messages.text("improve.using", selection.item.getBaseName(),
+                    selection.slot, itemName));
+        } else {
+            log.info(Messages.text("improve.using_from_container",
+                    selection.item.getBaseName(), selection.container,
+                    selection.slot, itemName));
         }
     }
 
@@ -199,11 +265,20 @@ public final class SmartImproveExecutor {
             throws ReflectiveOperationException {
         String required = tracker.toolName(targetId);
         if (required != null) {
+            final String requiredName = required;
             for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
                 InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
                 if (candidate != null && candidate.getBaseName().toLowerCase(
                         java.util.Locale.ENGLISH).contains(required))
                     return new ToolbeltTool(candidate, i + 1);
+            }
+            for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
+                InventoryMetaItem container = hud.getToolBelt().getItemInSlot(i);
+                InventoryMetaItem candidate = findDescendant(container,
+                        item -> item.getBaseName() != null && item.getBaseName().toLowerCase(
+                                java.util.Locale.ENGLISH).contains(requiredName));
+                if (candidate != null)
+                    return new ToolbeltTool(candidate, i + 1, displayName(container));
             }
             return null;
         }
