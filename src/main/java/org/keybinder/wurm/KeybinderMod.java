@@ -1731,39 +1731,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         String lower = constant.toLowerCase(Locale.ENGLISH).replace('_', ' ');
         return lower.isEmpty() ? lower : Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
     }
-    @Override public boolean saveRecord(String id, String name, String key, List<ActionStep> steps) {
-        try {
-            if (name == null || name.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.name_missing"));
-            if (key == null || key.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.key_missing"));
-            if (steps == null || steps.isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.action_missing"));
-            PendingSave requested = new PendingSave(id, name, key, steps);
-            KeybindConflict conflict = registry.findSaveConflict(
-                    id, key, requested.steps, ACCESS.console(hud));
-            if (conflict != null) {
-                pendingSave = requested;
-                pendingConflict = conflict;
-                deferUi(() -> {
-                    hideSafely(conflictWindow);
-                    conflictWindow = new KeybinderConflictWindow(INSTANCE, conflict);
-                    try {
-                        new HudIntegration(ACCESS).add(hud, conflictWindow);
-                    } catch (ReflectiveOperationException e) {
-                        pendingSave = null;
-                        EVENTS.error(Messages.text("error.conflict_window"), e);
-                    }
-                });
-                return false;
-            }
-            return commitSave(requested);
-        } catch (Exception e) {
-            EVENTS.error(Messages.text("error.save_keybind", safeMessage(e)), e);
-            return false;
-        }
-    }
-
     @Override public boolean saveKeybind(String id, String name, String key, List<KeybindStep> steps,
                                          String createdByUser, String createdOnServer) {
         try {
@@ -1919,9 +1886,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
         if (resolution == ConflictResolution.KEEP_OLD) {
             try {
-                if (requested.kind == SaveKind.ACTIONS)
-                    throw new IllegalStateException(
-                            Messages.text("error.disabled_save_container"));
                 String reason = conflict == null
                         ? DisableReason.value("key_used_unknown", requested.key)
                         : conflict.isVanillaOwner()
@@ -1958,12 +1922,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                         requested.variants, requested.activeVariantId, requested.hudMulti,
                         requested.createdByUser, requested.createdOnServer,
                         ACCESS.console(hud), LIMITS.readLimit(hud));
-            else if (requested.kind == SaveKind.STEPS)
+            else
                 registry.updateKeybind(requested.id, requested.name, requested.key,
                         requested.keybindSteps, requested.createdByUser, requested.createdOnServer,
-                        ACCESS.console(hud), LIMITS.readLimit(hud));
-            else
-                registry.update(requested.id, requested.name, requested.key, requested.steps,
                         ACCESS.console(hud), LIMITS.readLimit(hud));
             INSTANCE.closeEditor();
             if (window != null) window.refresh();
@@ -2189,7 +2150,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         private final String id;
         private final String name;
         private final String key;
-        private final List<ActionStep> steps;
         private final List<KeybindStep> keybindSteps;
         private final List<KeybindVariant> variants;
         private final String activeVariantId;
@@ -2199,28 +2159,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         private final String createdByUser;
         private final String createdOnServer;
 
-        private PendingSave(String id, String name, String key, List<ActionStep> steps) {
-            this.id = id;
-            this.name = name;
-            this.key = key;
-            this.steps = Collections.unmodifiableList(new java.util.ArrayList<>(steps));
-            this.keybindSteps = Collections.<KeybindStep>unmodifiableList(
-                    new java.util.ArrayList<KeybindStep>(steps));
-            this.variants = Collections.emptyList();
-            this.activeVariantId = "";
-            this.extractedVariantId = "";
-            this.kind = SaveKind.ACTIONS;
-            this.hudMulti = false;
-            this.createdByUser = "";
-            this.createdOnServer = "";
-        }
-
         private PendingSave(String id, String name, String key, List<KeybindStep> steps,
                             String createdByUser, String createdOnServer) {
             this.id = id;
             this.name = name;
             this.key = key;
-            this.steps = Collections.emptyList();
             this.keybindSteps = Collections.unmodifiableList(new java.util.ArrayList<KeybindStep>(steps));
             this.variants = Collections.emptyList();
             this.activeVariantId = "";
@@ -2237,7 +2180,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             this.id = id;
             this.name = name;
             this.key = key;
-            this.steps = Collections.emptyList();
             this.keybindSteps = Collections.emptyList();
             this.variants = Collections.unmodifiableList(
                     new java.util.ArrayList<KeybindVariant>(variants));
@@ -2256,7 +2198,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             this.id = id;
             this.name = name;
             this.key = key;
-            this.steps = Collections.emptyList();
             this.keybindSteps = Collections.emptyList();
             this.variants = Collections.unmodifiableList(
                     new java.util.ArrayList<KeybindVariant>(variants));
@@ -2270,7 +2211,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     private enum SaveKind {
-        ACTIONS,
         STEPS,
         VARIANTS,
         EXTRACT

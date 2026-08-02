@@ -17,7 +17,6 @@ public interface KeybindEditorController {
     String getActionName(short actionId);
     boolean isShowingActionIds();
     void toggleActionIds();
-    boolean saveRecord(String id, String name, String key, List<ActionStep> steps);
     boolean saveKeybind(String id, String name, String key, List<KeybindStep> steps,
                         String createdByUser, String createdOnServer);
     boolean saveVariants(String id, String name, String key, List<KeybindVariant> variants,

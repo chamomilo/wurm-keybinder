@@ -325,27 +325,6 @@ public final class KeybindRegistry {
         return null;
     }
 
-    public synchronized KeybindConflict findSaveConflict(String id, String key,
-                                                          List<org.keybinder.wurm.model.ActionStep> steps,
-                                                          WurmConsole console)
-            throws ReflectiveOperationException {
-        KeybindRecord edited = find(id);
-        if (edited == null)
-            throw new IllegalArgumentException(Messages.text("event.record_missing", id));
-        String newCommand = dispatcherCommand(edited);
-        for (KeybindRecord candidate : records) {
-            if (candidate != edited && candidate.isEnabled() && !candidate.getKey().trim().isEmpty()
-                    && sameChord(candidate.getKey(), key))
-                return conflictFor(key, candidate);
-        }
-        BindSnapshot live = findLive(console, key);
-        if (live == null || live.getCommand().equalsIgnoreCase(newCommand)) return null;
-        String editedCommand = edited.getSteps().isEmpty() ? "" : commandFor(edited);
-        if (key.equalsIgnoreCase(edited.getKey()) && live.getCommand().equalsIgnoreCase(editedCommand))
-            return null;
-        return new KeybindConflict(key, KeybindConflict.VANILLA_OWNER, live.getCommand());
-    }
-
     public synchronized KeybindConflict findKeybindSaveConflict(String id, String key,
                                                                  WurmConsole console)
             throws ReflectiveOperationException {
@@ -523,56 +502,6 @@ public final class KeybindRegistry {
         }
         log.info(Messages.text("registry.deleted", found.getName()));
         return true;
-    }
-
-    public synchronized void update(String id, String name, String key,
-                                    List<org.keybinder.wurm.model.ActionStep> steps,
-                                    WurmConsole console, int limit)
-            throws IOException, ReflectiveOperationException {
-        KeybindRecord found = null;
-        for (KeybindRecord record : records) if (record.getId().equals(id)) found = record;
-        if (found == null)
-            throw new IllegalArgumentException(Messages.text("event.record_missing", id));
-        String oldKey = found.getKey();
-        String oldCommand = commandFor(found);
-        KeybindRecord replacement = KeybindRecord.actionChain(name, key, steps);
-        validate(replacement);
-        applyLimit(replacement, limit);
-        String newCommand = commandFor(replacement);
-        KeybindRecord displaced = findManagedConflict(found, key);
-        boolean displacedEnabled = displaced != null && displaced.isEnabled();
-        String displacedReason = displaced == null ? "" : displaced.getDisabledReason();
-        if (displaced != null) {
-            displaced.setEnabled(false);
-            displaced.setDisabledReason(DisableReason.value("replaced_by", name));
-            log.warning(Messages.text("registry.displaced", key, displaced.getName()));
-        }
-        announceConflict(findLive(console, key), key, newCommand);
-        int index = records.indexOf(found);
-        KeybindRecord persisted = new KeybindRecord(found.getId(), name, key, steps);
-        persisted.setEnabled(replacement.isEnabled());
-        persisted.setDisabledReason(replacement.getDisabledReason());
-        persisted.setOriginalKey(found.getOriginalKey());
-        persisted.setOriginalCommand(found.getOriginalCommand());
-        persisted.setPreviousManagedCommand(found.getPreviousManagedCommand());
-        copyCreation(found, persisted);
-        records.set(index, persisted);
-        try {
-            saveRecords();
-            removeLive(console, oldKey, oldCommand);
-            if (persisted.isEnabled()) installLive(console, key, newCommand);
-        } catch (RuntimeException | IOException | ReflectiveOperationException e) {
-            records.set(index, found);
-            if (displaced != null) {
-                displaced.setEnabled(displacedEnabled);
-                displaced.setDisabledReason(displacedReason);
-            }
-            saveRecords();
-            BindSnapshot old = findLive(console, oldKey);
-            if (old == null && found.isEnabled()) installLive(console, oldKey, oldCommand);
-            throw e;
-        }
-        log.info(Messages.text("registry.updated", persisted.getName()));
     }
 
     public synchronized void updateKeybind(String id, String name, String key,

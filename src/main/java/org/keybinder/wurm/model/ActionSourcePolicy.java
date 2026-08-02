@@ -1,16 +1,13 @@
 package org.keybinder.wurm.model;
 
-import org.keybinder.wurm.catalog.VanillaKeybindCatalog;
+import org.keybinder.wurm.policy.VanillaActionPolicy;
 
 /** Action-ID rules for whether a step can carry an item source/tool. */
 public final class ActionSourcePolicy {
-    private static final VanillaKeybindCatalog VANILLA_KEYBINDS =
-            new VanillaKeybindCatalog();
-
     private ActionSourcePolicy() { }
 
     public static boolean acceptsSelectableTool(short actionId) {
-        return VANILLA_KEYBINDS.usesSelectableTool(actionId);
+        return VanillaActionPolicy.acceptsSelectableTool(actionId);
     }
 
     public static ItemSelector normalize(short actionId, ItemSelector requested) {

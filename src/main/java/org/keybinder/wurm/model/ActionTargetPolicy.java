@@ -1,16 +1,13 @@
 package org.keybinder.wurm.model;
 
-import org.keybinder.wurm.catalog.VanillaKeybindCatalog;
+import org.keybinder.wurm.policy.VanillaActionPolicy;
 
 /** Action-ID rules for whether a step exposes a user-selected target. */
 public final class ActionTargetPolicy {
-    private static final VanillaKeybindCatalog VANILLA_KEYBINDS =
-            new VanillaKeybindCatalog();
-
     private ActionTargetPolicy() { }
 
     public static boolean acceptsSelectableTarget(short actionId) {
-        return VANILLA_KEYBINDS.usesSelectableTarget(actionId);
+        return VanillaActionPolicy.acceptsSelectableTarget(actionId);
     }
 
     /**
