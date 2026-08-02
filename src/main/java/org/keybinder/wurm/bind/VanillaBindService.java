@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import org.keybinder.wurm.i18n.Messages;
 
-public final class VanillaBindService {
+public final class VanillaBindService implements ManagedBindAccess {
     private Field keyBindsField;
 
     @SuppressWarnings("unchecked")

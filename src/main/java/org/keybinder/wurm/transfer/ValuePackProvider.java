@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Properties;
-import org.keybinder.wurm.KeybindRegistry;
 
 /** Installs the bundled examples once, then persists the completion flag. */
 public final class ValuePackProvider {
@@ -22,7 +21,7 @@ public final class ValuePackProvider {
     }
 
     public ProvisionResult provideIfNeeded(Properties settings, InputStream bundle,
-                                           KeybindRegistry registry,
+                                           ValuePackTarget registry,
                                            SettingsSaver settingsSaver) throws IOException {
         if (!registry.isLoadedSuccessfully())
             throw new IOException("Keybinder records were not loaded successfully");
