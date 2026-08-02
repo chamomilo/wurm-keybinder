@@ -16,24 +16,24 @@ import static org.junit.Assert.assertTrue;
 public class SmartImproveExecutorTest {
     @Test
     public void inventoryBatchCostsRepairPlusImproveOnlyForDamagedTargets() {
-        assertEquals(2, SmartImproveExecutor.inventoryItemCost(true));
-        assertEquals(1, SmartImproveExecutor.inventoryItemCost(false));
-        assertEquals(1, SmartImproveExecutor.inventoryItemCost(true, false));
-        assertEquals(0, SmartImproveExecutor.inventoryItemCost(false, false));
-        assertEquals(7, SmartImproveExecutor.inventoryBatchCost(true, true, true, false));
+        assertEquals(2, SmartImproveQueuePlanner.itemCost(true));
+        assertEquals(1, SmartImproveQueuePlanner.itemCost(false));
+        assertEquals(1, SmartImproveQueuePlanner.itemCost(true, false));
+        assertEquals(0, SmartImproveQueuePlanner.itemCost(false, false));
+        assertEquals(7, SmartImproveQueuePlanner.batchCost(true, true, true, false));
     }
 
     @Test
     public void inventoryBatchFitsAnOrderedPrefixInsideFreeQueueSlots() {
-        assertEquals(7, SmartImproveExecutor.fittedInventoryPrefixCost(
+        assertEquals(7, SmartImproveQueuePlanner.fittedPrefixCost(
                 8, 2, 2, 2, 1));
-        assertEquals(8, SmartImproveExecutor.fittedInventoryPrefixCost(
+        assertEquals(8, SmartImproveQueuePlanner.fittedPrefixCost(
                 8, 2, 2, 1, 2, 1));
-        assertEquals(0, SmartImproveExecutor.fittedInventoryPrefixCost(1, 2, 1));
-        assertEquals(1, SmartImproveExecutor.fittedInventoryPrefixCost(1, 0, 1, 2));
-        assertEquals(4, SmartImproveExecutor.fittedInventoryPrefixLength(
+        assertEquals(0, SmartImproveQueuePlanner.fittedPrefixCost(1, 2, 1));
+        assertEquals(1, SmartImproveQueuePlanner.fittedPrefixCost(1, 0, 1, 2));
+        assertEquals(4, SmartImproveQueuePlanner.fittedPrefixLength(
                 8, 2, 2, 2, 2, 2));
-        assertEquals(5, SmartImproveExecutor.fittedInventoryPrefixLength(
+        assertEquals(5, SmartImproveQueuePlanner.fittedPrefixLength(
                 8, 2, 2, 2, 1, 1, 2));
     }
 
@@ -41,13 +41,13 @@ public class SmartImproveExecutorTest {
     public void repairIsRequiredOnlyWhileItemDamageIsPositive() throws Exception {
         InventoryMetaItem item = item(1, 50f, (short) 10, "rake");
         set(item, "damage", 0.0f);
-        assertFalse(SmartImproveExecutor.needsRepair(item));
+        assertFalse(SmartImproveInventoryPolicy.needsRepair(item));
 
         set(item, "damage", 0.01f);
-        assertTrue(SmartImproveExecutor.needsRepair(item));
+        assertTrue(SmartImproveInventoryPolicy.needsRepair(item));
 
         set(item, "damage", 0.0f);
-        assertFalse(SmartImproveExecutor.needsRepair(item));
+        assertFalse(SmartImproveInventoryPolicy.needsRepair(item));
     }
 
     @Test
@@ -68,8 +68,8 @@ public class SmartImproveExecutorTest {
         set(nonImprovable, "improveIconId", (short) -1);
         set(improvable, "improveIconId", (short) 44);
 
-        assertFalse(SmartImproveExecutor.isImprovable(nonImprovable));
-        assertTrue(SmartImproveExecutor.isImprovable(improvable));
+        assertFalse(SmartImproveInventoryPolicy.isImprovable(nonImprovable));
+        assertTrue(SmartImproveInventoryPolicy.isImprovable(improvable));
         assertEquals("The \"lump (glowing), steel\" cannot be improved",
                 Messages.text("improve.cannot_improve", nonImprovable.getDisplayName()));
     }
@@ -79,15 +79,15 @@ public class SmartImproveExecutorTest {
         InventoryMetaItem steelRake = item(1, 50f, (short) 10, "rake, steel");
         set(steelRake, "materialId", (byte) 9);
         set(steelRake, "temperatureState", (byte) 0);
-        assertFalse(SmartImproveExecutor.isTemperatureReady(steelRake));
+        assertFalse(SmartImproveInventoryPolicy.isTargetTemperatureReady(steelRake));
 
         set(steelRake, "temperatureState", (byte) 5);
-        assertTrue(SmartImproveExecutor.isTemperatureReady(steelRake));
+        assertTrue(SmartImproveInventoryPolicy.isTargetTemperatureReady(steelRake));
 
         InventoryMetaItem woodenRake = item(2, 50f, (short) 10, "rake, birchwood");
         set(woodenRake, "materialId", (byte) 14);
         set(woodenRake, "temperatureState", (byte) 0);
-        assertTrue(SmartImproveExecutor.isTemperatureReady(woodenRake));
+        assertTrue(SmartImproveInventoryPolicy.isTargetTemperatureReady(woodenRake));
     }
 
     @Test
@@ -95,15 +95,15 @@ public class SmartImproveExecutorTest {
         InventoryMetaItem lump = item(1, 50f, (short) 44, "lump");
         set(lump, "materialId", (byte) 12);
         set(lump, "temperatureState", (byte) 0);
-        assertFalse(SmartImproveExecutor.isImproveToolTemperatureReady(lump));
+        assertFalse(SmartImproveInventoryPolicy.isToolTemperatureReady(lump));
 
         set(lump, "temperatureState", (byte) 5);
-        assertTrue(SmartImproveExecutor.isImproveToolTemperatureReady(lump));
+        assertTrue(SmartImproveInventoryPolicy.isToolTemperatureReady(lump));
 
         InventoryMetaItem hammer = item(2, 50f, (short) 10, "hammer");
         set(hammer, "materialId", (byte) 12);
         set(hammer, "temperatureState", (byte) 0);
-        assertTrue(SmartImproveExecutor.isImproveToolTemperatureReady(hammer));
+        assertTrue(SmartImproveInventoryPolicy.isToolTemperatureReady(hammer));
     }
 
     @Test
@@ -128,7 +128,7 @@ public class SmartImproveExecutorTest {
         InventoryMetaItem lowA = item(2, 20f, (short) 10, "low a");
         List<InventoryMetaItem> visibleOrder = Arrays.asList(high, lowB, lowA);
 
-        List<InventoryMetaItem> queued = SmartImproveExecutor.orderedTargets(visibleOrder);
+        List<InventoryMetaItem> queued = SmartImproveInventoryPolicy.orderedTargets(visibleOrder);
 
         assertEquals(Arrays.asList(lowA, lowB, high), queued);
         assertEquals(Arrays.asList(high, lowB, lowA), visibleOrder);
@@ -142,7 +142,7 @@ public class SmartImproveExecutorTest {
         beltContainer.getChildren().add(innerContainer);
         innerContainer.getChildren().add(lump);
 
-        InventoryMetaItem found = SmartImproveExecutor.findDescendant(
+        InventoryMetaItem found = SmartImproveInventoryPolicy.findDescendant(
                 beltContainer, candidate -> candidate.getType() == 44);
 
         assertSame(lump, found);
