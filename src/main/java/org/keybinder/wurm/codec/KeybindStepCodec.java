@@ -1,0 +1,230 @@
+package org.keybinder.wurm.codec;
+
+import org.keybinder.wurm.command.ItemSelectorCodec;
+import org.keybinder.wurm.command.TargetCodec;
+import org.keybinder.wurm.model.ActionStep;
+import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ConsoleCommandStep;
+import org.keybinder.wurm.model.ItemSelector;
+import org.keybinder.wurm.model.KeybindLimits;
+import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.SmartImproveStep;
+import org.keybinder.wurm.model.StepKind;
+import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.model.VanillaActionStep;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Properties;
+
+/** Current-schema step fields shared by persistent and portable stores. */
+public final class KeybindStepCodec {
+    private KeybindStepCodec() { }
+
+    public static void writeStore(Properties properties, String prefix, KeybindStep step)
+            throws IOException {
+        write(properties, prefix, step, false);
+    }
+
+    public static void writeTransfer(Properties properties, String prefix, KeybindStep step)
+            throws IOException {
+        write(properties, prefix, step, true);
+    }
+
+    public static KeybindStep readStore(Properties properties, String prefix, String recordId)
+            throws IOException {
+        StepKind kind = kind(properties.getProperty(prefix + "kind", "CUSTOM_ACTION"));
+        switch (kind) {
+            case CUSTOM_ACTION:
+                int actionId = number(properties.getProperty(prefix + "actionId", "0"),
+                        "action ID");
+                requireShort(actionId, "Action ID outside short range in record " + recordId);
+                ItemSelector source = sourceFromFields(properties, prefix, false);
+                return new ActionStep((short) actionId, source,
+                        TargetCodec.decode(decoded(properties, prefix + "target", false)),
+                        decoded(properties, prefix + "lastKnownName", false));
+            case ACTIVATE_TOOL:
+                return new ActivateToolStep(TargetCodec.decode(
+                        decoded(properties, prefix + "target", false)));
+            case SMART_IMPROVE:
+                return new SmartImproveStep(TargetCodec.decode(
+                        decoded(properties, prefix + "target", false)));
+            case VANILLA_ACTION:
+                return new VanillaActionStep(decoded(properties, prefix + "value", false));
+            case CONSOLE_COMMAND:
+                return new ConsoleCommandStep(decoded(properties, prefix + "value", false),
+                        Boolean.parseBoolean(properties.getProperty(
+                                prefix + "preserveExact", "false")));
+            default:
+                throw new IOException("Unsupported step kind " + kind);
+        }
+    }
+
+    public static KeybindStep readTransfer(Properties properties, String prefix)
+            throws IOException {
+        StepKind kind = kind(required(properties, prefix + "kind"));
+        switch (kind) {
+            case CUSTOM_ACTION:
+                int actionId = number(required(properties, prefix + "actionId"), "action ID");
+                requireShort(actionId, "Action ID outside short range");
+                ItemSelector source = sourceFromFields(properties, prefix, true);
+                String encodedSource = decoded(properties, prefix + "source", true);
+                if (!ItemSelectorCodec.encode(source).equals(encodedSource))
+                    throw new IOException("Inconsistent source fields");
+                TargetSpec target = TargetCodec.decode(decoded(
+                        properties, prefix + "target", true));
+                return new ActionStep((short) actionId, source, target,
+                        decoded(properties, prefix + "lastKnownName", true));
+            case ACTIVATE_TOOL:
+                return new ActivateToolStep(TargetCodec.decode(
+                        decoded(properties, prefix + "target", true)));
+            case SMART_IMPROVE:
+                return new SmartImproveStep(TargetCodec.decode(
+                        decoded(properties, prefix + "target", true)));
+            case VANILLA_ACTION:
+                return new VanillaActionStep(command(properties, prefix));
+            case CONSOLE_COMMAND:
+                return new ConsoleCommandStep(command(properties, prefix),
+                        strictBoolean(properties, prefix + "preserveExact", false));
+            default:
+                throw new IOException("Unsupported transfer step kind " + kind);
+        }
+    }
+
+    private static void write(Properties properties, String prefix, KeybindStep step,
+                              boolean transfer) throws IOException {
+        properties.setProperty(prefix + "kind", step.getKind().name());
+        if (step instanceof ActionStep) {
+            ActionStep action = (ActionStep) step;
+            properties.setProperty(prefix + "actionId", Short.toString(action.getActionId()));
+            encoded(properties, prefix + "lastKnownName", action.getLastKnownName(), transfer);
+            properties.setProperty(prefix + "sourceKind", action.getSource().getKind().name());
+            properties.setProperty(prefix + "sourceSlot",
+                    Integer.toString(action.getSource().getSlot()));
+            properties.setProperty(prefix + "sourceObjectId",
+                    Long.toString(action.getSource().getObjectId()));
+            properties.setProperty(prefix + "sourceText", encode(action.getSource().getText()));
+            encoded(properties, prefix + "target",
+                    TargetCodec.encode(action.getTarget()), transfer);
+            if (transfer)
+                encoded(properties, prefix + "source",
+                        ItemSelectorCodec.encode(action.getSource()), true);
+        } else if (step instanceof ActivateToolStep) {
+            encoded(properties, prefix + "target",
+                    TargetCodec.encode(((ActivateToolStep) step).getTarget()), transfer);
+        } else if (step instanceof SmartImproveStep) {
+            encoded(properties, prefix + "target",
+                    TargetCodec.encode(((SmartImproveStep) step).getTarget()), transfer);
+        } else if (step instanceof VanillaActionStep) {
+            writeCommand(properties, prefix,
+                    ((VanillaActionStep) step).getCommand(), false, transfer);
+        } else if (step instanceof ConsoleCommandStep) {
+            ConsoleCommandStep command = (ConsoleCommandStep) step;
+            writeCommand(properties, prefix, command.getCommand(),
+                    command.isPreserveExactText(), transfer);
+        } else {
+            throw new IOException("Unsupported keybind step " + step.getClass().getName());
+        }
+    }
+
+    private static ItemSelector sourceFromFields(Properties properties, String prefix,
+                                                 boolean strict) throws IOException {
+        String kind = strict ? required(properties, prefix + "sourceKind")
+                : properties.getProperty(prefix + "sourceKind", "CURRENT_ACTIVE");
+        int slot = number(strict ? required(properties, prefix + "sourceSlot")
+                : properties.getProperty(prefix + "sourceSlot", "0"), "source slot");
+        long objectId = longNumber(strict ? required(properties, prefix + "sourceObjectId")
+                : properties.getProperty(prefix + "sourceObjectId", "0"), "source object ID");
+        String text = decoded(properties, prefix + "sourceText", strict);
+        ItemSelector source = ItemSelectorCodec.fromFields(kind, slot, objectId, text);
+        if (strict && (source.getSlot() != slot || source.getObjectId() != objectId
+                || !source.getText().equals(text)))
+            throw new IOException("Invalid source parameters");
+        return source;
+    }
+
+    private static void writeCommand(Properties properties, String prefix, String value,
+                                     boolean preserveExact, boolean transfer) throws IOException {
+        if (value != null && value.length() > KeybindLimits.MAX_COMMAND_LENGTH)
+            throw new IOException("command is too long");
+        properties.setProperty(prefix + (transfer ? "command" : "value"), encode(value));
+        properties.setProperty(prefix + "preserveExact", Boolean.toString(preserveExact));
+    }
+
+    private static String command(Properties properties, String prefix) throws IOException {
+        String value = decoded(properties, prefix + "command", true);
+        if (value.length() > KeybindLimits.MAX_COMMAND_LENGTH)
+            throw new IOException("command is too long");
+        return value;
+    }
+
+    private static void encoded(Properties properties, String key, String value,
+                                boolean enforceLimit) throws IOException {
+        String encoded = encode(value);
+        if (enforceLimit && encoded.length() > KeybindLimits.MAX_ENCODED_FIELD_LENGTH)
+            throw new IOException("Encoded transfer field is too long");
+        properties.setProperty(key, encoded);
+    }
+
+    private static String decoded(Properties properties, String key, boolean required)
+            throws IOException {
+        String encoded = required ? required(properties, key) : properties.getProperty(key, "");
+        if (required && encoded.length() > KeybindLimits.MAX_ENCODED_FIELD_LENGTH)
+            throw new IOException("Encoded transfer field is too long");
+        try {
+            return new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException failure) {
+            throw new IOException("Malformed Base64", failure);
+        }
+    }
+
+    private static String encode(String value) {
+        return Base64.getEncoder().encodeToString((value == null ? "" : value)
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static StepKind kind(String value) throws IOException {
+        try {
+            return StepKind.valueOf(value);
+        } catch (IllegalArgumentException failure) {
+            throw new IOException("Unsupported step kind " + value, failure);
+        }
+    }
+
+    private static int number(String value, String field) throws IOException {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException failure) {
+            throw new IOException("Invalid " + field, failure);
+        }
+    }
+
+    private static long longNumber(String value, String field) throws IOException {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException failure) {
+            throw new IOException("Invalid " + field, failure);
+        }
+    }
+
+    private static void requireShort(int value, String message) throws IOException {
+        if (value < Short.MIN_VALUE || value > Short.MAX_VALUE)
+            throw new IOException(message);
+    }
+
+    private static String required(Properties properties, String key) throws IOException {
+        String value = properties.getProperty(key);
+        if (value == null) throw new IOException("Missing transfer field " + key);
+        return value;
+    }
+
+    private static boolean strictBoolean(Properties properties, String key, boolean fallback)
+            throws IOException {
+        String value = properties.getProperty(key);
+        if (value == null) return fallback;
+        if ("true".equalsIgnoreCase(value)) return true;
+        if ("false".equalsIgnoreCase(value)) return false;
+        throw new IOException("Invalid boolean " + key);
+    }
+}

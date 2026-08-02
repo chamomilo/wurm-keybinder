@@ -72,6 +72,7 @@ import org.keybinder.wurm.transfer.TransferImportResult;
 import org.keybinder.wurm.transfer.ValuePackProvider;
 import org.keybinder.wurm.ui.KeybinderUiController;
 import org.keybinder.wurm.ui.KeybindEditorController;
+import org.keybinder.wurm.validation.KeybindValidator;
 import org.gotti.wurmunlimited.modloader.classhooks.HookManager;
 import org.gotti.wurmunlimited.modloader.interfaces.Configurable;
 import org.gotti.wurmunlimited.modloader.interfaces.Initable;
@@ -1734,12 +1735,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     @Override public boolean saveKeybind(String id, String name, String key, List<KeybindStep> steps,
                                          String createdByUser, String createdOnServer) {
         try {
-            if (name == null || name.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.name_missing"));
-            if (key == null || key.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.key_missing"));
-            if (steps == null || steps.isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.step_missing"));
+            KeybindValidator.validatePendingSteps(name, key, steps);
             PendingSave requested = new PendingSave(id, name, key, steps,
                     createdByUser, createdOnServer);
             KeybindConflict conflict = registry.findKeybindSaveConflict(id, key, ACCESS.console(hud));
@@ -1768,16 +1764,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                                           boolean hudMulti,
                                           String createdByUser, String createdOnServer) {
         try {
-            if (name == null || name.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.name_missing"));
-            if (key == null || key.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.key_missing"));
-            if (variants == null || variants.isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.variant_missing"));
-            for (KeybindVariant variant : variants)
-                if (variant.getSteps().isEmpty())
-                    throw new IllegalArgumentException(
-                            Messages.text("validation.variant_step_missing"));
+            KeybindValidator.validatePendingVariants(name, key, variants);
             PendingSave requested = new PendingSave(id, name, key, variants, activeVariantId,
                     hudMulti,
                     createdByUser, createdOnServer);
@@ -1809,16 +1796,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                                             String extractedVariantId,
                                             String createdByUser, String createdOnServer) {
         try {
-            if (name == null || name.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.name_missing"));
-            if (key == null || key.trim().isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.key_missing"));
+            KeybindValidator.validatePendingVariants(name, key, variants);
             if (variants == null || variants.size() <= 1)
                 throw new IllegalArgumentException(Messages.text("extract.last_variant"));
-            for (KeybindVariant variant : variants)
-                if (variant.getSteps().isEmpty())
-                    throw new IllegalArgumentException(
-                            Messages.text("validation.variant_step_missing"));
             PendingSave requested = new PendingSave(id, name, key, variants, activeVariantId,
                     hudMulti, extractedVariantId, createdByUser, createdOnServer);
             KeybindRecord source = registry.find(id);

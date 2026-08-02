@@ -1,5 +1,6 @@
 package org.keybinder.wurm.storage;
 
+import org.keybinder.wurm.codec.KeybindStepCodec;
 import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.ActionStep;
@@ -15,6 +16,7 @@ import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.StepKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
+import org.keybinder.wurm.validation.KeybindValidator;
 import org.keybinder.wurm.migration.CustomActionsImporter;
 
 import java.io.IOException;
@@ -256,6 +258,10 @@ public final class KeybindStore {
         List<KeybindStep> steps = new ArrayList<KeybindStep>();
         for (int j = 0; j < count; j++) {
             String stepPrefix = ownerPrefix + "step." + j + ".";
+            if (schema >= 8) {
+                steps.add(KeybindStepCodec.readStore(props, stepPrefix, recordId));
+                continue;
+            }
             StepKind kind = StepKind.valueOf(props.getProperty(stepPrefix + "kind", "CUSTOM_ACTION"));
             String value = decode(props.getProperty(
                     stepPrefix + (schema >= 6 ? "target" : "value"), ""));
@@ -286,13 +292,7 @@ public final class KeybindStore {
                     } else {
                         String lastKnownName = schema >= 7
                                 ? decode(props.getProperty(stepPrefix + "lastKnownName", "")) : "";
-                        ItemSelector source = schema >= 8
-                                ? ItemSelectorCodec.fromFields(
-                                props.getProperty(stepPrefix + "sourceKind", "CURRENT_ACTIVE"),
-                                Integer.parseInt(props.getProperty(stepPrefix + "sourceSlot", "0")),
-                                Long.parseLong(props.getProperty(stepPrefix + "sourceObjectId", "0")),
-                                decode(props.getProperty(stepPrefix + "sourceText", "")))
-                                : ItemSelector.currentActive();
+                        ItemSelector source = ItemSelector.currentActive();
                         steps.add(new ActionStep((short) actionId, source,
                                 TargetCodec.decode(value), lastKnownName));
                     }
@@ -303,40 +303,11 @@ public final class KeybindStore {
         return steps;
     }
 
-    private static void writeSteps(Properties props, String ownerPrefix, List<KeybindStep> steps) {
+    private static void writeSteps(Properties props, String ownerPrefix, List<KeybindStep> steps)
+            throws IOException {
         for (int j = 0; j < steps.size(); j++) {
-            KeybindStep step = steps.get(j);
             String stepPrefix = ownerPrefix + "step." + j + ".";
-            props.setProperty(stepPrefix + "kind", step.getKind().name());
-            if (step instanceof ActionStep) {
-                ActionStep action = (ActionStep) step;
-                props.setProperty(stepPrefix + "actionId", String.valueOf(action.getActionId()));
-                props.setProperty(stepPrefix + "target",
-                        encode(TargetCodec.encode(action.getTarget())));
-                props.setProperty(stepPrefix + "lastKnownName",
-                        encode(action.getLastKnownName()));
-                props.setProperty(stepPrefix + "sourceKind", action.getSource().getKind().name());
-                props.setProperty(stepPrefix + "sourceSlot",
-                        String.valueOf(action.getSource().getSlot()));
-                props.setProperty(stepPrefix + "sourceObjectId",
-                        String.valueOf(action.getSource().getObjectId()));
-                props.setProperty(stepPrefix + "sourceText",
-                        encode(action.getSource().getText()));
-            } else if (step instanceof ActivateToolStep) {
-                props.setProperty(stepPrefix + "target", encode(TargetCodec.encode(
-                        ((ActivateToolStep) step).getTarget())));
-            } else if (step instanceof SmartImproveStep) {
-                props.setProperty(stepPrefix + "target", encode(TargetCodec.encode(
-                        ((SmartImproveStep) step).getTarget())));
-            } else if (step instanceof VanillaActionStep) {
-                props.setProperty(stepPrefix + "value",
-                        encode(((VanillaActionStep) step).getCommand()));
-            } else if (step instanceof ConsoleCommandStep) {
-                ConsoleCommandStep command = (ConsoleCommandStep) step;
-                props.setProperty(stepPrefix + "value", encode(command.getCommand()));
-                props.setProperty(stepPrefix + "preserveExact",
-                        String.valueOf(command.isPreserveExactText()));
-            }
+            KeybindStepCodec.writeStore(props, stepPrefix, steps.get(j));
         }
     }
 
@@ -381,47 +352,32 @@ public final class KeybindStore {
     }
 
     private static void validateRecords(List<KeybindRecord> records) throws IOException {
-        if (records == null) throw new IOException("Keybind records are missing");
-        if (records.size() > KeybindLimits.MAX_RECORDS_IN_TRANSFER)
-            throw new IOException("Too many Keybinder records");
-        for (KeybindRecord record : records) {
-            requireLength(record.getName(), KeybindLimits.MAX_RECORD_NAME_LENGTH, "record name");
-            if (record.getVariants().isEmpty()
-                    || record.getVariants().size() > KeybindLimits.MAX_VARIANTS)
-                throw new IOException("Invalid variant count in record " + record.getId());
-            for (KeybindVariant variant : record.getVariants()) {
-                requireLength(variant.getSubName(), KeybindLimits.MAX_VARIANT_NAME_LENGTH,
-                        "variant name");
-                if (variant.getSteps().size() > KeybindLimits.MAX_STEPS_PER_VARIANT)
-                    throw new IOException("Too many steps in record " + record.getId());
-                for (KeybindStep step : variant.getSteps()) validateStep(step);
-            }
+        try {
+            KeybindValidator.validateStorage(records);
+            for (KeybindRecord record : records)
+                for (KeybindVariant variant : record.getVariants())
+                    for (KeybindStep step : variant.getSteps()) validateStepEncoding(step);
+        } catch (IllegalArgumentException failure) {
+            throw new IOException("Invalid Keybinder records", failure);
         }
     }
 
-    private static void validateStep(KeybindStep step) throws IOException {
-        try {
-            if (step instanceof ActionStep) {
-                ActionStep action = (ActionStep) step;
-                requireEncodedLength(TargetCodec.encode(action.getTarget()), "target");
-                requireEncodedLength(ItemSelectorCodec.encode(action.getSource()), "source");
-                requireLength(action.getLastKnownName(), KeybindLimits.MAX_ENCODED_FIELD_LENGTH,
-                        "action name");
-            } else if (step instanceof ActivateToolStep) {
-                requireEncodedLength(TargetCodec.encode(((ActivateToolStep) step).getTarget()),
-                        "activation target");
-            } else if (step instanceof SmartImproveStep) {
-                requireEncodedLength(TargetCodec.encode(((SmartImproveStep) step).getTarget()),
-                        "improve target");
-            } else if (step instanceof VanillaActionStep) {
-                requireLength(((VanillaActionStep) step).getCommand(),
-                        KeybindLimits.MAX_COMMAND_LENGTH, "vanilla command");
-            } else if (step instanceof ConsoleCommandStep) {
-                requireLength(((ConsoleCommandStep) step).getCommand(),
-                        KeybindLimits.MAX_COMMAND_LENGTH, "console command");
-            } else throw new IOException("Unsupported keybind step " + step.getClass().getName());
-        } catch (IllegalArgumentException failure) {
-            throw new IOException("Invalid Keybinder step", failure);
+    private static void validateStepEncoding(KeybindStep step) throws IOException {
+        if (step instanceof ActionStep) {
+            ActionStep action = (ActionStep) step;
+            requireEncodedLength(TargetCodec.encode(action.getTarget()), "target");
+            requireEncodedLength(ItemSelectorCodec.encode(action.getSource()), "source");
+            requireLength(action.getLastKnownName(), KeybindLimits.MAX_ENCODED_FIELD_LENGTH,
+                    "action name");
+        } else if (step instanceof ActivateToolStep) {
+            requireEncodedLength(TargetCodec.encode(((ActivateToolStep) step).getTarget()),
+                    "activation target");
+        } else if (step instanceof SmartImproveStep) {
+            requireEncodedLength(TargetCodec.encode(((SmartImproveStep) step).getTarget()),
+                    "improve target");
+        } else if (!(step instanceof VanillaActionStep)
+                && !(step instanceof ConsoleCommandStep)) {
+            throw new IOException("Unsupported keybind step " + step.getClass().getName());
         }
     }
 

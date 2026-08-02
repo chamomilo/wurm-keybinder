@@ -28,6 +28,7 @@ import org.keybinder.wurm.catalog.InputKeyCatalog;
 import org.keybinder.wurm.transfer.PortableKeybindDefinition;
 import org.keybinder.wurm.transfer.SemanticFingerprint;
 import org.keybinder.wurm.transfer.TransferImportResult;
+import org.keybinder.wurm.validation.KeybindValidator;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -1297,48 +1298,11 @@ public final class KeybindRegistry {
     }
 
     private void validate(KeybindRecord record) {
-        if (record.getName() == null || record.getName().trim().isEmpty())
-            throw new IllegalArgumentException(Messages.text("validation.name_missing"));
-        if (record.getKey() == null || record.getKey().trim().isEmpty())
-            throw new IllegalArgumentException(Messages.text("validation.key_missing"));
-        if (record.getKeybindSteps().isEmpty())
-            throw new IllegalArgumentException(Messages.text("validation.step_missing"));
-        if (record.getName().length() > KeybindLimits.MAX_RECORD_NAME_LENGTH)
-            throw new IllegalArgumentException(Messages.text("validation.name_too_long",
-                    KeybindLimits.MAX_RECORD_NAME_LENGTH));
-        if (record.getVariants().size() > KeybindLimits.MAX_VARIANTS)
-            throw new IllegalArgumentException(Messages.text("editor.max_variants",
-                    KeybindLimits.MAX_VARIANTS));
-        for (org.keybinder.wurm.model.KeybindVariant variant : record.getVariants()) {
-            if (variant.getSubName().length() > KeybindLimits.MAX_VARIANT_NAME_LENGTH)
-                throw new IllegalArgumentException(Messages.text("validation.variant_name_too_long",
-                        KeybindLimits.MAX_VARIANT_NAME_LENGTH));
-            if (variant.getSteps().size() > KeybindLimits.MAX_STEPS_PER_VARIANT)
-                throw new IllegalArgumentException(Messages.text("validation.steps_too_many",
-                        KeybindLimits.MAX_STEPS_PER_VARIANT));
-            for (KeybindStep step : variant.getSteps()) {
-                if (step instanceof ConsoleCommandStep
-                        && ((ConsoleCommandStep) step).getCommand().length()
-                        > KeybindLimits.MAX_COMMAND_LENGTH)
-                    throw new IllegalArgumentException(Messages.text("validation.command_too_long",
-                            KeybindLimits.MAX_COMMAND_LENGTH));
-                if (step instanceof org.keybinder.wurm.model.VanillaActionStep
-                        && ((org.keybinder.wurm.model.VanillaActionStep) step)
-                        .getCommand().length() > KeybindLimits.MAX_COMMAND_LENGTH)
-                    throw new IllegalArgumentException(Messages.text("validation.command_too_long",
-                            KeybindLimits.MAX_COMMAND_LENGTH));
-            }
-        }
+        KeybindValidator.validateConfigured(record);
     }
 
     private static String validationDisabledReason(KeybindRecord record) {
-        if (record.getName() == null || record.getName().trim().isEmpty())
-            return DisableReason.value("invalid_name");
-        if (record.getKey() == null || record.getKey().trim().isEmpty())
-            return DisableReason.value("invalid_key");
-        if (record.getKeybindSteps().isEmpty())
-            return DisableReason.value("invalid_steps");
-        return DisableReason.value("invalid");
+        return KeybindValidator.disabledReason(record);
     }
 
     private String commandFor(KeybindRecord record) {

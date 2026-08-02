@@ -1,5 +1,6 @@
 package org.keybinder.wurm.transfer;
 
+import org.keybinder.wurm.codec.KeybindStepCodec;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -17,19 +18,9 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
-import org.keybinder.wurm.command.ItemSelectorCodec;
-import org.keybinder.wurm.command.TargetCodec;
-import org.keybinder.wurm.model.ActionStep;
-import org.keybinder.wurm.model.ActivateToolStep;
-import org.keybinder.wurm.model.ConsoleCommandStep;
-import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.KeybindLimits;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
-import org.keybinder.wurm.model.SmartImproveStep;
-import org.keybinder.wurm.model.StepKind;
-import org.keybinder.wurm.model.TargetSpec;
-import org.keybinder.wurm.model.VanillaActionStep;
 
 /** Strict codec and atomic file store for portable .keybinder bundles. */
 public final class KeybindTransferStore {
@@ -181,82 +172,11 @@ public final class KeybindTransferStore {
     }
 
     private static void writeStep(Properties p, String prefix, KeybindStep step) throws IOException {
-        p.setProperty(prefix + "kind", step.getKind().name());
-        if (step instanceof ActionStep) {
-            ActionStep action = (ActionStep) step;
-            p.setProperty(prefix + "actionId", Short.toString(action.getActionId()));
-            encodedField(p, prefix + "lastKnownName", action.getLastKnownName());
-            p.setProperty(prefix + "sourceKind", action.getSource().getKind().name());
-            p.setProperty(prefix + "sourceSlot", Integer.toString(action.getSource().getSlot()));
-            p.setProperty(prefix + "sourceObjectId", Long.toString(action.getSource().getObjectId()));
-            p.setProperty(prefix + "sourceText", encode(action.getSource().getText()));
-            encodedField(p, prefix + "target", TargetCodec.encode(action.getTarget()));
-            encodedField(p, prefix + "source", ItemSelectorCodec.encode(action.getSource()));
-        } else if (step instanceof ActivateToolStep) {
-            encodedField(p, prefix + "target",
-                    TargetCodec.encode(((ActivateToolStep) step).getTarget()));
-        } else if (step instanceof SmartImproveStep) {
-            encodedField(p, prefix + "target",
-                    TargetCodec.encode(((SmartImproveStep) step).getTarget()));
-        } else if (step instanceof VanillaActionStep) {
-            command(p, prefix, ((VanillaActionStep) step).getCommand(), false);
-        } else if (step instanceof ConsoleCommandStep) {
-            ConsoleCommandStep command = (ConsoleCommandStep) step;
-            command(p, prefix, command.getCommand(), command.isPreserveExactText());
-        } else throw new IOException("Unsupported transfer step");
+        KeybindStepCodec.writeTransfer(p, prefix, step);
     }
 
     private static KeybindStep readStep(Properties p, String prefix) throws IOException {
-        StepKind kind = StepKind.valueOf(required(p, prefix + "kind"));
-        switch (kind) {
-            case CUSTOM_ACTION: {
-                int value = parse(p, prefix + "actionId");
-                if (value < Short.MIN_VALUE || value > Short.MAX_VALUE)
-                    throw new IOException("Action ID outside short range");
-                String encodedSource = decodedField(p, prefix + "source");
-                int sourceSlot = parse(p, prefix + "sourceSlot");
-                long sourceObjectId;
-                try { sourceObjectId = Long.parseLong(required(p, prefix + "sourceObjectId")); }
-                catch (NumberFormatException failure) {
-                    throw new IOException("Invalid source object ID", failure);
-                }
-                String sourceText = decoded(p, prefix + "sourceText");
-                ItemSelector source = ItemSelectorCodec.fromFields(
-                        required(p, prefix + "sourceKind"),
-                        sourceSlot, sourceObjectId, sourceText);
-                if (source.getSlot() != sourceSlot || source.getObjectId() != sourceObjectId
-                        || !source.getText().equals(sourceText))
-                    throw new IOException("Invalid source parameters");
-                if (!ItemSelectorCodec.encode(source).equals(encodedSource))
-                    throw new IOException("Inconsistent source fields");
-                TargetSpec target = TargetCodec.decode(decodedField(p, prefix + "target"));
-                return new ActionStep((short) value, source, target,
-                        decodedField(p, prefix + "lastKnownName"));
-            }
-            case ACTIVATE_TOOL:
-                return new ActivateToolStep(TargetCodec.decode(decodedField(p, prefix + "target")));
-            case SMART_IMPROVE:
-                return new SmartImproveStep(TargetCodec.decode(decodedField(p, prefix + "target")));
-            case VANILLA_ACTION:
-                return new VanillaActionStep(readCommand(p, prefix));
-            case CONSOLE_COMMAND:
-                return new ConsoleCommandStep(readCommand(p, prefix),
-                        strictBoolean(p, prefix + "preserveExact", false));
-            default: throw new IOException("Unsupported transfer step kind " + kind);
-        }
-    }
-
-    private static void command(Properties p, String prefix, String value, boolean exact)
-            throws IOException {
-        requireLength(value, KeybindLimits.MAX_COMMAND_LENGTH, "command");
-        p.setProperty(prefix + "command", encode(value));
-        p.setProperty(prefix + "preserveExact", Boolean.toString(exact));
-    }
-
-    private static String readCommand(Properties p, String prefix) throws IOException {
-        String value = decoded(p, prefix + "command");
-        requireLength(value, KeybindLimits.MAX_COMMAND_LENGTH, "command");
-        return value;
+        return KeybindStepCodec.readTransfer(p, prefix);
     }
 
     private static void encodedField(Properties p, String key, String value) throws IOException {
