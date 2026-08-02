@@ -17,11 +17,36 @@ public class ActionSourcePolicyTest {
     }
 
     @Test
+    public void openNeverCarriesAnItemTool() {
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.OPEN.getId()));
+        ActionStep open = new ActionStep(PlayerAction.OPEN.getId(),
+                ItemSelector.exactObject(123L, "hatchet"),
+                TargetSpec.simple(TargetKind.HOVER), "Open");
+        assertEquals(ItemSelectorKind.EMPTY_HAND, open.getSource().getKind());
+    }
+
+    @Test
     public void ordinaryActionsKeepTheirSelectedTool() {
-        assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.EXAMINE.getId()));
-        ActionStep examine = new ActionStep(PlayerAction.EXAMINE.getId(),
-                ItemSelector.toolbeltSlot(4), TargetSpec.simple(TargetKind.HOVER), "Examine");
-        assertEquals(ItemSelectorKind.TOOLBELT_SLOT, examine.getSource().getKind());
-        assertEquals(4, examine.getSource().getSlot());
+        assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.IMPROVE.getId()));
+        ActionStep improve = new ActionStep(PlayerAction.IMPROVE.getId(),
+                ItemSelector.toolbeltSlot(4), TargetSpec.simple(TargetKind.HOVER), "Improve");
+        assertEquals(ItemSelectorKind.TOOLBELT_SLOT, improve.getSource().getKind());
+        assertEquals(4, improve.getSource().getSlot());
+    }
+
+    @Test
+    public void auditedCatalogKeepsOnlyCommandsThatUseAnItemSource() {
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.PUSH.getId()));
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.PULL.getId()));
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(
+                PlayerAction.TURN_CLOCKWISE.getId()));
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.EXAMINE.getId()));
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.REPAIR.getId()));
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.PRAY.getId()));
+        assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.FISH.getId()));
+        assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.FILET.getId()));
+        assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.FIRSTAID.getId()));
+        assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.DIG.getId()));
+        assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.BLESS.getId()));
     }
 }

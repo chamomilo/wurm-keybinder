@@ -28,7 +28,7 @@ public class KeybindRegistryDefinitionMutationTest {
     @Test public void duplicateUsesNewIdsPreservesDefinitionAndClearsOwnership() throws Exception {
         KeybindRegistry registry = registry();
         KeybindVariant first = new KeybindVariant("one", "One",
-                Collections.<KeybindStep>singletonList(new ActionStep((short) 7,
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 192,
                         ItemSelector.toolbeltSlot(2), TargetSpec.hoverType("pickaxe"), "Use")));
         KeybindVariant second = new KeybindVariant("two", "Two",
                 Collections.<KeybindStep>singletonList(new ConsoleCommandStep("say two", true)));
@@ -145,7 +145,7 @@ public class KeybindRegistryDefinitionMutationTest {
     @Test public void portableImportSkipsDuplicatesAndMarksExactObjectsForReview() throws Exception {
         KeybindRegistry registry = registry();
         KeybindRecord exact = new KeybindRecord(null, "Exact", "E",
-                Collections.<KeybindStep>singletonList(new ActionStep((short) 1,
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 192,
                         ItemSelector.exactObject(99L, "hammer"),
                         TargetSpec.simple(TargetKind.HOVER), "Use")));
         PortableKeybindDefinition definition = PortableKeybindDefinition.fromRecord(exact);
@@ -155,7 +155,17 @@ public class KeybindRegistryDefinitionMutationTest {
         assertEquals(1, result.getSkippedDuplicates());
         KeybindRecord imported = registry.snapshot().get(0);
         assertFalse(imported.isEnabled());
+        assertFalse(imported.isValuePack());
         assertTrue(DisableReason.display(imported.getDisabledReason()).contains("exact object ID"));
+
+        TransferImportResult valuePack = registry.importValuePack(
+                Collections.singletonList(definition));
+        assertEquals(0, valuePack.getImported());
+        assertEquals(1, valuePack.getSkippedDuplicates());
+        assertTrue(imported.isValuePack());
+
+        KeybindRecord copy = registry.duplicate(imported.getId());
+        assertFalse(copy.isValuePack());
     }
 
     @Test public void mergeAcceptsFourteenAndFifteenButRejectsSixteenAtomically()

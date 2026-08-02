@@ -17,6 +17,7 @@ public class ModPropertiesStoreTest {
                 .resolve("keybinder.properties");
         Properties source = new Properties();
         source.setProperty("skipIntroPage", "true");
+        source.setProperty("valuePackProvided", "true");
         source.setProperty("existingSetting", "unchanged");
         LocalizationSettings.save(source, "pt-BR");
 
@@ -28,6 +29,7 @@ public class ModPropertiesStoreTest {
         }
         assertEquals("pt-BR", LocalizationSettings.load(loaded));
         assertEquals("true", loaded.getProperty("skipIntroPage"));
+        assertEquals("true", loaded.getProperty("valuePackProvided"));
         assertEquals("unchanged", loaded.getProperty("existingSetting"));
     }
 }

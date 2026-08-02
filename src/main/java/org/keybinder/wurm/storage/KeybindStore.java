@@ -35,12 +35,13 @@ import java.util.List;
 import java.util.Properties;
 
 public final class KeybindStore {
-    public static final int SCHEMA_VERSION = 8;
+    public static final int SCHEMA_VERSION = 9;
     private final Path file;
     private final CustomActionsImporter customActionsImporter = new CustomActionsImporter();
     private volatile boolean recoveredFromBackup;
     private volatile int loadedSchema = SCHEMA_VERSION;
     private volatile Path loadedSource;
+    private volatile boolean valuePackProvided;
 
     public KeybindStore(Path file) {
         this.file = file;
@@ -58,6 +59,7 @@ public final class KeybindStore {
         recoveredFromBackup = false;
         loadedSchema = SCHEMA_VERSION;
         loadedSource = null;
+        valuePackProvided = false;
         if (!Files.exists(file)) return new ArrayList<KeybindRecord>();
         try {
             return loadFrom(file, true);
@@ -142,14 +144,26 @@ public final class KeybindStore {
             }
             record.setHudMulti(schema >= 8
                     && Boolean.parseBoolean(props.getProperty(prefix + "hudMulti", "false")));
+            record.setValuePack(schema >= 9
+                    && Boolean.parseBoolean(props.getProperty(prefix + "valuePack", "false")));
             records.add(record);
         }
         validateRecords(records);
         if (rememberSource) {
             loadedSchema = schema;
             loadedSource = source;
+            valuePackProvided = schema >= 9
+                    && Boolean.parseBoolean(props.getProperty("valuePackProvided", "false"));
         }
         return records;
+    }
+
+    public boolean wasValuePackProvided() {
+        return valuePackProvided;
+    }
+
+    public void setValuePackProvided(boolean value) {
+        valuePackProvided = value;
     }
 
     public void save(List<KeybindRecord> records) throws IOException {
@@ -160,6 +174,7 @@ public final class KeybindStore {
         Properties props = new Properties();
         props.setProperty("schema", String.valueOf(SCHEMA_VERSION));
         props.setProperty("count", String.valueOf(records.size()));
+        props.setProperty("valuePackProvided", String.valueOf(valuePackProvided));
         for (int i = 0; i < records.size(); i++) {
             KeybindRecord record = records.get(i);
             String prefix = "record." + i + ".";
@@ -170,6 +185,7 @@ public final class KeybindStore {
             props.setProperty(prefix + "activeVariantId", encode(record.getActiveVariantId()));
             record.setHudMulti(record.isHudMulti());
             props.setProperty(prefix + "hudMulti", String.valueOf(record.isHudMulti()));
+            props.setProperty(prefix + "valuePack", String.valueOf(record.isValuePack()));
             for (int v = 0; v < record.getVariants().size(); v++) {
                 KeybindVariant variant = record.getVariants().get(v);
                 String variantPrefix = prefix + "variant." + v + ".";
@@ -347,7 +363,7 @@ public final class KeybindStore {
 
     private void createPreV8BackupIfNeeded() throws IOException {
         Path source = loadedSource;
-        if (loadedSchema >= SCHEMA_VERSION || source == null || !Files.isRegularFile(source)) return;
+        if (loadedSchema >= 8 || source == null || !Files.isRegularFile(source)) return;
         Path destination = preV8BackupFile();
         if (Files.exists(destination)) return;
         try (InputStream input = Files.newInputStream(source);
@@ -437,6 +453,7 @@ public final class KeybindStore {
                 || !textEqual(left.getCreatedByUser(), right.getCreatedByUser())
                 || !textEqual(left.getCreatedOnServer(), right.getCreatedOnServer())
                 || left.isHudMulti() != right.isHudMulti()
+                || left.isValuePack() != right.isValuePack()
                 || left.getVariants().size() != right.getVariants().size()) return false;
         for (int i = 0; i < left.getVariants().size(); i++) {
             KeybindVariant a = left.getVariants().get(i), b = right.getVariants().get(i);

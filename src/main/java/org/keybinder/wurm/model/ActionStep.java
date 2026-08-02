@@ -21,7 +21,8 @@ public final class ActionStep implements KeybindStep {
         this.actionId = actionId;
         this.source = ActionSourcePolicy.normalize(actionId,
                 Objects.requireNonNull(source, "source"));
-        this.target = Objects.requireNonNull(target, "target");
+        this.target = ActionTargetPolicy.normalize(actionId,
+                Objects.requireNonNull(target, "target"));
         setLastKnownName(lastKnownName);
     }
 

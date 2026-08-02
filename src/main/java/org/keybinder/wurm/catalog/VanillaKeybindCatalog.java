@@ -45,19 +45,26 @@ public final class VanillaKeybindCatalog {
         private final String command;
         private final Short actionId;
         private final boolean activateTool;
+        private final boolean selectableTool;
+        private final boolean selectableTarget;
 
         private Entry(String displayName, String command, Short actionId,
-                      boolean activateTool) {
+                      boolean activateTool, boolean selectableTool,
+                      boolean selectableTarget) {
             this.displayName = displayName;
             this.command = command;
             this.actionId = actionId;
             this.activateTool = activateTool;
+            this.selectableTool = selectableTool;
+            this.selectableTarget = selectableTarget;
         }
 
         public String getDisplayName() { return displayName; }
         public String getCommand() { return command; }
         public Short getActionId() { return actionId; }
         public boolean isActivateTool() { return activateTool; }
+        public boolean usesSelectableTool() { return selectableTool; }
+        public boolean usesSelectableTarget() { return selectableTarget; }
     }
 
     private final List<Category> categories;
@@ -80,9 +87,12 @@ public final class VanillaKeybindCatalog {
             String command = keybind.getCommand();
             if (command == null || command.trim().isEmpty()) continue;
             String actionBind = actionBindFor(keybind);
-            Entry entry = new Entry(keybind.getDisplayName(), command,
-                    actionBind == null ? null : actionIdsByBind.get(normalize(actionBind)),
-                    keybind == PlayerKeybind.ACTIVATE);
+            Short actionId = actionBind == null
+                    ? null : actionIdsByBind.get(normalize(actionBind));
+            boolean activateTool = keybind == PlayerKeybind.ACTIVATE;
+            Entry entry = new Entry(keybind.getDisplayName(), command, actionId,
+                    activateTool, actionId != null && usesItemSource(keybind),
+                    activateTool || actionId != null && usesTarget(keybind));
             entries.add(entry);
             commands.put(normalize(command), entry);
         }
@@ -112,6 +122,117 @@ public final class VanillaKeybindCatalog {
         for (Category category : categories)
             if (category.getEntries().contains(entry)) return category;
         return null;
+    }
+
+    /** Returns the audited item-source capability for a known vanilla action.
+     * Unknown server/mod actions remain source-capable. */
+    public boolean usesSelectableTool(short actionId) {
+        for (Category category : categories) {
+            for (Entry entry : category.getEntries())
+                if (entry.getActionId() != null
+                        && entry.getActionId().shortValue() == actionId
+                        && entry.usesSelectableTool()) return true;
+        }
+        for (Category category : categories)
+            for (Entry entry : category.getEntries())
+                if (entry.getActionId() != null
+                        && entry.getActionId().shortValue() == actionId) return false;
+        return true;
+    }
+
+    /** Returns whether a known vanilla action requires a user-selected target.
+     * Unknown server/mod actions retain the normal target editor. */
+    public boolean usesSelectableTarget(short actionId) {
+        for (Category category : categories) {
+            for (Entry entry : category.getEntries())
+                if (entry.getActionId() != null
+                        && entry.getActionId().shortValue() == actionId
+                        && entry.usesSelectableTarget()) return true;
+        }
+        for (Category category : categories)
+            for (Entry entry : category.getEntries())
+                if (entry.getActionId() != null
+                        && entry.getActionId().shortValue() == actionId) return false;
+        return true;
+    }
+
+    /**
+     * Full audit of the visible current-client catalog. Most vanilla commands
+     * use the hovered object only and must send an empty item source. The
+     * entries below are the commands whose server action actually consumes an
+     * activated tool, material, healing item, fishing implement, bow, or
+     * statuette.
+     */
+    private static boolean usesItemSource(PlayerKeybind keybind) {
+        PlayerKeybindCategory category = keybind.getCategory();
+        if (category == PlayerKeybindCategory.SPELLS
+                || category == PlayerKeybindCategory.TERRAFORM) return true;
+        if (category == PlayerKeybindCategory.ACTION) {
+            return keybind == PlayerKeybind.DEFAULT_TERRAFORM_ACTION
+                    || keybind == PlayerKeybind.FIRSTAID
+                    || keybind == PlayerKeybind.TREAT
+                    || keybind == PlayerKeybind.FISH
+                    || keybind == PlayerKeybind.FILET
+                    || keybind == PlayerKeybind.INVESTIGATE;
+        }
+        if (category == PlayerKeybindCategory.CRAFTING) {
+            return keybind == PlayerKeybind.IMPROVE
+                    || keybind == PlayerKeybind.CONTINUE
+                    || keybind == PlayerKeybind.FINISH
+                    || keybind == PlayerKeybind.PLAN_BUILDING;
+        }
+        if (category == PlayerKeybindCategory.ITEM) {
+            return keybind == PlayerKeybind.COMBINE
+                    || keybind == PlayerKeybind.LOCK
+                    || keybind == PlayerKeybind.UNLOCK
+                    || keybind == PlayerKeybind.MEDITATE
+                    || keybind == PlayerKeybind.IDENTIFY_FRAGMENT
+                    || keybind == PlayerKeybind.COMBINE_FRAGMENT;
+        }
+        if (category == PlayerKeybindCategory.CREATURE) {
+            return keybind == PlayerKeybind.LEAD
+                    || keybind == PlayerKeybind.TAME
+                    || keybind == PlayerKeybind.FEED
+                    || keybind == PlayerKeybind.GROOM
+                    || keybind == PlayerKeybind.BUTCHER
+                    || keybind == PlayerKeybind.BURY
+                    || keybind == PlayerKeybind.BURY_ALL
+                    || keybind == PlayerKeybind.SHEAR
+                    || keybind == PlayerKeybind.MILK;
+        }
+        if (category == PlayerKeybindCategory.NATURE) {
+            return keybind == PlayerKeybind.HARVEST
+                    || keybind == PlayerKeybind.FARM
+                    || keybind == PlayerKeybind.SOW
+                    || keybind == PlayerKeybind.CULTIVATE
+                    || keybind == PlayerKeybind.PICK_SPROUT
+                    || keybind == PlayerKeybind.PICK_FLOWERS
+                    || keybind == PlayerKeybind.PRUNE
+                    || keybind == PlayerKeybind.CUT_DOWN
+                    || keybind == PlayerKeybind.CHOP_UP
+                    || keybind == PlayerKeybind.PLANT
+                    || keybind == PlayerKeybind.PLANT_CENTER
+                    || keybind == PlayerKeybind.GATHER
+                    || keybind == PlayerKeybind.TRIM;
+        }
+        if (category == PlayerKeybindCategory.FIGHTING) {
+            return keybind == PlayerKeybind.SHOOT
+                    || keybind == PlayerKeybind.QUICK_SHOT
+                    || keybind == PlayerKeybind.SHOOT_FACE
+                    || keybind == PlayerKeybind.SHOOT_TORSO
+                    || keybind == PlayerKeybind.SHOOT_LEFTARM
+                    || keybind == PlayerKeybind.SHOOT_RIGHTARM
+                    || keybind == PlayerKeybind.SHOOT_LEGS;
+        }
+        return false;
+    }
+
+    /** Stop and No target are the two visible mapped actions dispatched by
+     * PlayerObj.toggleKey through World.sendLocalAction rather than a selected
+     * hovered target. HUD, movement, and unmapped local commands never reach
+     * this method because they remain native compatibility steps. */
+    private static boolean usesTarget(PlayerKeybind keybind) {
+        return keybind != PlayerKeybind.STOP && keybind != PlayerKeybind.NO_TARGET;
     }
 
     static Map<String, Short> uniqueActionIds(Map<String, List<Short>> candidates) {

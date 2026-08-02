@@ -23,7 +23,7 @@ public final class VanillaCatalogStepFactory {
     public boolean usesTarget(
             VanillaKeybindCatalog.Category category, VanillaKeybindCatalog.Entry entry) {
         return category != null && entry != null && !category.usesNativeCompatibility()
-                && (entry.getActionId() != null || entry.isActivateTool());
+                && entry.usesSelectableTarget();
     }
 
     public KeybindStep create(
@@ -40,14 +40,16 @@ public final class VanillaCatalogStepFactory {
             TargetSpec selectedTarget) {
         if (entry == null)
             throw new IllegalArgumentException(Messages.text("validation.vanilla_missing"));
-        if (!usesTarget(category, entry))
+        if (category == null || category.usesNativeCompatibility()
+                || entry.getActionId() == null && !entry.isActivateTool())
             return new VanillaActionStep(entry.getCommand());
-        if (selectedTarget == null)
+        if (usesTarget(category, entry) && selectedTarget == null)
             throw new IllegalArgumentException(Messages.text("validation.target_missing"));
         if (entry.isActivateTool())
             return new ActivateToolStep(selectedTarget);
         return new ActionStep(entry.getActionId(),
                 selectedSource == null ? ItemSelector.currentActive() : selectedSource,
-                selectedTarget, entry.getDisplayName());
+                usesTarget(category, entry) ? selectedTarget : TargetSpec.tile(0, 0),
+                entry.getDisplayName());
     }
 }

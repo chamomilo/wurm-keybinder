@@ -47,6 +47,11 @@ The future has come, and it's convenient.
 - Added portable `.keybinder` **Import file** and **Export all**. Imported records
   receive new identities and stay disabled until reviewed. Exact object IDs are
   deliberately marked non-portable and require extra review.
+- On the first successful launch, Keybinder provides a bundled eight-record
+  **Keybind Value Pack** as disabled examples. These rows have a green background
+  and an explanation on their enable checkbox. The `valuePackProvided` setting is
+  written only after the records are saved; a durable data marker repairs that
+  setting if an upgrade replaces the distributable defaults, without reimporting.
 - Multi-keybinds now offer separate **Ordinary Multi** and **HUD Multi** behavior.
   Ordinary Multi runs the active choice on a short press and opens a select-only
   menu on a long press; the pointer moves to the active choice once. HUD Multi
@@ -60,7 +65,7 @@ The future has come, and it's convenient.
   trimmed to a deterministic fitting prefix instead of being rejected in full.
   Damage is checked again immediately before sending, and the real sequential
   `Repair, Improve` / `Improve` command list is never expanded by a hidden queue.
-- The persisted definition format is now schema 8. Before the first successful
+- The persisted definition format is now schema 9. Before the first successful
   schema-8 save, Keybinder creates `mods/keybinder/keybinds.pre-v8.properties`
   once. To downgrade, close the client and manually restore that file as
   `keybinds.properties`; the normal rolling `.bak` remains a separate recovery file.

@@ -20,6 +20,7 @@ public final class KeybindRecord {
     private String createdByUser = "";
     private String createdOnServer = "";
     private boolean hudMulti;
+    private boolean valuePack;
 
     public KeybindRecord(String id, String name, String key, RecordType type,
                          List<ActionStep> steps, String command) {
@@ -39,6 +40,7 @@ public final class KeybindRecord {
         this.enabled = true;
         this.disabledReason = "";
         this.hudMulti = false;
+        this.valuePack = false;
     }
 
     public KeybindRecord(String id, String name, String key, List<? extends KeybindStep> steps) {
@@ -52,6 +54,7 @@ public final class KeybindRecord {
         this.enabled = true;
         this.disabledReason = "";
         this.hudMulti = false;
+        this.valuePack = false;
     }
 
     public KeybindRecord(String id, String name, String key, List<KeybindVariant> variants,
@@ -67,6 +70,7 @@ public final class KeybindRecord {
         this.enabled = true;
         this.disabledReason = "";
         this.hudMulti = false;
+        this.valuePack = false;
     }
 
     public static KeybindRecord actionChain(String name, String key, List<ActionStep> steps) {
@@ -121,6 +125,7 @@ public final class KeybindRecord {
         result.setCreatedByUser(createdByUser);
         result.setCreatedOnServer(createdOnServer);
         result.setHudMulti(hudMulti);
+        result.setValuePack(valuePack);
         return result;
     }
     public String getDisplayName() {
@@ -153,4 +158,6 @@ public final class KeybindRecord {
     public void setCreatedByUser(String value) { createdByUser = value == null ? "" : value; }
     public String getCreatedOnServer() { return createdOnServer; }
     public void setCreatedOnServer(String value) { createdOnServer = value == null ? "" : value; }
+    public boolean isValuePack() { return valuePack; }
+    public void setValuePack(boolean value) { valuePack = value; }
 }

@@ -409,10 +409,17 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         controls.addComponent(rowButton(KeybinderGlyphButton.Kind.CLOSE_BOX,
                 RowAction.REMOVE, record.getId()));
         RowStatus status = rowStatus(record);
-        FlexComponent row = createTableRow("keybinder.row." + record.getId(), record.getId(), status.red,
-                controls, enabled, name, key, createdBy, createdOn, edit, duplicate);
-        if (status.red) {
+        FlexComponent row = createTableRow("keybinder.row." + record.getId(), record.getId(),
+                status.red, record.isValuePack(), controls, enabled, name, key,
+                createdBy, createdOn, edit, duplicate);
+        if (record.isValuePack()) {
+            String valuePackTip = Messages.text("keybind.value_pack.tip");
+            enabled.setHoverString(status.red
+                    ? valuePackTip + " " + status.hoverText : valuePackTip);
+        } else if (status.red) {
             enabled.setHoverString(status.hoverText);
+        }
+        if (status.red) {
             edit.setHoverString(status.hoverText);
             duplicate.setHoverString(Messages.text("keybind.duplicate.tip"));
         }
@@ -436,7 +443,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                                          FlexComponent name, FlexComponent key,
                                          FlexComponent user, FlexComponent server,
                                          FlexComponent edit, FlexComponent duplicate) {
-        return createTableRow(id, null, false, controls, enabled, name, key,
+        return createTableRow(id, null, false, false, controls, enabled, name, key,
                 user, server, edit, duplicate);
     }
 
@@ -445,11 +452,12 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                                          FlexComponent key,
                                          FlexComponent user, FlexComponent server,
                                          FlexComponent edit, FlexComponent duplicate) {
-        return createTableRow(id, recordId, false, controls, enabled, name, key,
+        return createTableRow(id, recordId, false, false, controls, enabled, name, key,
                 user, server, edit, duplicate);
     }
 
-    private FlexComponent createTableRow(String id, String recordId, boolean overLimit,
+    private FlexComponent createTableRow(String id, String recordId, boolean statusError,
+                                         boolean valuePack,
                                          FlexComponent controls, FlexComponent enabled,
                                          FlexComponent name, FlexComponent key,
                                          FlexComponent user, FlexComponent server,
@@ -458,7 +466,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         requiredKeyWidth = Math.max(requiredKeyWidth, key.width);
         requiredUserWidth = Math.max(requiredUserWidth, user.width);
         requiredServerWidth = Math.max(requiredServerWidth, server.width);
-        SelectableRow panel = new SelectableRow(id, recordId, overLimit);
+        SelectableRow panel = new SelectableRow(id, recordId, statusError, valuePack);
         panel.componentWidthOffset = COLUMN_GAP;
         panel.addComponent(controls);
         panel.addComponent(enabled);
@@ -713,12 +721,15 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
     private final class SelectableRow extends WurmArrayPanel<FlexComponent> {
         private final String recordId;
-        private final boolean overLimit;
+        private final boolean statusError;
+        private final boolean valuePack;
 
-        private SelectableRow(String name, String recordId, boolean overLimit) {
+        private SelectableRow(String name, String recordId, boolean statusError,
+                              boolean valuePack) {
             super(name, WurmArrayPanel.DIR_HORIZONTAL);
             this.recordId = recordId;
-            this.overLimit = overLimit;
+            this.statusError = statusError;
+            this.valuePack = valuePack;
         }
 
         @Override
@@ -734,7 +745,9 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
         @Override
         protected void renderComponent(Queue queue, float alpha) {
-            if (overLimit)
+            if (valuePack)
+                fillRect(queue, 0.20f, 0.42f, 0.22f, 1.0f, x, y, width, height);
+            else if (statusError)
                 fillRect(queue, 0.48f, 0.08f, 0.06f, 0.62f, x, y, width, height);
             if (recordId != null && recordId.equals(selectedRowId))
                 fillRect(queue, 0.20f, 0.34f, 0.50f, 0.55f, x, y, width, height);

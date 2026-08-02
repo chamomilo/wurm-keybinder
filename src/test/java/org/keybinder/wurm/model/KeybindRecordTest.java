@@ -17,6 +17,7 @@ public class KeybindRecordTest {
         KeybindRecord stored = new KeybindRecord("record", "(HUD) (Multi) Work", "R",
                 Arrays.asList(first, second), first.getId());
         stored.setHudMulti(true);
+        stored.setValuePack(true);
 
         KeybindRecord execution = stored.executionViewForVariant(second.getId());
 
@@ -24,5 +25,6 @@ public class KeybindRecordTest {
         assertEquals(second.getId(), execution.getActiveVariantId());
         assertEquals("Work-Second", KeybindNamePrefixes.baseName(execution.getDisplayName()));
         assertTrue(execution.isHudMulti());
+        assertTrue(execution.isValuePack());
     }
 }

@@ -1,12 +1,9 @@
 package org.keybinder.wurm.i18n;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.MessageFormat;
@@ -16,8 +13,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Logger;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
+import org.keybinder.wurm.storage.PackagedResourceLoader;
 
 public final class Messages {
     private static final Logger LOGGER = Logger.getLogger("Chamomilo.Keybinder");
@@ -78,9 +74,13 @@ public final class Messages {
 
     static Map<String, String> loadDictionary(String code) {
         String resource = ROOT + code + ".properties";
-        InputStream stream = Messages.class.getResourceAsStream(resource);
-        if (stream == null)
-            stream = openArchiveResource(INSTALLED_JAR, resource.substring(1));
+        InputStream stream = null;
+        try {
+            stream = PackagedResourceLoader.open(Messages.class, resource, INSTALLED_JAR);
+        } catch (IOException e) {
+            LOGGER.warning("Unable to read Keybinder localization dictionary from "
+                    + INSTALLED_JAR.toAbsolutePath().normalize() + ": " + e.getMessage());
+        }
         if (stream == null)
             throw new IllegalStateException("Missing localization dictionary " + resource);
         return readDictionary(resource, stream);
@@ -99,30 +99,4 @@ public final class Messages {
         return Collections.unmodifiableMap(result);
     }
 
-    /**
-     * Wurm's shared Javassist loader resolves classes through its ClassPool but
-     * does not expose non-class resources through Class.getResourceAsStream().
-     * Read the same packaged dictionary directly from the installed mod JAR in
-     * that runtime. The normal classpath path remains first for tests and IDEs.
-     */
-    static InputStream openArchiveResource(Path archive, String entryName) {
-        Path absolute = archive.toAbsolutePath().normalize();
-        if (!Files.isRegularFile(absolute)) return null;
-        try (ZipFile zip = new ZipFile(absolute.toFile())) {
-            ZipEntry entry = zip.getEntry(entryName);
-            if (entry == null || entry.isDirectory()) return null;
-            try (InputStream input = zip.getInputStream(entry);
-                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                byte[] buffer = new byte[4096];
-                int read;
-                while ((read = input.read(buffer)) >= 0)
-                    output.write(buffer, 0, read);
-                return new ByteArrayInputStream(output.toByteArray());
-            }
-        } catch (IOException e) {
-            LOGGER.warning("Unable to read Keybinder localization dictionary from "
-                    + absolute + ": " + e.getMessage());
-            return null;
-        }
-    }
 }

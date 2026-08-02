@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.keybinder.wurm.storage.PackagedResourceLoader;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -24,7 +25,7 @@ public class SharedLoaderDictionaryTest {
                 zip.closeEntry();
             }
 
-            InputStream stream = Messages.openArchiveResource(
+            InputStream stream = PackagedResourceLoader.openArchive(
                     archive, "keybinder/i18n/messages_pt-BR.properties");
             assertNotNull(stream);
             try (BufferedReader reader = new BufferedReader(

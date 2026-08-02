@@ -60,8 +60,19 @@ public final class KeybindTransferStore {
         if (!Files.isRegularFile(file)) throw new IOException("Transfer file does not exist");
         if (Files.size(file) > KeybindLimits.MAX_TRANSFER_FILE_BYTES)
             throw new IOException("Transfer file exceeds 10 MiB");
+        try (InputStream input = Files.newInputStream(file)) { return read(input); }
+    }
+
+    /** Reads a bundled transfer while enforcing the same limit as file imports. */
+    public List<PortableKeybindDefinition> read(InputStream input) throws IOException {
+        if (input == null) throw new IOException("Transfer input is missing");
         Properties properties = new Properties();
-        try (InputStream input = Files.newInputStream(file)) { properties.load(input); }
+        properties.load(new SizeLimitedInputStream(input,
+                KeybindLimits.MAX_TRANSFER_FILE_BYTES));
+        return read(properties);
+    }
+
+    private List<PortableKeybindDefinition> read(Properties properties) throws IOException {
         if (!"keybinder-transfer".equals(properties.getProperty("format")))
             throw new IOException("Invalid Keybinder transfer format");
         if (parse(properties, "version") != VERSION)
@@ -79,6 +90,34 @@ public final class KeybindTransferStore {
             throw new IOException("Malformed Keybinder transfer", failure);
         }
         return result;
+    }
+
+    private static final class SizeLimitedInputStream extends InputStream {
+        private final InputStream delegate;
+        private final long maximum;
+        private long count;
+
+        private SizeLimitedInputStream(InputStream delegate, long maximum) {
+            this.delegate = delegate;
+            this.maximum = maximum;
+        }
+
+        @Override public int read() throws IOException {
+            int value = delegate.read();
+            if (value >= 0) increment(1);
+            return value;
+        }
+
+        @Override public int read(byte[] bytes, int offset, int length) throws IOException {
+            int read = delegate.read(bytes, offset, length);
+            if (read > 0) increment(read);
+            return read;
+        }
+
+        private void increment(int amount) throws IOException {
+            count += amount;
+            if (count > maximum) throw new IOException("Transfer file exceeds 10 MiB");
+        }
     }
 
     private static void writeDefinition(Properties properties, String prefix,

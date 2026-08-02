@@ -29,12 +29,12 @@ public class KeybindTransferStoreTest {
 
     @Test public void roundTripsUnicodeMixedStepsSelectorsAndActiveIndex() throws Exception {
         List<KeybindStep> first = Arrays.<KeybindStep>asList(
-                action(1, ItemSelector.currentActive(), TargetSpec.simple(TargetKind.HOVER)),
-                action(2, ItemSelector.emptyHand(), TargetSpec.simple(TargetKind.BODY)),
-                action(3, ItemSelector.hoveredItem(), TargetSpec.hoverType("iron pickaxe")),
-                action(4, ItemSelector.toolbeltSlot(10), TargetSpec.nearbyType("oak chest")),
-                action(5, ItemSelector.equipmentSlot(7), TargetSpec.nearbyRadius(4.5f)),
-                action(6, ItemSelector.exactObject(123L, "picareta rara"),
+                action(30000, ItemSelector.currentActive(), TargetSpec.simple(TargetKind.HOVER)),
+                action(30001, ItemSelector.emptyHand(), TargetSpec.simple(TargetKind.BODY)),
+                action(30002, ItemSelector.hoveredItem(), TargetSpec.hoverType("iron pickaxe")),
+                action(30003, ItemSelector.toolbeltSlot(10), TargetSpec.nearbyType("oak chest")),
+                action(30004, ItemSelector.equipmentSlot(7), TargetSpec.nearbyRadius(4.5f)),
+                action(30005, ItemSelector.exactObject(123L, "picareta rara"),
                         TargetSpec.exactObject(456L, "árvore")),
                 new ActivateToolStep(TargetSpec.toolbeltSlot(2)),
                 new SmartImproveStep(TargetSpec.simple(TargetKind.SELECTED)),
@@ -95,7 +95,7 @@ public class KeybindTransferStoreTest {
 
     private static PortableKeybindDefinition definition(ItemSelector source) {
         KeybindRecord record = new KeybindRecord(null, "name", "R",
-                Collections.<KeybindStep>singletonList(action(7, source,
+                Collections.<KeybindStep>singletonList(action(30000, source,
                         TargetSpec.simple(TargetKind.HOVER))));
         return PortableKeybindDefinition.fromRecord(record);
     }

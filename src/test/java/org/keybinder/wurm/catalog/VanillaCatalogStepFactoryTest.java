@@ -19,11 +19,13 @@ import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.storage.KeybindStore;
 import org.keybinder.wurm.model.KeybindRecord;
+import org.keybinder.wurm.queue.ActionQueueCostCalculator;
 
 import java.nio.file.Files;
 import java.util.Collections;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -42,7 +44,7 @@ public class VanillaCatalogStepFactoryTest {
         ActionStep action = (ActionStep) created;
         assertEquals(PlayerAction.EXAMINE.getId(), action.getActionId());
         assertSame(target, action.getTarget());
-        assertEquals(1, new ActionExecutor(null).runtimeQueueCost(action, null));
+        assertEquals(1, new ActionQueueCostCalculator().stepCost(action).getValue());
     }
 
     @Test
@@ -50,14 +52,33 @@ public class VanillaCatalogStepFactoryTest {
         VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
         ItemSelector source = ItemSelector.toolbeltSlot(4);
 
-        KeybindStep created = factory.create(catalog.categoryFor("EXAMINE"),
-                catalog.find("EXAMINE"), source,
+        KeybindStep created = factory.create(catalog.categoryFor("IMPROVE"),
+                catalog.find("IMPROVE"), source,
                 TargetSpec.simple(TargetKind.HOVER));
 
         assertTrue(created instanceof ActionStep);
         assertEquals(ItemSelectorKind.TOOLBELT_SLOT,
                 ((ActionStep) created).getSource().getKind());
         assertEquals(4, ((ActionStep) created).getSource().getSlot());
+    }
+
+    @Test
+    public void catalogCapabilitiesCoverToolFreeAndToolUsingCommands() {
+        VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
+        assertFalse(catalog.find("EXAMINE").usesSelectableTool());
+        assertFalse(catalog.find("OPEN").usesSelectableTool());
+        assertFalse(catalog.find("PUSH").usesSelectableTool());
+        assertFalse(catalog.find("PULL").usesSelectableTool());
+        assertFalse(catalog.find("TURN_CLOCKWISE").usesSelectableTool());
+        assertFalse(catalog.find("REPAIR").usesSelectableTool());
+        assertFalse(catalog.find("PRAY").usesSelectableTool());
+        assertTrue(catalog.find("PRAY").usesSelectableTarget());
+        assertTrue(catalog.find("FISH").usesSelectableTool());
+        assertTrue(catalog.find("FILET").usesSelectableTool());
+        assertTrue(catalog.find("FIRSTAID").usesSelectableTool());
+        assertTrue(catalog.find("IMPROVE").usesSelectableTool());
+        assertTrue(catalog.find("DIG").usesSelectableTool());
+        assertTrue(catalog.find("BLESS").usesSelectableTool());
     }
 
     @Test
@@ -73,6 +94,26 @@ public class VanillaCatalogStepFactoryTest {
         assertEquals("MAIN_MENU", ((VanillaActionStep) hud).getCommand());
         assertTrue(movement instanceof VanillaActionStep);
         assertEquals("MOVE_FORWARD", ((VanillaActionStep) movement).getCommand());
+    }
+
+    @Test
+    public void localServerActionsHaveNoSelectableTargetButStillCostOneAction()
+            throws Exception {
+        VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
+        VanillaKeybindCatalog.Entry stop = catalog.find("STOP");
+        VanillaKeybindCatalog.Entry noTarget = catalog.find("NO_TARGET");
+
+        assertFalse(factory.usesTarget(catalog.categoryFor("STOP"), stop));
+        assertFalse(factory.usesTarget(catalog.categoryFor("NO_TARGET"), noTarget));
+        assertTrue(factory.usesTarget(catalog.categoryFor("OPEN"), catalog.find("OPEN")));
+
+        KeybindStep created = factory.create(catalog.categoryFor("STOP"), stop, null);
+        assertTrue(created instanceof ActionStep);
+        ActionStep action = (ActionStep) created;
+        assertEquals(PlayerAction.STOP.getId(), action.getActionId());
+        assertEquals(TargetKind.TILE, action.getTarget().getKind());
+        assertEquals(ItemSelectorKind.EMPTY_HAND, action.getSource().getKind());
+        assertEquals(1, new ActionQueueCostCalculator().stepCost(action).getValue());
     }
 
     @Test

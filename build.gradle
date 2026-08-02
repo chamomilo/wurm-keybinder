@@ -72,9 +72,10 @@ task verifyJarNamespace(dependsOn: jar) {
             throw new GradleException("Keybinder main class is missing from keybinder.jar")
         }
         ['keybinder/i18n/messages_en.properties',
-         'keybinder/i18n/messages_pt-BR.properties'].each { resource ->
+         'keybinder/i18n/messages_pt-BR.properties',
+         'keybinder/value-pack.keybinder'].each { resource ->
             if (tree.matching { include resource }.files.empty) {
-                throw new GradleException("Localization dictionary is missing from keybinder.jar: ${resource}")
+                throw new GradleException("Required resource is missing from keybinder.jar: ${resource}")
             }
         }
     }
@@ -112,10 +113,11 @@ task verifyDistArchive(dependsOn: dist) {
         def packagedJar = packagedJars.iterator().next()
         def nested = zipTree(packagedJar)
         ['keybinder/i18n/messages_en.properties',
-         'keybinder/i18n/messages_pt-BR.properties'].each { resource ->
+         'keybinder/i18n/messages_pt-BR.properties',
+         'keybinder/value-pack.keybinder'].each { resource ->
             if (nested.matching { include resource }.files.empty) {
                 throw new GradleException(
-                        "Localization dictionary is missing from distribution JAR: ${resource}")
+                        "Required resource is missing from distribution JAR: ${resource}")
             }
         }
     }

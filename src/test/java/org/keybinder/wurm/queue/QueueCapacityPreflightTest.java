@@ -25,9 +25,9 @@ public class QueueCapacityPreflightTest {
 
     @Test
     public void fullOrPartialQueueRejectsWholeKeybindBeforeFirstStep() throws Exception {
-        KeybindStep first = new ActionStep((short) 3,
+        KeybindStep first = new ActionStep((short) 30000,
                 TargetSpec.simple(TargetKind.HOVER));
-        KeybindStep second = new ActionStep((short) 4,
+        KeybindStep second = new ActionStep((short) 30001,
                 TargetSpec.simple(TargetKind.HOVER));
         KeybindRecord record = new KeybindRecord(
                 "remaining-capacity", "Two actions", "R", Arrays.asList(first, second));

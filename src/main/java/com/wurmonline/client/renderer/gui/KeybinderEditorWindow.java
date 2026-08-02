@@ -11,6 +11,7 @@ import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActionSourcePolicy;
+import org.keybinder.wurm.model.ActionTargetPolicy;
 import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindRecord;
@@ -511,6 +512,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 }
                 if (!row.vanillaUsesTarget()) continue;
             }
+            if (!row.usesActionTarget()) continue;
             int value = row.target.getValue();
             if (value == row.lastDropdownValue) continue;
             selectedRow = row;
@@ -1317,6 +1319,18 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             return false;
         }
 
+        private boolean usesActionTarget() {
+            if (isVanilla()) return vanillaUsesTarget();
+            if (kind() != StepKind.CUSTOM_ACTION) return kind() != StepKind.CONSOLE_COMMAND;
+            try {
+                int value = Integer.parseInt(actionIdValue.trim());
+                return value < Short.MIN_VALUE || value > Short.MAX_VALUE
+                        || ActionTargetPolicy.acceptsSelectableTarget((short) value);
+            } catch (NumberFormatException invalid) {
+                return true;
+            }
+        }
+
         private void createVanillaAction(String selectedCommand) {
             VanillaKeybindCatalog.Category category = vanillaCategory();
             if (category == null) {
@@ -1340,8 +1354,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private void createTarget() {
             String[] base = baseTargetOptions();
-            if (kind() == StepKind.CONSOLE_COMMAND
-                    || (isVanilla() && !vanillaUsesTarget())) {
+            if (!usesActionTarget()) {
                 hasConcreteTarget = false;
                 lastDropdownValue = 0;
                 target = new SelectableTargetDropDown(this, 0, new String[]{""});
@@ -1397,6 +1410,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 return;
             }
             panel.addComponent(actionName);
+            if (kind() == StepKind.CUSTOM_ACTION && !usesActionTarget()) return;
             if (kind() == StepKind.CUSTOM_ACTION) {
                 panel.addComponent(sourceSeparator);
                 panel.addComponent(usesActionSource() ? source : sourceGap);
@@ -1433,6 +1447,11 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             // Capture identifies the action the player performed. It must not
             // replace an explicit portable target already chosen in the editor.
             updateActionName();
+            createTarget();
+            rebuildPanel();
+            lastLayoutWidth = -1;
+            applyLayout();
+            zone.updateActionLimit();
         }
 
         private void updateActionName() {
@@ -1513,6 +1532,19 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 sourceGap.setSize(columns[1], sourceGap.height);
                 targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
                 target.setSize(columns[2], target.height);
+                updateControlStates();
+                panel.componentResized();
+                return;
+            }
+            if (!usesActionTarget()) {
+                controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
+                capture.setSize(CAPTURE_WIDTH, capture.height);
+                capture.setEnabled(true);
+                int actionWidth = Math.max(160,
+                        contentWidth - controls.width - stepTypeWidth()
+                                - HELP_WIDTH - CAPTURE_WIDTH
+                                - SEPARATOR_WIDTH - COLUMN_GAP * 5);
+                actionName.setSize(actionWidth, actionName.height);
                 updateControlStates();
                 panel.componentResized();
                 return;

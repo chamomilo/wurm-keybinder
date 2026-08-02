@@ -65,9 +65,11 @@ import org.keybinder.wurm.recording.SelectionController;
 import org.keybinder.wurm.storage.KeybindStore;
 import org.keybinder.wurm.storage.AccountKeybindStateStore;
 import org.keybinder.wurm.storage.ModPropertiesStore;
+import org.keybinder.wurm.storage.PackagedResourceLoader;
 import org.keybinder.wurm.transfer.KeybindTransferStore;
 import org.keybinder.wurm.transfer.PortableKeybindDefinition;
 import org.keybinder.wurm.transfer.TransferImportResult;
+import org.keybinder.wurm.transfer.ValuePackProvider;
 import org.keybinder.wurm.ui.KeybinderUiController;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.gotti.wurmunlimited.modloader.classhooks.HookManager;
@@ -77,6 +79,7 @@ import org.gotti.wurmunlimited.modloader.interfaces.PreInitable;
 import org.gotti.wurmunlimited.modloader.interfaces.WurmClientMod;
 
 import java.awt.Desktop;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.net.URI;
@@ -148,6 +151,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static volatile KeybinderMultiSelectorWindow multiSelectorWindow;
     private static volatile KeybinderMergeWindow mergeWindow;
     private static final KeybindTransferStore TRANSFER = new KeybindTransferStore();
+    private static final ValuePackProvider VALUE_PACK = new ValuePackProvider();
     private static final TransferFileChooser TRANSFER_CHOOSER = new TransferFileChooser(
             Paths.get("mods", "keybinder", "transfer"));
     private static final MultiKeyController MULTI_KEY = new MultiKeyController();
@@ -992,6 +996,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             embarkHeading.initializeClientAccess(INSTANCE.centerViewAfterEmbark);
             refreshCreationContext();
             EVENTS.attach(newHud);
+            provideValuePackIfNeeded();
             RECORDER.cancel();
             IMPROVE_REQUIREMENTS.clear();
             ACTION_QUEUE.clear();
@@ -1030,6 +1035,22 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         } catch (Throwable e) {
             EVENTS.error(Messages.text("error.attach_hud",
                     e.getClass().getSimpleName(), safeMessage(e)), e);
+        }
+    }
+
+    private static void provideValuePackIfNeeded() {
+        try (InputStream input = PackagedResourceLoader.open(
+                KeybinderMod.class, ValuePackProvider.RESOURCE,
+                Paths.get("mods", "keybinder", "keybinder.jar"))) {
+            ValuePackProvider.ProvisionResult provision = VALUE_PACK.provideIfNeeded(
+                    INSTANCE.properties, input, registry, MOD_PROPERTIES::save);
+            if (provision.wasProvidedNow()) {
+                TransferImportResult result = provision.getImportResult();
+                EVENTS.info(Messages.text("event.value_pack_provided",
+                        result.getImported(), result.getSkippedDuplicates()));
+            }
+        } catch (Exception e) {
+            EVENTS.error(Messages.text("error.value_pack_provision"), e);
         }
     }
 

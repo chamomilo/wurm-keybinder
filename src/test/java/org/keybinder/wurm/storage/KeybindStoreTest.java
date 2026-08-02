@@ -146,29 +146,45 @@ public class KeybindStoreTest {
     }
 
     @Test
-    public void schemaEightRoundTripsPerActionSourceAndHudMulti() throws Exception {
+    public void schemaNineRoundTripsPerActionSourceHudMultiAndValuePack() throws Exception {
         Path file = Files.createTempDirectory("keybinder-v8-test").resolve("keybinds.properties");
         KeybindStore store = new KeybindStore(file);
         KeybindVariant first = new KeybindVariant("one", "One",
-                Collections.<KeybindStep>singletonList(new ActionStep((short) 7,
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 192,
                         ItemSelector.toolbeltSlot(4), TargetSpec.hoverType("iron pickaxe"),
                         "Improve")));
         KeybindVariant second = new KeybindVariant("two", "Two",
-                Collections.<KeybindStep>singletonList(new ActionStep((short) 8,
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 169,
                         ItemSelector.exactObject(123L, "rare hammer"),
                         TargetSpec.simple(TargetKind.HOVER), "Use")));
         KeybindRecord record = new KeybindRecord("record-id", "Sources", "G",
                 Arrays.asList(first, second), "two");
         record.setHudMulti(true);
+        record.setValuePack(true);
         store.save(Collections.singletonList(record));
 
         KeybindRecord loaded = store.load().get(0);
         assertTrue(loaded.isHudMulti());
+        assertTrue(loaded.isValuePack());
         assertEquals("two", loaded.getActiveVariantId());
         assertEquals(ItemSelector.toolbeltSlot(4),
                 ((ActionStep) loaded.getVariants().get(0).getSteps().get(0)).getSource());
         assertEquals(ItemSelector.exactObject(123L, "rare hammer"),
                 ((ActionStep) loaded.getVariants().get(1).getSteps().get(0)).getSource());
+    }
+
+    @Test
+    public void schemaEightDefaultsValuePackProvenanceToFalse() throws Exception {
+        Path file = Files.createTempDirectory("keybinder-v8-provenance")
+                .resolve("keybinds.properties");
+        Properties props = schemaSevenRecord();
+        props.setProperty("schema", "8");
+        props.setProperty("record.0.hudMulti", "false");
+        try (OutputStream out = Files.newOutputStream(file)) {
+            props.store(out, "schema eight");
+        }
+
+        assertFalse(new KeybindStore(file).load().get(0).isValuePack());
     }
 
     @Test
@@ -305,9 +321,9 @@ public class KeybindStoreTest {
         props.setProperty("record.0.variant.0.subName", encoded(""));
         props.setProperty("record.0.variant.0.stepCount", "1");
         props.setProperty("record.0.variant.0.step.0.kind", "CUSTOM_ACTION");
-        props.setProperty("record.0.variant.0.step.0.actionId", "1");
+        props.setProperty("record.0.variant.0.step.0.actionId", "192");
         props.setProperty("record.0.variant.0.step.0.target", encoded("hover"));
-        props.setProperty("record.0.variant.0.step.0.lastKnownName", encoded("Examine"));
+        props.setProperty("record.0.variant.0.step.0.lastKnownName", encoded("Improve"));
         props.setProperty("record.0.enabled", "true");
         props.setProperty("record.0.reason", encoded(""));
         props.setProperty("record.0.originalKey", encoded("F1"));
@@ -328,7 +344,7 @@ public class KeybindStoreTest {
         props.setProperty(prefix + "key", encoded("R"));
         if (schema < 3) {
             props.setProperty(prefix + "type", "ACTION_CHAIN");
-            props.setProperty(prefix + "command", encoded("act 1 hover"));
+            props.setProperty(prefix + "command", encoded("act 192 hover"));
             return props;
         }
         String steps = prefix;
@@ -341,11 +357,11 @@ public class KeybindStoreTest {
         }
         props.setProperty(steps + "stepCount", "1");
         props.setProperty(steps + "step.0.kind", "CUSTOM_ACTION");
-        props.setProperty(steps + "step.0.actionId", "1");
+        props.setProperty(steps + "step.0.actionId", "192");
         props.setProperty(steps + "step.0." + (schema >= 6 ? "target" : "value"),
                 encoded("hover"));
         if (schema >= 7)
-            props.setProperty(steps + "step.0.lastKnownName", encoded("Examine"));
+            props.setProperty(steps + "step.0.lastKnownName", encoded("Improve"));
         props.setProperty(prefix + "enabled", "true");
         props.setProperty(prefix + "reason", encoded(""));
         props.setProperty(prefix + "originalKey", encoded(""));

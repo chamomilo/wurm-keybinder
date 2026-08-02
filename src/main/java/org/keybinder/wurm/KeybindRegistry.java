@@ -50,6 +50,7 @@ public final class KeybindRegistry {
     private String currentServer = "";
     private String activeAccount = "";
     private long observedStoreModified;
+    private boolean loadedSuccessfully;
 
     public KeybindRegistry(KeybindStore store, VanillaBindService binds,
                            CustomActionsImporter customActionsImporter,
@@ -71,12 +72,14 @@ public final class KeybindRegistry {
     }
 
     public synchronized void load() {
+        loadedSuccessfully = false;
         try {
             List<KeybindRecord> loaded = store.load();
             records.clear();
             records.addAll(loaded);
             normalizeNames();
             observedStoreModified = store.lastModifiedMillis();
+            loadedSuccessfully = true;
             if (store.wasRecoveredFromBackup())
                 log.warning(Messages.text("registry.recovered", records.size()));
             log.info(Messages.text("registry.loaded", records.size()));
@@ -87,6 +90,10 @@ public final class KeybindRegistry {
 
     public synchronized List<KeybindRecord> snapshot() {
         return Collections.unmodifiableList(new ArrayList<>(records));
+    }
+
+    public synchronized boolean isLoadedSuccessfully() {
+        return loadedSuccessfully;
     }
 
     /**
@@ -175,6 +182,10 @@ public final class KeybindRegistry {
     public synchronized String getCurrentUser() { return currentUser; }
 
     public synchronized String getCurrentServer() { return currentServer; }
+
+    public synchronized boolean wasValuePackProvided() {
+        return store.wasValuePackProvided();
+    }
 
     /**
      * Applies the account-local desired activation list after Wurm has loaded
@@ -578,6 +589,7 @@ public final class KeybindRegistry {
         persisted.setPreviousManagedCommand(found.getPreviousManagedCommand());
         persisted.setCreatedByUser(createdByUser);
         persisted.setCreatedOnServer(createdOnServer);
+        persisted.setValuePack(found.isValuePack());
         validate(persisted);
         applyLimit(persisted, limit);
         String oldKey = found.getKey();
@@ -630,6 +642,7 @@ public final class KeybindRegistry {
         persisted.setPreviousManagedCommand(found.getPreviousManagedCommand());
         persisted.setCreatedByUser(createdByUser);
         persisted.setCreatedOnServer(createdOnServer);
+        persisted.setValuePack(found.isValuePack());
         validate(persisted);
         applyLimit(persisted, limit);
         String oldKey = found.getKey();
@@ -683,6 +696,7 @@ public final class KeybindRegistry {
         persisted.setPreviousManagedCommand(found.getPreviousManagedCommand());
         persisted.setCreatedByUser(createdByUser);
         persisted.setCreatedOnServer(createdOnServer);
+        persisted.setValuePack(found.isValuePack());
         validate(persisted);
         applyLimit(persisted, limit);
         persisted.setEnabled(false);
@@ -733,6 +747,7 @@ public final class KeybindRegistry {
         persisted.setPreviousManagedCommand(found.getPreviousManagedCommand());
         persisted.setCreatedByUser(createdByUser);
         persisted.setCreatedOnServer(createdOnServer);
+        persisted.setValuePack(found.isValuePack());
         validate(persisted);
         applyLimit(persisted, limit);
         persisted.setEnabled(false);
@@ -918,6 +933,7 @@ public final class KeybindRegistry {
         parent.setPreviousManagedCommand(source.getPreviousManagedCommand());
         parent.setCreatedByUser(createdByUser);
         parent.setCreatedOnServer(createdOnServer);
+        parent.setValuePack(source.isValuePack());
         parent.setEnabled(source.isEnabled());
         parent.setDisabledReason(source.getDisabledReason());
         if (parentDisabledReason != null && !parentDisabledReason.trim().isEmpty()) {
@@ -1057,26 +1073,52 @@ public final class KeybindRegistry {
 
     public synchronized TransferImportResult importPortable(
             List<PortableKeybindDefinition> definitions) throws IOException {
-        java.util.Set<String> fingerprints = new java.util.HashSet<String>();
+        return importPortable(definitions, false);
+    }
+
+    public synchronized TransferImportResult importValuePack(
+            List<PortableKeybindDefinition> definitions) throws IOException {
+        return importPortable(definitions, true);
+    }
+
+    private TransferImportResult importPortable(
+            List<PortableKeybindDefinition> definitions, boolean valuePack) throws IOException {
+        java.util.Map<String, KeybindRecord> fingerprints =
+                new java.util.HashMap<String, KeybindRecord>();
         for (KeybindRecord record : records)
-            fingerprints.add(SemanticFingerprint.of(
-                    PortableKeybindDefinition.fromRecord(record)));
+            fingerprints.put(SemanticFingerprint.of(
+                    PortableKeybindDefinition.fromRecord(record)), record);
         List<KeybindRecord> before = new ArrayList<KeybindRecord>(records);
+        List<KeybindRecord> newlyMarked = new ArrayList<KeybindRecord>();
+        boolean markerBefore = store.wasValuePackProvided();
         int imported = 0;
         int skipped = 0;
         for (PortableKeybindDefinition definition : definitions) {
             String fingerprint = SemanticFingerprint.of(definition);
-            if (!fingerprints.add(fingerprint)) { skipped++; continue; }
+            KeybindRecord existing = fingerprints.get(fingerprint);
+            if (existing != null) {
+                if (valuePack && !existing.isValuePack()) {
+                    existing.setValuePack(true);
+                    newlyMarked.add(existing);
+                }
+                skipped++;
+                continue;
+            }
             KeybindRecord record = definition.toRecord(currentUser, currentServer);
+            record.setValuePack(valuePack);
             record.setEnabled(false);
             record.setDisabledReason(DisableReason.value(definition.hasExactObject()
                     ? "nonportable_object_review" : "import_review"));
             records.add(record);
+            fingerprints.put(fingerprint, record);
             imported++;
         }
         try {
+            if (valuePack) store.setValuePackProvided(true);
             saveRecords();
         } catch (IOException | RuntimeException failure) {
+            store.setValuePackProvided(markerBefore);
+            for (KeybindRecord record : newlyMarked) record.setValuePack(false);
             records.clear();
             records.addAll(before);
             rollbackStore(failure);
@@ -1113,6 +1155,7 @@ public final class KeybindRegistry {
         merged.setPreviousManagedCommand(destination.getPreviousManagedCommand());
         merged.setCreatedByUser(destination.getCreatedByUser());
         merged.setCreatedOnServer(destination.getCreatedOnServer());
+        merged.setValuePack(source.isValuePack() || destination.isValuePack());
         return merged;
     }
 
@@ -1258,6 +1301,7 @@ public final class KeybindRegistry {
     private static void copyCreation(KeybindRecord source, KeybindRecord target) {
         target.setCreatedByUser(source.getCreatedByUser());
         target.setCreatedOnServer(source.getCreatedOnServer());
+        target.setValuePack(source.isValuePack());
     }
 
     public synchronized void enforceLimit(int limit, WurmConsole console) {
