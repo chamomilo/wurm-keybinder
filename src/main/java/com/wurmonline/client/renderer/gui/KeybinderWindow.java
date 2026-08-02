@@ -4,18 +4,14 @@ import com.wurmonline.client.renderer.backend.Queue;
 import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.i18n.Language;
 import org.keybinder.wurm.i18n.Messages;
-import org.keybinder.wurm.i18n.DisableReason;
-import org.keybinder.wurm.catalog.InputKeyCatalog;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.KeybindNamePrefixes;
-import org.keybinder.wurm.queue.ActionQueueCostCalculator;
-import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.ui.KeybinderUiController;
+import org.keybinder.wurm.ui.KeybindListViewModel;
 import org.keybinder.wurm.ui.LocalizedLayout;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
 import org.keybinder.wurm.ui.DropZoneClassifier;
-import org.keybinder.wurm.ui.KeybindStatusResolver;
 import org.keybinder.wurm.model.KeybindLimits;
 import com.wurmonline.client.resources.textures.KeybinderTextureFactory;
 import com.wurmonline.client.resources.textures.ResourceTexture;
@@ -39,8 +35,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private static final int INTRO_HEIGHT_PADDING = 10;
     private static final int INTRO_HORIZONTAL_CHROME = 0;
     private static final int INTRO_BUTTON_WIDTH = 240;
-    private static final String FILTER_ALL = "keybinder.filter:all";
-    private static final String FILTER_UNKNOWN = "keybinder.filter:unknown";
+    private static final String FILTER_ALL = KeybindListViewModel.FILTER_ALL;
     private final KeybinderUiController controller;
     private final WurmArrayPanel<FlexComponent> table;
     private final WurmBorderPanel root;
@@ -390,8 +385,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         WurmLabel key = new SelectableLabel(
                 org.keybinder.wurm.catalog.InputKeyCatalog.displayChord(record.getKey()),
                 record.getId());
-        WurmLabel createdBy = new SelectableLabel(displayOrigin(record.getCreatedByUser()), record.getId());
-        WurmLabel createdOn = new SelectableLabel(displayOrigin(record.getCreatedOnServer()), record.getId());
+        WurmLabel createdBy = new SelectableLabel(
+                KeybindListViewModel.displayOrigin(record.getCreatedByUser()), record.getId());
+        WurmLabel createdOn = new SelectableLabel(
+                KeybindListViewModel.displayOrigin(record.getCreatedOnServer()), record.getId());
 
         WButton edit = new WButton(Messages.text("common.edit"), this);
         edit.setHoverString(Messages.text("keybind.edit.tip"));
@@ -408,19 +405,20 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                 RowAction.ADD_AFTER, record.getId()));
         controls.addComponent(rowButton(KeybinderGlyphButton.Kind.CLOSE_BOX,
                 RowAction.REMOVE, record.getId()));
-        RowStatus status = rowStatus(record);
+        KeybindListViewModel.Status status = KeybindListViewModel.status(
+                record, controller.getRecords(), controller.getQueueLimit());
         FlexComponent row = createTableRow("keybinder.row." + record.getId(), record.getId(),
-                status.red, record.isValuePack(), controls, enabled, name, key,
+                status.isError(), record.isValuePack(), controls, enabled, name, key,
                 createdBy, createdOn, edit, duplicate);
         if (record.isValuePack()) {
             String valuePackTip = Messages.text("keybind.value_pack.tip");
-            enabled.setHoverString(status.red
-                    ? valuePackTip + " " + status.hoverText : valuePackTip);
-        } else if (status.red) {
-            enabled.setHoverString(status.hoverText);
+            enabled.setHoverString(status.isError()
+                    ? valuePackTip + " " + status.getHoverText() : valuePackTip);
+        } else if (status.isError()) {
+            enabled.setHoverString(status.getHoverText());
         }
-        if (status.red) {
-            edit.setHoverString(status.hoverText);
+        if (status.isError()) {
+            edit.setHoverString(status.getHoverText());
             duplicate.setHoverString(Messages.text("keybind.duplicate.tip"));
         }
         return row;
@@ -481,45 +479,17 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         return panel;
     }
 
-    private RowStatus rowStatus(KeybindRecord record) {
-        List<String> reasons = new ArrayList<>();
-        if (record.getKey() == null || record.getKey().trim().isEmpty())
-            reasons.add(Messages.text("status.no_key"));
-        if (record.getKeybindSteps() == null || record.getKeybindSteps().isEmpty())
-            reasons.add(Messages.text("status.no_steps"));
-        KeybindRecord managedBlocker = KeybindStatusResolver
-                .enabledManagedBlocker(record, controller.getRecords());
-        if (managedBlocker != null)
-            reasons.add(Messages.text("reason.key_used",
-                    InputKeyCatalog.displayChord(record.getKey()),
-                    managedBlocker.getName()));
-        if (!record.isEnabled() && DisableReason.blocksEnable(record.getDisabledReason())
-                && !DisableReason.isManagedKeyConflict(record.getDisabledReason()))
-            reasons.add(DisableReason.display(record.getDisabledReason()));
-        QueueCost cost = new ActionQueueCostCalculator().keybindCost(record);
-        if (cost.getKind() == QueueCost.Kind.FIXED && controller.getQueueLimit() > 0
-                && cost.getValue() > controller.getQueueLimit())
-            reasons.add(Messages.text("status.queue_exceeded",
-                    cost.getValue(), controller.getQueueLimit()));
-        if (reasons.isEmpty()) return RowStatus.OK;
-        StringBuilder text = new StringBuilder();
-        for (int i = 0; i < reasons.size(); i++) {
-            if (i > 0) text.append(i + 1 == reasons.size()
-                    ? " " + Messages.text("common.and") + " " : ", ");
-            text.append(reasons.get(i));
-        }
-        return new RowStatus(true, Messages.text("status.cannot_enable", text.toString()));
-    }
-
     private void rebuildFilters(String selectedUser, String selectedServer) {
-        FilterOptions users = originOptions(controller.getRecords(), true,
+        KeybindListViewModel.OriginOptions users = KeybindListViewModel.originOptions(
+                controller.getRecords(), true,
                 Messages.text("list.all_users"), Messages.text("list.unknown_user"));
-        FilterOptions servers = originOptions(controller.getRecords(), false,
+        KeybindListViewModel.OriginOptions servers = KeybindListViewModel.originOptions(
+                controller.getRecords(), false,
                 Messages.text("list.all_servers"), Messages.text("list.unknown_server"));
-        userFilterOptions = users.labels;
-        userFilterValues = users.values;
-        serverFilterOptions = servers.labels;
-        serverFilterValues = servers.values;
+        userFilterOptions = users.getLabels();
+        userFilterValues = users.getValues();
+        serverFilterOptions = servers.getLabels();
+        serverFilterValues = servers.getValues();
         userFilter = new WurmDropDown("keybinder.filter.user",
                 optionFor(userFilterValues, selectedUser), userFilterOptions);
         serverFilter = new WurmDropDown("keybinder.filter.server",
@@ -552,43 +522,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private List<KeybindRecord> filteredRecords() {
         String user = selectedOption(userFilterValues, userFilter, FILTER_ALL);
         String server = selectedOption(serverFilterValues, serverFilter, FILTER_ALL);
-        List<KeybindRecord> result = new ArrayList<>();
-        for (KeybindRecord record : controller.getRecords()) {
-            if (!matchesOrigin(user, record.getCreatedByUser())) continue;
-            if (!matchesOrigin(server, record.getCreatedOnServer())) continue;
-            result.add(record);
-        }
-        return result;
-    }
-
-    private static boolean matchesOrigin(String filter, String value) {
-        if (FILTER_ALL.equals(filter)) return true;
-        String clean = value == null ? "" : value.trim();
-        return FILTER_UNKNOWN.equals(filter)
-                ? clean.isEmpty() : filter.equalsIgnoreCase(clean);
-    }
-
-    private static FilterOptions originOptions(List<KeybindRecord> records, boolean user,
-                                                String all, String unknown) {
-        java.util.Set<String> values = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        boolean hasUnknown = false;
-        for (KeybindRecord record : records) {
-            String value = user ? record.getCreatedByUser() : record.getCreatedOnServer();
-            if (value == null || value.trim().isEmpty()) hasUnknown = true;
-            else values.add(value.trim());
-        }
-        List<String> labels = new ArrayList<>();
-        List<String> identities = new ArrayList<>();
-        labels.add(all);
-        identities.add(FILTER_ALL);
-        if (hasUnknown) {
-            labels.add(unknown);
-            identities.add(FILTER_UNKNOWN);
-        }
-        labels.addAll(values);
-        identities.addAll(values);
-        return new FilterOptions(labels.toArray(new String[labels.size()]),
-                identities.toArray(new String[identities.size()]));
+        return KeybindListViewModel.filter(controller.getRecords(), user, server);
     }
 
     private static int optionFor(String[] options, String value) {
@@ -601,11 +535,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         if (dropdown == null || options == null) return fallback;
         int value = dropdown.getValue();
         return value >= 0 && value < options.length ? options[value] : fallback;
-    }
-
-    private static String displayOrigin(String value) {
-        return value == null || value.trim().isEmpty()
-                ? Messages.text("list.unknown") : value.trim();
     }
 
     private List<String> filteredIds() {
@@ -868,17 +797,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         }
     }
 
-    private static final class RowStatus {
-        private static final RowStatus OK = new RowStatus(false, "");
-        private final boolean red;
-        private final String hoverText;
-
-        private RowStatus(boolean red, String hoverText) {
-            this.red = red;
-            this.hoverText = hoverText;
-        }
-    }
-
     private static final class TableRow {
         private final String recordId;
         private final WurmArrayPanel<FlexComponent> panel;
@@ -906,16 +824,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             this.server = server;
             this.edit = edit;
             this.duplicate = duplicate;
-        }
-    }
-
-    private static final class FilterOptions {
-        private final String[] labels;
-        private final String[] values;
-
-        private FilterOptions(String[] labels, String[] values) {
-            this.labels = labels;
-            this.values = values;
         }
     }
 

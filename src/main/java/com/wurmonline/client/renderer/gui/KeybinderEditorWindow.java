@@ -5,8 +5,6 @@ import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.catalog.VanillaCatalogStepFactory;
 import org.keybinder.wurm.catalog.VanillaKeybindCatalog;
 import org.keybinder.wurm.catalog.InputKeyCatalog;
-import org.keybinder.wurm.command.ExactObjectTarget;
-import org.keybinder.wurm.command.NearbyTypeTarget;
 import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.ActionStep;
@@ -26,6 +24,8 @@ import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.queue.QueueCost;
+import org.keybinder.wurm.ui.EditorOptionPresentation;
+import org.keybinder.wurm.ui.EditorStepDraft;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.ui.EditorTargetValue;
 import org.keybinder.wurm.ui.EditorStepType;
@@ -866,60 +866,6 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         KeybinderDragIndicator.remove(actions, zoneInsertionGap);
     }
 
-    private static String targetDisplay(String target) {
-        if (target.startsWith("@tb"))
-            return Messages.text("target.slot.toolbelt", target.substring(3));
-        if (target.startsWith("@eq"))
-            return Messages.text("target.slot.equipment", target.substring(3));
-        if (target.startsWith("@nearby")) {
-            try {
-                return TargetCodec.display(TargetCodec.decode(target));
-            } catch (IllegalArgumentException invalid) {
-                return target;
-            }
-        }
-        if (ExactObjectTarget.isExact(target)) return ExactObjectTarget.display(target);
-        if (NearbyTypeTarget.isNearbyType(target)) return target;
-        if (target.startsWith("hover-type "))
-            return Messages.text("target.hover_type_named",
-                    target.substring("hover-type ".length()));
-        if (target.equals("tile")) return Messages.text("target.tile", "C");
-        if (target.startsWith("tile_"))
-            return Messages.text("target.tile", target.substring(5).toUpperCase());
-        if (target.equals("area")) return Messages.text("target.area");
-        return targetLabel(target);
-    }
-
-    private static String targetLabel(String token) {
-        if ("hover".equals(token)) return Messages.text("target.hover");
-        if ("body".equals(token)) return Messages.text("target.body");
-        if ("tool".equals(token)) return Messages.text("target.tool");
-        if ("selected".equals(token)) return Messages.text("target.selected");
-        if ("current ride".equals(token)) return Messages.text("target.current_ride");
-        if ("tiles".equals(token)) return Messages.text("target.tiles");
-        if ("toolbelt".equals(token)) return Messages.text("target.toolbelt");
-        if ("equipment".equals(token)) return Messages.text("target.equipment");
-        if ("exact object".equals(token)) return Messages.text("target.exact_object");
-        if ("nearby".equals(token)) return Messages.text("target.nearby");
-        if ("nearby by type".equals(token)) return Messages.text("target.nearby_type");
-        if ("hover by type".equals(token)) return Messages.text("target.hover_type");
-        if ("hand".equals(token)) return Messages.text("target.hand");
-        return token;
-    }
-
-    private static String[] targetOptions(String target, String[] baseOptions) {
-        if (!concreteTarget(target)) {
-            String[] labels = new String[baseOptions.length];
-            for (int i = 0; i < baseOptions.length; i++) labels[i] = targetLabel(baseOptions[i]);
-            return labels;
-        }
-        String[] options = new String[baseOptions.length + 1];
-        options[0] = targetDisplay(target);
-        for (int i = 0; i < baseOptions.length; i++)
-            options[i + 1] = targetLabel(baseOptions[i]);
-        return options;
-    }
-
     private final class VariantZone {
         private final String id;
         private final boolean defaultZone;
@@ -1366,7 +1312,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 selectedTarget = base[0];
             }
             hasConcreteTarget = concreteTarget(selectedTarget);
-            String[] options = targetOptions(selectedTarget, base);
+            String[] options = EditorOptionPresentation.targetOptions(selectedTarget, base);
             lastDropdownValue = hasConcreteTarget ? 0 : optionFor(base, selectedTarget);
             target = new SelectableTargetDropDown(this, lastDropdownValue, options);
         }
@@ -1382,8 +1328,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             int offset = hasConcreteSource ? 1 : 0;
             if (hasConcreteSource) labels[0] = ItemSelectorCodec.display(selectedSource);
             for (int i = 0; i < SOURCE_OPTIONS.length; i++)
-                labels[i + offset] = sourceLabel(SOURCE_OPTIONS[i]);
-            int selected = hasConcreteSource ? 0 : sourceOptionFor(selectedSource.getKind());
+                labels[i + offset] = EditorOptionPresentation.sourceLabel(SOURCE_OPTIONS[i]);
+            int selected = hasConcreteSource ? 0
+                    : EditorOptionPresentation.sourceOptionFor(selectedSource.getKind());
             source = new SelectableSourceDropDown(this, selected, labels);
             lastSourceValue = selected;
         }
@@ -1568,35 +1515,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private KeybindStep toStep() {
-            if (kind() == StepKind.ACTIVATE_TOOL)
-                return new ActivateToolStep(TargetCodec.decode(selectedTarget));
-            if (kind() == StepKind.SMART_IMPROVE)
-                return new SmartImproveStep(TargetCodec.decode(selectedTarget));
-            if (kind() == StepKind.CONSOLE_COMMAND) {
-                if (command.getText().trim().isEmpty())
-                    throw new IllegalArgumentException(Messages.text("validation.console_missing"));
-                return new ConsoleCommandStep(command.getText());
-            }
-            if (isVanilla()) {
-                VanillaKeybindCatalog.Category category = vanillaCategory();
-                if (category == null || category.getEntries().isEmpty())
-                    throw new IllegalArgumentException(
-                            Messages.text("validation.vanilla_category_empty"));
-                int selected = vanillaAction.getValue();
-                if (selected < 0 || selected >= category.getEntries().size())
-                    throw new IllegalArgumentException(Messages.text("validation.vanilla_missing"));
-                return VANILLA_STEPS.create(category, category.getEntries().get(selected),
-                        selectedSource, TargetCodec.decode(selectedTarget));
-            }
-            String valueText = actionIdValue.trim();
-            if (valueText.isEmpty())
-                throw new IllegalArgumentException(Messages.text("validation.capture_required"));
-            int value = Integer.parseInt(valueText);
-            if (value < Short.MIN_VALUE || value > Short.MAX_VALUE)
-                throw new IllegalArgumentException(Messages.text("validation.action_id_range"));
-            return new ActionStep((short) value, selectedSource,
-                    TargetCodec.decode(selectedTarget),
-                    controller.getActionName((short) value));
+            EditorStepDraft draft = new EditorStepDraft(kind(), actionIdValue,
+                    command.getText(), selectedSource, selectedTarget,
+                    vanillaCategory(), vanillaEntry());
+            return draft.toStep(actionId -> controller.getActionName(actionId));
         }
 
         private StepKind kind() {
@@ -1641,10 +1563,12 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             } else if (isVanilla()) {
                 text = Messages.text("editor.help.vanilla", vanillaCategory().getDisplayName());
                 if (vanillaUsesStructuredAction())
-                    text += " " + Messages.text(sourceHelpKey(selectedSource.getKind()));
+                    text += " " + Messages.text(EditorOptionPresentation.sourceHelpKey(
+                            selectedSource.getKind()));
             } else {
                 text = Messages.text("editor.help.custom") + " "
-                        + Messages.text(sourceHelpKey(selectedSource.getKind()));
+                        + Messages.text(EditorOptionPresentation.sourceHelpKey(
+                        selectedSource.getKind()));
             }
             help.setHoverString(text);
         }
@@ -1766,31 +1690,6 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             selectedRow = owner;
             super.leftPressed(mouseX, mouseY, clickCount);
         }
-    }
-
-    private static int sourceOptionFor(org.keybinder.wurm.model.ItemSelectorKind kind) {
-        switch (kind) {
-            case EMPTY_HAND: return 1;
-            case HOVERED_ITEM: return 2;
-            case TOOLBELT_SLOT: return 3;
-            case EQUIPMENT_SLOT: return 4;
-            case EXACT_OBJECT: return 5;
-            default: return 0;
-        }
-    }
-
-    private static String sourceLabel(String value) {
-        if ("current-active".equals(value)) return Messages.text("source.current_active");
-        if ("empty-hand".equals(value)) return Messages.text("source.empty_hand");
-        if ("hovered-item".equals(value)) return Messages.text("source.hovered_item");
-        if ("toolbelt".equals(value)) return Messages.text("source.toolbelt");
-        if ("equipment".equals(value)) return Messages.text("source.equipment");
-        if ("exact-object".equals(value)) return Messages.text("source.exact_item");
-        return value;
-    }
-
-    private static String sourceHelpKey(org.keybinder.wurm.model.ItemSelectorKind kind) {
-        return "help.source." + kind.name().toLowerCase(java.util.Locale.ENGLISH);
     }
 
     private static String nonEmpty(String value, String fallback) {
