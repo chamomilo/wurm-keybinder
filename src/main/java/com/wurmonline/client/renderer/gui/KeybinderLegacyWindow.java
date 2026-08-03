@@ -1,17 +1,16 @@
 package com.wurmonline.client.renderer.gui;
 
 import org.keybinder.wurm.KeybinderMod;
-import org.keybinder.wurm.ui.KeybinderUiController;
+import org.keybinder.wurm.ui.LegacyMigrationController;
 import org.keybinder.wurm.i18n.Messages;
 
 public final class KeybinderLegacyWindow extends WWindow implements ButtonListener {
-    private final KeybinderUiController controller;
+    private final LegacyMigrationController controller;
     private final WButton review;
     private final WButton disable;
-    private final WButton importReviewed;
     private final WButton later;
 
-    public KeybinderLegacyWindow(KeybinderUiController controller) {
+    public KeybinderLegacyWindow(LegacyMigrationController controller) {
         super("keybinder.legacy", false);
         this.controller = controller;
         setTitle(Messages.text("migration.title"));
@@ -20,11 +19,9 @@ public final class KeybinderLegacyWindow extends WWindow implements ButtonListen
         root.addComponent(new WurmLabel(Messages.text("migration.replaced")));
         root.addComponent(new WurmLabel(Messages.text("migration.instructions")));
         review = new WButton(Messages.text("migration.review"), this);
-        importReviewed = new WButton(Messages.text("migration.import"), this);
         disable = new WButton(Messages.text("migration.disable"), this);
         later = new WButton(Messages.text("common.later"), this);
         root.addComponent(review);
-        root.addComponent(importReviewed);
         root.addComponent(disable);
         root.addComponent(later);
         setComponent(root);
@@ -34,7 +31,6 @@ public final class KeybinderLegacyWindow extends WWindow implements ButtonListen
     @Override public void buttonPressed(WButton button) {}
     @Override public void buttonClicked(WButton button) {
         if (button == review) controller.requestImport();
-        else if (button == importReviewed) controller.confirmImport();
         else if (button == disable) {
             controller.disableLegacyAction();
             KeybinderMod.deferUi(() -> hud.hideComponent(this));

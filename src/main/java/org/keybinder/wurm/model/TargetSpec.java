@@ -1,7 +1,6 @@
 package org.keybinder.wurm.model;
 
 import java.util.Objects;
-import org.keybinder.wurm.command.ObjectTypeNormalizer;
 import org.keybinder.wurm.i18n.Messages;
 
 /** Immutable, typed target used by every native Keybinder step. */

@@ -1,10 +1,10 @@
-package org.keybinder.wurm.integration;
+package org.keybinder.wurm.command;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
-import org.keybinder.wurm.command.ItemSelectorCodec;
-import org.keybinder.wurm.command.StepUnavailableException;
+import org.keybinder.wurm.integration.ActionSourceOverride;
+import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.ItemSelectorKind;

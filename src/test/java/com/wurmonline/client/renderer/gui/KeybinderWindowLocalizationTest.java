@@ -34,7 +34,7 @@ public class KeybinderWindowLocalizationTest {
     }
 
     @Test
-    public void wurmImportButtonUsesUiConfirmationInsteadOfConsoleProtocol() throws Exception {
+    public void wurmImportButtonOpensNonMutatingReviewInsteadOfImportingDirectly() throws Exception {
         CtMethod method = ClassPool.getDefault()
                 .get(KeybinderWindow.class.getName())
                 .getDeclaredMethod("buttonClicked");
@@ -46,13 +46,13 @@ public class KeybinderWindowLocalizationTest {
             int position = code.next();
             if (code.byteAt(position) != Opcode.INVOKEINTERFACE) continue;
             int methodRef = code.u16bitAt(position + 1);
-            if (!"org.keybinder.wurm.ui.KeybinderUiController".equals(
+            if (!"org.keybinder.wurm.ui.KeybinderWindowController".equals(
                     constants.getInterfaceMethodrefClassName(methodRef))) continue;
             String name = constants.getInterfaceMethodrefName(methodRef);
             if ("confirmImport".equals(name)) confirmsImport = true;
             if ("requestImport".equals(name)) startsConsoleReview = true;
         }
-        assertTrue(confirmsImport);
-        assertFalse(startsConsoleReview);
+        assertFalse(confirmsImport);
+        assertTrue(startsConsoleReview);
     }
 }

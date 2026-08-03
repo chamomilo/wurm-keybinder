@@ -123,6 +123,11 @@ public final class ClientAccess {
         return null;
     }
 
+    /** Live root used for bounded Smart Improve resource discovery. */
+    public InventoryMetaItem playerInventoryRoot(HeadsUpDisplay hud) {
+        return hud.getWorld().getInventoryManager().getPlayerInventory().getRootItem();
+    }
+
     private static InventoryMetaItem findInventoryItem(InventoryMetaItem root, long id) {
         if (root == null) return null;
         ArrayDeque<InventoryMetaItem> pending = new ArrayDeque<InventoryMetaItem>();
@@ -160,11 +165,29 @@ public final class ClientAccess {
                 required(groundItems, "nearby ground items"));
     }
 
+    /** Signature-checked access to GroundItemCellRenderable.item/ObjectData. */
+    public ObjectData groundItemData(GroundItemCellRenderable ground)
+            throws ReflectiveOperationException {
+        return ReflectionUtil.getPrivateField(ground,
+                required(groundItemData, "ground item data"));
+    }
+
+    public byte materialId(PickableUnit unit) throws ReflectiveOperationException {
+        if (unit instanceof GroundItemCellRenderable) {
+            ObjectData data = groundItemData((GroundItemCellRenderable) unit);
+            return data == null ? 0 : data.getMaterialId();
+        }
+        if (unit instanceof CreatureCellRenderable) {
+            ObjectData data = ((CreatureCellRenderable) unit).getCreatureData();
+            return data == null ? 0 : data.getMaterialId();
+        }
+        return 0;
+    }
+
     public String objectType(PickableUnit unit) throws ReflectiveOperationException {
         if (unit instanceof GroundItemCellRenderable) {
             try {
-                ObjectData data = ReflectionUtil.getPrivateField(unit,
-                        required(groundItemData, "ground item type"));
+                ObjectData data = groundItemData((GroundItemCellRenderable) unit);
                 String raw = rawObjectName(data);
                 if (!raw.isEmpty()) return raw;
                 if (data != null && data.getName() != null && !data.getName().trim().isEmpty())

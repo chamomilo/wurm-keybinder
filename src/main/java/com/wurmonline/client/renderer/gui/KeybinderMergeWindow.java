@@ -3,17 +3,17 @@ package com.wurmonline.client.renderer.gui;
 import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.KeybindRecord;
-import org.keybinder.wurm.ui.KeybinderUiController;
+import org.keybinder.wurm.ui.MergeController;
 
 /** Explicit confirmation for the destructive half of a drag-to-merge operation. */
 public final class KeybinderMergeWindow extends WWindow implements ButtonListener {
-    private final KeybinderUiController controller;
+    private final MergeController controller;
     private final String sourceId;
     private final String destinationId;
     private final WButton merge;
     private final WButton cancel;
 
-    public KeybinderMergeWindow(KeybinderUiController controller, KeybindRecord source,
+    public KeybinderMergeWindow(MergeController controller, KeybindRecord source,
                                 KeybindRecord destination) {
         super("keybinder.merge", false);
         this.controller = controller;

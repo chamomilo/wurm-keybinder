@@ -26,7 +26,7 @@ import org.keybinder.wurm.migration.CustomActionsImporter;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
 import org.keybinder.wurm.storage.KeybindStore;
-import org.keybinder.wurm.storage.PackagedResourceLoader;
+import org.keybinder.wurm.resource.PackagedResourceLoader;
 
 public class ValuePackProviderTest {
     @Test

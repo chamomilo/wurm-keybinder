@@ -48,7 +48,10 @@ public final class VanillaCatalogStepFactory {
         if (entry.isActivateTool())
             return new ActivateToolStep(selectedTarget);
         return new ActionStep(entry.getActionId(),
-                selectedSource == null ? ItemSelector.currentActive() : selectedSource,
+                entry.usesSelectableTool()
+                        ? selectedSource == null
+                                ? ItemSelector.currentActive() : selectedSource
+                        : ItemSelector.emptyHand(),
                 usesTarget(category, entry) ? selectedTarget : TargetSpec.tile(0, 0),
                 entry.getDisplayName());
     }

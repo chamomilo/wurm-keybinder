@@ -12,10 +12,10 @@ import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.ActionSourceOverride;
-import org.keybinder.wurm.integration.ActionSourceResolver;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.catalog.VanillaPlayerActionCatalog;
 import org.keybinder.wurm.model.ActionStep;
+import org.keybinder.wurm.model.ObjectTypeNormalizer;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 

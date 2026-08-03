@@ -7,7 +7,7 @@ import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.KeybindNamePrefixes;
-import org.keybinder.wurm.ui.KeybinderUiController;
+import org.keybinder.wurm.ui.KeybinderWindowController;
 import org.keybinder.wurm.ui.KeybindListViewModel;
 import org.keybinder.wurm.ui.LocalizedLayout;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
@@ -36,7 +36,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private static final int INTRO_HORIZONTAL_CHROME = 0;
     private static final int INTRO_BUTTON_WIDTH = 240;
     private static final String FILTER_ALL = KeybindListViewModel.FILTER_ALL;
-    private final KeybinderUiController controller;
+    private final KeybinderWindowController controller;
     private final WurmArrayPanel<FlexComponent> table;
     private final WurmBorderPanel root;
     private final WurmArrayPanel<FlexComponent> listTop;
@@ -47,6 +47,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private final WButton importFileButton;
     private final WButton exportAllButton;
     private final WButton restoreButton;
+    private int displayedQueueLimit = -1;
     private WButton enableFiltered;
     private WButton disableFiltered;
     private WurmDropDown userFilter;
@@ -93,14 +94,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private final KeybinderDragIndicator.InsertionGap rowInsertionGap =
             new KeybinderDragIndicator.InsertionGap("keybinder.drag.keybind.gap", 0);
 
-    public KeybinderWindow(KeybinderUiController controller) {
+    public KeybinderWindow(KeybinderWindowController controller) {
         super("keybinder.window", true);
         this.controller = controller;
         setTitle(Messages.text("window.title"));
         table = new WurmArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL, true);
         addButton = new WButton(Messages.text("list.add"), this);
         importButton = new WButton(Messages.text("list.import"), this);
-        configureImportConfirmation();
         importFileButton = new WButton(Messages.text("list.import_file"), this);
         exportAllButton = new WButton(Messages.text("list.export_all"), this);
         importButton.setHoverString(Messages.text("list.import.tip"));
@@ -110,7 +110,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         restoreButton.setConfirm(true);
         restoreButton.setConfirmQuestion(Messages.text("list.restore_originals.question"));
         restoreButton.setConfirmMessage(Messages.text("list.restore_originals.confirm"));
-
         root = new WurmBorderPanel("keybinder.root");
         listTop =
                 new WurmArrayPanel<>("keybinder.list.introduction", WurmArrayPanel.DIR_VERTICAL, true);
@@ -257,7 +256,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             setTitle(Messages.text("window.title"));
             addButton.setLabel(Messages.text("list.add"));
             importButton.setLabel(Messages.text("list.import"));
-            configureImportConfirmation();
             importFileButton.setLabel(Messages.text("list.import_file"));
             exportAllButton.setLabel(Messages.text("list.export_all"));
             rebuildListTop();
@@ -269,6 +267,13 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private void rebuildListTop() {
         listTop.removeAllComponents();
         listTop.addComponent(new WurmLabel(Messages.text("list.heading")));
+        WurmArrayPanel<FlexComponent> runtimeControls =
+                new WurmArrayPanel<>("keybinder.list.runtime", WurmArrayPanel.DIR_HORIZONTAL);
+        runtimeControls.componentWidthOffset = COLUMN_GAP;
+        displayedQueueLimit = controller.getQueueLimit();
+        runtimeControls.addComponent(new WurmLabel(
+                Messages.text("list.queue_limit", displayedQueueLimit)));
+        listTop.addComponent(runtimeControls);
         listTop.addComponent(new WurmLabel(Messages.text("list.instructions")));
         listTop.addComponent(new WurmLabel(Messages.text("list.instructions.merge")));
         listTop.addComponent(spacer(5));
@@ -284,12 +289,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         listTop.addComponent(migrationControls);
         listTop.addComponent(spacer(5));
         listTop.componentResized();
-    }
-
-    private void configureImportConfirmation() {
-        importButton.setConfirm(true);
-        importButton.setConfirmQuestion(Messages.text("list.import.question"));
-        importButton.setConfirmMessage(Messages.text("list.import.confirm"));
     }
 
     private static FlexComponent centeredButton(WButton button) {
@@ -562,6 +561,11 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         }
         if (mode == Mode.EDITOR) {
             if (editor != null) editor.embeddedTick(width, height);
+            return;
+        }
+        int currentLimit = controller.getQueueLimit();
+        if (currentLimit != displayedQueueLimit) {
+            KeybinderMod.deferUi(this::rebuildListTop);
             return;
         }
         applyTableLayout();
@@ -845,7 +849,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         else if (button == disableFiltered)
             controller.setKeybindsEnabled(filteredIds(), false);
         else if (button == addButton) controller.addNewKeybind();
-        else if (button == importButton) controller.confirmImport();
+        else if (button == importButton) controller.requestImport();
         else if (button == importFileButton) controller.requestImportFile();
         else if (button == exportAllButton) controller.requestExportAll();
         else if (button == restoreButton) controller.restoreOriginalBindings();

@@ -6,11 +6,11 @@ import org.keybinder.wurm.i18n.Messages;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class SmartImproveExecutorTest {
@@ -51,13 +51,11 @@ public class SmartImproveExecutorTest {
     }
 
     @Test
-    public void damagedItemMessageAnnouncesRepairBeforeImprove() {
-        assertEquals("Smart Improve: Repairing damage and then using large rat pelt from "
-                        + "\"large barrel, pinewood (blades)\" in toolbelt slot 1 to improve "
-                        + "\"rare pickaxe\"",
-                Messages.text("improve.repairing_using_from_container",
-                        "large rat pelt", "large barrel, pinewood (blades)", 1,
-                        "rare pickaxe"));
+    public void nestedInventorySelectionNamesItsContainer() {
+        assertEquals("Smart Improve: using large rat pelt from "
+                        + "\"backpack\" in inventory to improve \"rare pickaxe\"",
+                Messages.text("improve.using_from_inventory_container",
+                        "large rat pelt", "backpack", "rare pickaxe"));
     }
 
     @Test
@@ -66,12 +64,29 @@ public class SmartImproveExecutorTest {
                 "lump (glowing), steel");
         InventoryMetaItem improvable = item(2, 50f, (short) 10, "pickaxe");
         set(nonImprovable, "improveIconId", (short) -1);
-        set(improvable, "improveIconId", (short) 44);
+        set(improvable, "improveIconId", (short) 672);
 
         assertFalse(SmartImproveInventoryPolicy.isImprovable(nonImprovable));
         assertTrue(SmartImproveInventoryPolicy.isImprovable(improvable));
         assertEquals("The \"lump (glowing), steel\" cannot be improved",
                 Messages.text("improve.cannot_improve", nonImprovable.getDisplayName()));
+    }
+
+    @Test
+    public void openedWorldContainerRootIsNotMistakenForRealItemMetadata()
+            throws Exception {
+        for (String name : Arrays.asList("forge", "food storage bin",
+                "wagon hitched to horses")) {
+            InventoryMetaItem syntheticRoot = item(1, 0f, (short) -1, name);
+            set(syntheticRoot, "improveIconId", (short) -1);
+            assertFalse(name, SmartImproveExecutor.hasLocalImproveMetadata(
+                    syntheticRoot));
+        }
+
+        InventoryMetaItem realChild = item(2, 50f, (short) 803,
+                "baking stone, marble");
+        set(realChild, "improveIconId", (short) 570);
+        assertTrue(SmartImproveExecutor.hasLocalImproveMetadata(realChild));
     }
 
     @Test
@@ -91,34 +106,13 @@ public class SmartImproveExecutorTest {
     }
 
     @Test
-    public void metalLumpToolMustBeGlowingButOrdinaryMetalToolNeedNotBe() throws Exception {
-        InventoryMetaItem lump = item(1, 50f, (short) 44, "lump");
-        set(lump, "materialId", (byte) 12);
-        set(lump, "temperatureState", (byte) 0);
-        assertFalse(SmartImproveInventoryPolicy.isToolTemperatureReady(lump));
-
-        set(lump, "temperatureState", (byte) 5);
-        assertTrue(SmartImproveInventoryPolicy.isToolTemperatureReady(lump));
-
-        InventoryMetaItem hammer = item(2, 50f, (short) 10, "hammer");
-        set(hammer, "materialId", (byte) 12);
-        set(hammer, "temperatureState", (byte) 0);
-        assertTrue(SmartImproveInventoryPolicy.isToolTemperatureReady(hammer));
-    }
-
-    @Test
-    public void coldMetalMessagesDistinguishRepairOnlyFromFullSkip() {
-        assertEquals("Smart Improve: Repairing damage on \"rake, steel\", but not "
-                        + "improving it because it is not glowing",
-                Messages.text("improve.repairing_not_glowing", "rake, steel"));
-        assertEquals("Smart Improve: Not improving \"rake, steel\" because it is not glowing",
-                Messages.text("improve.skipping_not_glowing", "rake, steel"));
-        assertEquals("Smart Improve: Not improving \"shovel (glowing), iron\" because lump "
-                        + "from \"large barrel, pinewood (blades)\" in toolbelt slot 1 "
-                        + "is not glowing",
-                Messages.text("improve.skipping_cold_tool_from_container",
-                        "shovel (glowing), iron", "lump",
-                        "large barrel, pinewood (blades)", 1));
+    public void worldMetalTargetNeedsGlowingNameButOtherMaterialsDoNot() {
+        assertFalse(SmartImproveExecutor.worldTemperatureReady(
+                (byte) 9, "rare lamp, steel"));
+        assertTrue(SmartImproveExecutor.worldTemperatureReady(
+                (byte) 9, "rare lamp (glowing), steel"));
+        assertTrue(SmartImproveExecutor.worldTemperatureReady(
+                (byte) 14, "wagon, birchwood"));
     }
 
     @Test
@@ -135,17 +129,28 @@ public class SmartImproveExecutorTest {
     }
 
     @Test
-    public void findsConsumableInsideNestedToolbeltContainer() throws Exception {
-        InventoryMetaItem beltContainer = item(1, 1f, (short) 1, "backpack");
-        InventoryMetaItem innerContainer = item(2, 1f, (short) 2, "satchel");
-        InventoryMetaItem lump = item(3, 50f, (short) 44, "iron lump");
-        beltContainer.getChildren().add(innerContainer);
-        innerContainer.getChildren().add(lump);
+    public void inventorySnapshotTraversesEveryNestedContainer() throws Exception {
+        InventoryMetaItem root = item(1, 0f, (short) 0, "inventory");
+        InventoryMetaItem satchel = item(2, 0f, (short) 2, "satchel");
+        InventoryMetaItem backpack = item(3, 0f, (short) 1, "backpack");
+        InventoryMetaItem wallet = item(4, 0f, (short) 3, "wallet");
+        wallet.getChildren().add(item(6, 0f, (short) 672, "deep steel lump"));
+        satchel.getChildren().add(wallet);
+        backpack.getChildren().add(item(5, 0f, (short) 672, "visible steel lump"));
+        root.getChildren().add(satchel);
+        root.getChildren().add(backpack);
 
-        InventoryMetaItem found = SmartImproveInventoryPolicy.findDescendant(
-                beltContainer, candidate -> candidate.getType() == 44);
+        ImproveResourceCandidate snapshot = SmartImproveExecutor.inventoryCandidate(
+                root, Collections.<Long>emptySet());
 
-        assertSame(lump, found);
+        assertEquals(2, snapshot.getChildren().size());
+        assertEquals(1, snapshot.getChildren().get(0).getChildren().size());
+        assertEquals(1, snapshot.getChildren().get(0).getChildren()
+                .get(0).getChildren().size());
+        assertEquals(6L, snapshot.getChildren().get(0).getChildren()
+                .get(0).getChildren().get(0).getId());
+        assertEquals(1, snapshot.getChildren().get(1).getChildren().size());
+        assertEquals(5L, snapshot.getChildren().get(1).getChildren().get(0).getId());
     }
 
     private static InventoryMetaItem item(long id, float quality, short type,

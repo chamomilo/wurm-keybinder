@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Logger;
-import org.keybinder.wurm.storage.PackagedResourceLoader;
+import org.keybinder.wurm.resource.PackagedResourceLoader;
 
 public final class Messages {
     private static final Logger LOGGER = Logger.getLogger("Chamomilo.Keybinder");

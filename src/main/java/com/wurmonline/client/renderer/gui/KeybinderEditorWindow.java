@@ -1258,9 +1258,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 }
             }
             if (isVanilla() && vanillaUsesStructuredAction()) {
-                Short actionId = vanillaEntry().getActionId();
-                return actionId == null
-                        || ActionSourcePolicy.acceptsSelectableTool(actionId.shortValue());
+                return vanillaEntry().usesSelectableTool();
             }
             return false;
         }
@@ -1562,7 +1560,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 text = Messages.text("editor.help.console");
             } else if (isVanilla()) {
                 text = Messages.text("editor.help.vanilla", vanillaCategory().getDisplayName());
-                if (vanillaUsesStructuredAction())
+                if (usesActionSource())
                     text += " " + Messages.text(EditorOptionPresentation.sourceHelpKey(
                             selectedSource.getKind()));
             } else {

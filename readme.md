@@ -56,15 +56,22 @@ The future has come, and it's convenient.
   Ordinary Multi runs the active choice on a short press and opens a select-only
   menu on a long press; the pointer moves to the active choice once. HUD Multi
   opens immediately and executes the item chosen from the menu.
-- Smart Improve now fills only the currently free queue slots. A damaged inventory
-  item normally costs exactly two actions (Repair + Improve), while an undamaged
-  item costs one. A metal target that is not glowing is repaired when damaged but
-  is not improved, so it costs one action when damaged and zero otherwise. A cold
-  metal lump is not used as an improve material; Keybinder prefers another matching
-  glowing lump and otherwise applies only the optional Repair. Large selections are
-  trimmed to a deterministic fitting prefix instead of being rejected in full.
-  Damage is checked again immediately before sending, and the real sequential
-  `Repair, Improve` / `Improve` command list is never expanded by a hidden queue.
+- Smart Improve now discovers and caches a typed requirement through `Examine`,
+  matches tools and consumables by exact semantic family and material, and updates
+  the cached requirement from the terminal Improve report. Shards and metal lumps
+  are material-specific; ordinary leather is positively identified and protected
+  dragon leather, drake hide, and scale are never used as fallbacks.
+- Smart Improve searches the complete player-inventory tree. Backpack and
+  inventory containers are followed by item identity rather than by their
+  displayed names; pinning either container to the toolbelt does not create a
+  separate search source.
+- Repair and Improve are no longer sent together. A damaged target is repaired,
+  its damage is checked again on the next game tick, and only then is Improve sent.
+  Repeated Smart Improve presses are not locked locally: every press performs the
+  normal queue check and reaches the server, which remains authoritative about
+  repeated actions. Both plain and multicolored Event responses refresh the next
+  requirement. Every actual Examine, Repair, and Improve is checked against the
+  currently free Wurm action queue.
 - The persisted definition format is now schema 9. Before the first successful
   schema-8 save, Keybinder creates `mods/keybinder/keybinds.pre-v8.properties`
   once. To downgrade, close the client and manually restore that file as
@@ -77,8 +84,9 @@ The future has come, and it's convenient.
 - Smart Improve can now find the required tool or material inside a backpack or another
   container placed in a toolbelt slot. Yes, now you can have a sack, backpack, or huge tub called "imping wood item" in
   toolbelt slot 1, and it's enough. Keep related mats and tools inside. C for convenience.
-- Smart Improve processes inventory targets in a predictable order - if you selected several items,
-  one by one or in a stack, it will start with the item of the lowest ql.
+- If a hovered inventory stack resolves to several items, Smart Improve starts one
+  safely correlated attempt with the lowest-quality item. Repeat the command after
+  that attempt completes to process the next item.
 
 ## Previously in 0.6.1
 
@@ -127,7 +135,6 @@ The future has come, and it's convenient.
 You do not need these, but if you can't live without the console, they are available:
 ```text
 keybinder_run <managed-id>
-keybinder_list [commands]
 ```
 
 ## Attribution

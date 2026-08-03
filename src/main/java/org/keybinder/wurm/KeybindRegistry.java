@@ -2,19 +2,18 @@ package org.keybinder.wurm;
 
 import com.wurmonline.client.console.WurmConsole;
 import org.keybinder.wurm.bind.BindSnapshot;
-import org.keybinder.wurm.bind.DefaultBindCatalog;
 import org.keybinder.wurm.bind.ManagedBindAccess;
 import org.keybinder.wurm.bind.ManagedBindTransaction;
-import org.keybinder.wurm.bind.VanillaImportPolicy;
+import org.keybinder.wurm.bind.AccountBindingCoordinator;
+import org.keybinder.wurm.bind.VanillaImportService;
+import org.keybinder.wurm.bind.ManagedKeybindMutationService;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.DisableReason;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.migration.CustomActionsImporter;
-import org.keybinder.wurm.migration.ImprovedImproveImporter;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindConflict;
 import org.keybinder.wurm.model.ActionStep;
-import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.KeybindLimits;
 import org.keybinder.wurm.model.KeybindNamePrefixes;
@@ -35,23 +34,20 @@ import org.keybinder.wurm.validation.KeybindValidator;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 public final class KeybindRegistry implements ValuePackTarget {
     private final List<KeybindRecord> records = new ArrayList<>();
     private final KeybindStore store;
-    private final AccountKeybindStateStore accountStates;
+    private final AccountBindingCoordinator accountBindings;
     private final ManagedBindAccess binds;
-    private final CustomActionsImporter customActionsImporter;
-    private final ImprovedImproveImporter improvedImproveImporter;
+    private final VanillaImportService vanillaImports;
+    private final ManagedKeybindMutationService mutations;
     private final ActionQueueCostCalculator costs;
     private final EventLogger log;
-    private final VanillaImportPolicy importPolicy = new VanillaImportPolicy();
     private final KeybindDefinitionService definitions = new KeybindDefinitionService();
     private String currentUser = "";
     private String currentServer = "";
-    private String activeAccount = "";
     private long observedStoreModified;
     private boolean loadedSuccessfully;
 
@@ -66,10 +62,10 @@ public final class KeybindRegistry implements ValuePackTarget {
                            CustomActionsImporter customActionsImporter,
                            ActionQueueCostCalculator costs, EventLogger log) {
         this.store = store;
-        this.accountStates = accountStates;
+        this.accountBindings = new AccountBindingCoordinator(accountStates, log);
         this.binds = binds;
-        this.customActionsImporter = customActionsImporter;
-        this.improvedImproveImporter = new ImprovedImproveImporter();
+        this.vanillaImports = new VanillaImportService(binds, customActionsImporter, log);
+        this.mutations = new ManagedKeybindMutationService(binds, log);
         this.costs = costs;
         this.log = log;
     }
@@ -167,7 +163,7 @@ public final class KeybindRegistry implements ValuePackTarget {
             records.addAll(incoming);
             normalizeNames();
             observedStoreModified = modified;
-            persistAccountState();
+            accountBindings.persist(records);
             log.info(Messages.text("registry.synchronized"));
             return true;
         } catch (Exception e) {
@@ -197,24 +193,7 @@ public final class KeybindRegistry implements ValuePackTarget {
     public synchronized void restoreAccountBindings(
             String account, WurmConsole console, int limit) {
         if (account == null || account.trim().isEmpty() || console == null) return;
-        activeAccount = account.trim();
-        if (accountStates != null) {
-            try {
-                AccountKeybindStateStore.State state = accountStates.load(activeAccount);
-                if (state.isPresent()) {
-                    for (KeybindRecord record : records) {
-                        boolean enabled = state.getEnabledIds().contains(record.getId());
-                        record.setEnabled(enabled);
-                        record.setDisabledReason(enabled ? ""
-                                : DisableReason.value("disabled_by_user"));
-                    }
-                } else {
-                    persistAccountState();
-                }
-            } catch (Exception e) {
-                log.error(Messages.text("registry.account_load_failed", activeAccount), e);
-            }
-        }
+        String activeAccount = accountBindings.activate(account, records);
 
         int restored = 0;
         int removed = 0;
@@ -260,7 +239,7 @@ public final class KeybindRegistry implements ValuePackTarget {
                         record.getName(), activeAccount), e);
             }
         }
-        persistAccountState();
+        accountBindings.persist(records);
         if (restored > 0 || removed > 0 || conflicts > 0)
             log.info(Messages.text("registry.restore_summary",
                     activeAccount, restored, removed, conflicts));
@@ -368,148 +347,17 @@ public final class KeybindRegistry implements ValuePackTarget {
 
     public synchronized void setEnabled(String id, boolean enabled, WurmConsole console, int limit)
             throws IOException, ReflectiveOperationException {
-        KeybindRecord record = find(id);
-        if (record == null)
-            throw new IllegalArgumentException(Messages.text("event.record_missing", id));
-        if (enabled) {
-            boolean oldEnabled = record.isEnabled();
-            String oldReason = record.getDisabledReason();
-            KeybindRecord displaced = findManagedConflict(record, record.getKey());
-            boolean displacedEnabled = displaced != null && displaced.isEnabled();
-            String displacedReason = displaced == null ? "" : displaced.getDisabledReason();
-            ManagedBindTransaction live = new ManagedBindTransaction(binds, console);
-            BindSnapshot liveBefore = live.capture(record.getKey());
-            if (displaced != null) live.capture(displaced.getKey());
-            String command = commandFor(record);
-            try {
-                validate(record);
-                record.setEnabled(true);
-                applyLimit(record, limit);
-                if (!record.isEnabled())
-                    throw new IllegalArgumentException(
-                            DisableReason.display(record.getDisabledReason()));
-                record.setDisabledReason("");
-                if (displaced != null) {
-                    displaced.setEnabled(false);
-                    displaced.setDisabledReason(DisableReason.value("replaced_by", record.getName()));
-                }
-                saveRecords();
-                if (displaced != null)
-                    live.removeOwned(displaced.getKey(), commandFor(displaced));
-                live.install(record.getKey(), command);
-                announceConflict(liveBefore, record.getKey(), command);
-                if (displaced != null)
-                    log.warning(Messages.text("registry.displaced",
-                            record.getKey(), displaced.getName()));
-            } catch (RuntimeException | IOException | ReflectiveOperationException e) {
-                record.setEnabled(oldEnabled);
-                record.setDisabledReason(oldReason);
-                if (displaced != null) {
-                    displaced.setEnabled(displacedEnabled);
-                    displaced.setDisabledReason(displacedReason);
-                }
-                rollbackStore(e);
-                live.rollback(e);
-                throw e;
-            }
-        } else {
-            boolean oldEnabled = record.isEnabled();
-            String oldReason = record.getDisabledReason();
-            String command = commandFor(record);
-            ManagedBindTransaction live = new ManagedBindTransaction(binds, console);
-            BindSnapshot liveBefore = live.capture(record.getKey());
-            boolean releasesChord = liveBefore == null
-                    || liveBefore.getCommand().equalsIgnoreCase(command);
-            for (KeybindRecord candidate : records)
-                if (candidate != record && candidate.isEnabled()
-                        && sameChord(candidate.getKey(), record.getKey())) releasesChord = false;
-            List<KeybindRecord> unblocked = new ArrayList<KeybindRecord>();
-            List<String> unblockedReasons = new ArrayList<String>();
-            record.setEnabled(false);
-            record.setDisabledReason(DisableReason.value("disabled_by_user"));
-            if (releasesChord) {
-                for (KeybindRecord candidate : records) {
-                    if (candidate == record || candidate.isEnabled()
-                            || !sameChord(candidate.getKey(), record.getKey())
-                            || !DisableReason.isKeyConflict(candidate.getDisabledReason())) continue;
-                    unblocked.add(candidate);
-                    unblockedReasons.add(candidate.getDisabledReason());
-                    candidate.setDisabledReason(DisableReason.value("disabled_by_user"));
-                }
-            }
-            try {
-                saveRecords();
-                if (!record.getKey().isEmpty() && !record.getKeybindSteps().isEmpty())
-                    live.removeOwned(record.getKey(), command);
-            } catch (RuntimeException | IOException | ReflectiveOperationException e) {
-                record.setEnabled(oldEnabled);
-                record.setDisabledReason(oldReason);
-                for (int i = 0; i < unblocked.size(); i++)
-                    unblocked.get(i).setDisabledReason(unblockedReasons.get(i));
-                rollbackStore(e);
-                live.rollback(e);
-                throw e;
-            }
-        }
+        mutations.setEnabled(id, enabled, console, limit, mutationContext());
     }
 
     public synchronized void add(KeybindRecord record, WurmConsole console, int limit)
             throws IOException, ReflectiveOperationException {
-        stamp(record);
-        validate(record);
-        String command = commandFor(record);
-        KeybindRecord displaced = findManagedConflict(record, record.getKey());
-        boolean displacedEnabled = displaced != null && displaced.isEnabled();
-        String displacedReason = displaced == null ? "" : displaced.getDisabledReason();
-        ManagedBindTransaction live = new ManagedBindTransaction(binds, console);
-        BindSnapshot liveBefore = live.capture(record.getKey());
-        if (displaced != null) live.capture(displaced.getKey());
-        if (displaced != null) {
-            displaced.setEnabled(false);
-            displaced.setDisabledReason(DisableReason.value("replaced_by", record.getName()));
-        }
-        applyLimit(record, limit);
-        records.add(record);
-        try {
-            saveRecords();
-            if (displaced != null)
-                live.removeOwned(displaced.getKey(), commandFor(displaced));
-            if (record.isEnabled()) live.install(record.getKey(), command);
-        } catch (RuntimeException | IOException | ReflectiveOperationException e) {
-            records.remove(record);
-            if (displaced != null) {
-                displaced.setEnabled(displacedEnabled);
-                displaced.setDisabledReason(displacedReason);
-            }
-            rollbackStore(e);
-            live.rollback(e);
-            throw e;
-        }
-        announceConflict(liveBefore, record.getKey(), command);
-        log.info(Messages.text("registry.added", record.getName(), record.getKey()));
+        mutations.add(record, console, limit, mutationContext());
     }
 
     public synchronized boolean delete(String id, WurmConsole console)
             throws IOException, ReflectiveOperationException {
-        KeybindRecord found = null;
-        for (KeybindRecord record : records) if (record.getId().equals(id)) found = record;
-        if (found == null) return false;
-        int index = records.indexOf(found);
-        String command = commandFor(found);
-        ManagedBindTransaction live = new ManagedBindTransaction(binds, console);
-        live.capture(found.getKey());
-        records.remove(found);
-        try {
-            saveRecords();
-            live.removeOwned(found.getKey(), command);
-        } catch (RuntimeException | IOException | ReflectiveOperationException e) {
-            records.add(index, found);
-            rollbackStore(e);
-            live.rollback(e);
-            throw e;
-        }
-        log.info(Messages.text("registry.deleted", found.getName()));
-        return true;
+        return mutations.delete(id, console, mutationContext());
     }
 
     public synchronized void updateKeybind(String id, String name, String key,
@@ -687,7 +535,7 @@ public final class KeybindRegistry implements ValuePackTarget {
         normalizeNames();
         store.save(records);
         observedStoreModified = store.lastModifiedMillis();
-        persistAccountState();
+        accountBindings.persist(records);
     }
 
     private void normalizeNames() {
@@ -699,37 +547,9 @@ public final class KeybindRegistry implements ValuePackTarget {
                 record.getVariants().size(), record.isHudMulti()));
     }
 
-    private void persistAccountState() {
-        if (accountStates == null || activeAccount.isEmpty()) return;
-        java.util.Set<String> enabled = new java.util.HashSet<String>();
-        for (KeybindRecord record : records)
-            if (record.isEnabled()) enabled.add(record.getId());
-        try {
-            accountStates.save(activeAccount, enabled);
-        } catch (IOException e) {
-            log.error(Messages.text("registry.account_save_failed", activeAccount), e);
-        }
-    }
-
     public synchronized List<BindSnapshot> importCandidates(WurmConsole console)
             throws ReflectiveOperationException, IOException {
-        java.util.Map<String, String> defaults = new DefaultBindCatalog().load();
-        List<BindSnapshot> candidates = new ArrayList<>();
-        for (BindSnapshot bind : binds.snapshot(console)) {
-            if (!importPolicy.mayImport(bind.getCommand())) continue;
-            String defaultCommand = defaults.get(DefaultBindCatalog.normalize(bind.getKey()));
-            if (defaultCommand != null && defaultCommand.equalsIgnoreCase(bind.getCommand())) continue;
-            boolean managed = false;
-            for (KeybindRecord record : records) {
-                if (record.getKey().equalsIgnoreCase(bind.getKey())
-                        && commandFor(record).equalsIgnoreCase(bind.getCommand())) {
-                    managed = true;
-                    break;
-                }
-            }
-            if (!managed) candidates.add(bind);
-        }
-        return candidates;
+        return vanillaImports.candidates(console, importContext());
     }
 
     public synchronized KeybindRecord duplicate(String sourceId) throws IOException {
@@ -994,49 +814,67 @@ public final class KeybindRegistry implements ValuePackTarget {
 
     public synchronized int importAllReviewed(WurmConsole console, int limit)
             throws ReflectiveOperationException, IOException {
-        List<BindSnapshot> candidates = importCandidates(console);
-        int imported = 0;
-        for (BindSnapshot candidate : candidates) {
-            BindSnapshot current = binds.findByKey(console, candidate.getKey());
-            if (current == null || !current.getCommand().equalsIgnoreCase(candidate.getCommand())) continue;
-            KeybindRecord record;
-            if (customActionsImporter.supports(candidate.getCommand())) {
-                record = new KeybindRecord(null,
-                        Messages.text("registry.imported_name", candidate.getKey()), candidate.getKey(),
-                        customActionsImporter.importCommand(candidate.getCommand()));
-                applyLimit(record, limit);
-            } else if (improvedImproveImporter.supports(candidate.getCommand())) {
-                record = new KeybindRecord(null,
-                        Messages.text("registry.imported_name", candidate.getKey()), candidate.getKey(),
-                        improvedImproveImporter.importCommand(candidate.getCommand()));
-                applyLimit(record, limit);
-            } else {
-                record = new KeybindRecord(null,
-                        Messages.text("registry.imported_name", candidate.getKey()), candidate.getKey(),
-                        Collections.<org.keybinder.wurm.model.KeybindStep>singletonList(
-                                new ConsoleCommandStep(candidate.getCommand(), true)));
+        return importReviewed(console, importCandidates(console), limit);
+    }
+
+    /** Imports only rows explicitly selected in the review window. */
+    public synchronized int importReviewed(WurmConsole console,
+                                           List<BindSnapshot> selected,
+                                           int limit)
+            throws ReflectiveOperationException, IOException {
+        return vanillaImports.importSelected(console, selected, limit, importContext());
+    }
+
+    private VanillaImportService.Context importContext() {
+        return new VanillaImportService.Context() {
+            @Override public List<KeybindRecord> records() { return records; }
+            @Override public String commandFor(KeybindRecord record) {
+                return KeybindRegistry.this.commandFor(record);
             }
-            record.setOriginalKey(candidate.getKey());
-            record.setOriginalCommand(candidate.getCommand());
-            stamp(record);
-            records.add(record);
-            try {
-                saveRecords();
-                if (!binds.removeIfOwned(console, candidate.getKey(), candidate.getCommand()))
-                    throw new IllegalStateException(Messages.text("error.import_binding_changed"));
-                if (record.isEnabled()) binds.install(console, record.getKey(), commandFor(record));
-                imported++;
-                log.info(Messages.text("registry.imported",
-                        candidate.getKey(), candidate.getCommand()));
-            } catch (RuntimeException | IOException | ReflectiveOperationException e) {
-                records.remove(record);
-                saveRecords();
-                BindSnapshot after = binds.findByKey(console, candidate.getKey());
-                if (after == null) binds.install(console, candidate.getKey(), candidate.getCommand());
-                log.error(Messages.text("registry.import_failed", candidate.getKey()), e);
+            @Override public void stamp(KeybindRecord record) {
+                KeybindRegistry.this.stamp(record);
             }
-        }
-        return imported;
+            @Override public void applyLimit(KeybindRecord record, int limit) {
+                KeybindRegistry.this.applyLimit(record, limit);
+            }
+            @Override public void save() throws IOException { saveRecords(); }
+        };
+    }
+
+    private ManagedKeybindMutationService.Context mutationContext() {
+        return new ManagedKeybindMutationService.Context() {
+            @Override public List<KeybindRecord> records() { return records; }
+            @Override public KeybindRecord find(String id) {
+                return KeybindRegistry.this.find(id);
+            }
+            @Override public KeybindRecord findManagedConflict(
+                    KeybindRecord except, String key) {
+                return KeybindRegistry.this.findManagedConflict(except, key);
+            }
+            @Override public String commandFor(KeybindRecord record) {
+                return KeybindRegistry.this.commandFor(record);
+            }
+            @Override public boolean sameChord(String left, String right) {
+                return KeybindRegistry.sameChord(left, right);
+            }
+            @Override public void stamp(KeybindRecord record) {
+                KeybindRegistry.this.stamp(record);
+            }
+            @Override public void validate(KeybindRecord record) {
+                KeybindRegistry.this.validate(record);
+            }
+            @Override public void applyLimit(KeybindRecord record, int limit) {
+                KeybindRegistry.this.applyLimit(record, limit);
+            }
+            @Override public void save() throws IOException { saveRecords(); }
+            @Override public void rollbackStore(Throwable original) {
+                KeybindRegistry.this.rollbackStore(original);
+            }
+            @Override public void announceConflict(
+                    BindSnapshot conflict, String key, String command) {
+                KeybindRegistry.this.announceConflict(conflict, key, command);
+            }
+        };
     }
 
     private void stamp(KeybindRecord record) {
@@ -1107,30 +945,6 @@ public final class KeybindRegistry implements ValuePackTarget {
         }
         if (changed) try { saveRecords(); }
         catch (IOException e) { log.error(Messages.text("registry.disabled_save_failed"), e); }
-    }
-
-    public synchronized void printAll(EventLogger logger, int limit, boolean includeCommands) {
-        List<KeybindRecord> sorted = new ArrayList<>(records);
-        sorted.sort(Comparator.comparing(KeybindRecord::getKey, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(KeybindRecord::getName, String.CASE_INSENSITIVE_ORDER));
-        logger.info(Messages.text("event.list.header", sorted.size()));
-        for (KeybindRecord record : sorted) {
-            QueueCost value = costs.keybindCost(record);
-            String cost = value.getKind() == QueueCost.Kind.FIXED
-                    ? value.getValue() + "/" + limit
-                    : Messages.text(value.getKind() == QueueCost.Kind.DYNAMIC
-                    ? "event.cost.dynamic" : "event.cost.unknown");
-            String status = record.isEnabled() ? Messages.text("event.list.active")
-                    : Messages.text("event.list.disabled",
-                    DisableReason.display(record.getDisabledReason()));
-            logger.info(Messages.text("event.list.item",
-                    InputKeyCatalog.displayChord(record.getKey()), record.getDisplayName(),
-                    record.isMultiPurpose() ? Messages.text("event.list.multi") : "",
-                    contents(record), cost, status));
-            if (includeCommands)
-                logger.info(Messages.text("event.list.command", commandFor(record)));
-        }
-        logger.info(Messages.text("event.list.end"));
     }
 
     private void validate(KeybindRecord record) {

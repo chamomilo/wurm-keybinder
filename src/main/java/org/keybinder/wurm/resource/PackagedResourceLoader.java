@@ -1,4 +1,4 @@
-package org.keybinder.wurm.storage;
+package org.keybinder.wurm.resource;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

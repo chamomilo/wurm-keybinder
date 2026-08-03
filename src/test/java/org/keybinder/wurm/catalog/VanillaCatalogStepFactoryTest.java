@@ -63,6 +63,21 @@ public class VanillaCatalogStepFactoryTest {
     }
 
     @Test
+    public void prayIgnoresSelectedToolBecauseItHasNoToolSource() {
+        VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
+
+        KeybindStep created = factory.create(catalog.categoryFor("PRAY"),
+                catalog.find("PRAY"), ItemSelector.toolbeltSlot(4),
+                TargetSpec.simple(TargetKind.SELECTED));
+
+        assertTrue(created instanceof ActionStep);
+        ActionStep action = (ActionStep) created;
+        assertEquals(PlayerAction.PRAY.getId(), action.getActionId());
+        assertEquals(ItemSelectorKind.EMPTY_HAND, action.getSource().getKind());
+        assertEquals(TargetKind.SELECTED, action.getTarget().getKind());
+    }
+
+    @Test
     public void catalogCapabilitiesCoverToolFreeAndToolUsingCommands() {
         VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
         assertFalse(catalog.find("EXAMINE").usesSelectableTool());

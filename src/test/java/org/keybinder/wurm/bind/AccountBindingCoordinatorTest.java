@@ -1,0 +1,37 @@
+package org.keybinder.wurm.bind;
+
+import org.junit.Test;
+import org.keybinder.wurm.event.EventLogger;
+import org.keybinder.wurm.model.ConsoleCommandStep;
+import org.keybinder.wurm.model.KeybindRecord;
+import org.keybinder.wurm.storage.AccountKeybindStateStore;
+
+import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.logging.Logger;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public class AccountBindingCoordinatorTest {
+    @Test public void restoresOnlyTheAccountLocalEnabledSet() throws Exception {
+        AccountKeybindStateStore store = new AccountKeybindStateStore(
+                Files.createTempDirectory("account-coordinator").resolve("accounts.properties"));
+        KeybindRecord first = record("first");
+        KeybindRecord second = record("second");
+        store.save("Player", Collections.singleton("second"));
+        AccountBindingCoordinator coordinator = new AccountBindingCoordinator(store,
+                new EventLogger(Logger.getAnonymousLogger()));
+
+        coordinator.activate("Player", Arrays.asList(first, second));
+
+        assertFalse(first.isEnabled());
+        assertTrue(second.isEnabled());
+    }
+
+    private static KeybindRecord record(String id) {
+        return new KeybindRecord(id, id, id.substring(0, 1).toUpperCase(),
+                Collections.singletonList(new ConsoleCommandStep("say " + id)));
+    }
+}

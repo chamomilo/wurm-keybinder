@@ -2,310 +2,316 @@ package org.keybinder.wurm.command;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.PickableUnit;
-import com.wurmonline.client.renderer.cell.CellRenderable;
+import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.shared.constants.PlayerAction;
-import org.keybinder.wurm.integration.ClientAccess;
+import com.wurmonline.shared.util.MaterialUtilities;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.integration.ClientAccess;
+import org.keybinder.wurm.integration.ExecutionOriginGuard;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.IdentityHashMap;
+import java.util.Set;
 
-import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.findDescendant;
 import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.isImprovable;
 import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.isTargetTemperatureReady;
-import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.isToolTemperatureReady;
 import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.needsRepair;
 import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.orderedTargets;
-import static org.keybinder.wurm.command.SmartImproveQueuePlanner.fittedPrefixCost;
-import static org.keybinder.wurm.command.SmartImproveQueuePlanner.fittedPrefixLength;
 
+/**
+ * Smart Improve executor. Inventory targets use their live metadata directly;
+ * one selected world item may use metadata captured from the player's ordinary
+ * Examine. Both paths resolve resources through the same strict table and never
+ * lock or wait for an Improve response.
+ */
 public final class SmartImproveExecutor {
     private final ClientAccess access;
-    private final ImproveRequirementTracker tracker;
     private final EventLogger log;
-    private final java.util.function.Consumer<Runnable> scheduler;
-    private static final double ACTION_REACH_SQUARED = 16.0d;
-    private final ThreadLocal<Map<SmartImproveStep, PreparedInventoryPlan>> prepared =
-            new ThreadLocal<Map<SmartImproveStep, PreparedInventoryPlan>>() {
-                @Override protected Map<SmartImproveStep, PreparedInventoryPlan> initialValue() {
-                    return new IdentityHashMap<SmartImproveStep, PreparedInventoryPlan>();
+    private final WorldImproveTracker world;
+    private final ImproveResourceResolver resources = new ImproveResourceResolver();
+    private final ImproveMaterialCompatibilityTable table =
+            new ImproveMaterialCompatibilityTable();
+    private final ThreadLocal<Map<SmartImproveStep, PreparedBatch>> prepared =
+            new ThreadLocal<Map<SmartImproveStep, PreparedBatch>>() {
+                @Override protected Map<SmartImproveStep, PreparedBatch> initialValue() {
+                    return new IdentityHashMap<SmartImproveStep, PreparedBatch>();
                 }
             };
 
-    public SmartImproveExecutor(ClientAccess access, ImproveRequirementTracker tracker, EventLogger log,
-                                java.util.function.Consumer<Runnable> scheduler) {
+    public SmartImproveExecutor(ClientAccess access, EventLogger log) {
+        this(access, log, new WorldImproveTracker());
+    }
+
+    public SmartImproveExecutor(ClientAccess access, EventLogger log,
+                                WorldImproveTracker world) {
         this.access = access;
-        this.tracker = tracker;
         this.log = log;
-        this.scheduler = scheduler;
+        this.world = world;
     }
 
-    public int runtimeCost(SmartImproveStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
-        List<InventoryMetaItem> items = inventoryTargets(step.getTarget(), hud);
-        if (!items.isEmpty()) {
-            int total = 0;
-            for (InventoryMetaItem item : items) {
-                PreparedInventoryItem decision = assessInventoryItem(item, hud);
-                requireImprovable(item);
-                if (decision.improve && decision.tool == null) {
-                    String required = tracker.toolName(item.getId());
-                    throw missingTool(required, displayName(item));
-                }
-                total += decision.queueCost();
-            }
-            return total;
-        }
-        long targetId = worldTargetId(step.getTarget(), hud);
-        ToolbeltTool tool = worldImproveTool(targetId, hud);
-        if (tool == null)
-            throw new StepUnavailableException(Messages.text("improve.world_tool_missing"));
-        return (tracker.damaged(targetId) ? 1 : 0)
-                + (isToolTemperatureReady(tool.item) ? 1 : 0);
+    public int runtimeCost(SmartImproveStep step, HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        return prepare(step, hud, Integer.MAX_VALUE).queueCost;
     }
 
-    /**
-     * Prepares the deterministic inventory prefix that fits the currently free
-     * queue budget. Temperature-blocked metal work keeps only its optional Repair
-     * cost; ordinary items cost Repair + Improve or Improve. World targets use
-     * the damage state learned from Wurm's Event messages.
-     */
     int prepareWithinBudget(SmartImproveStep step, HeadsUpDisplay hud, int budget)
             throws ReflectiveOperationException {
-        List<InventoryMetaItem> items = inventoryTargets(step.getTarget(), hud);
-        if (items.isEmpty()) return runtimeCost(step, hud);
-        int available = Math.max(0, budget);
-        List<PreparedInventoryItem> decisions =
-                new ArrayList<PreparedInventoryItem>(items.size());
-        int[] costs = new int[items.size()];
-        for (int i = 0; i < items.size(); i++) {
-            PreparedInventoryItem decision = assessInventoryItem(items.get(i), hud);
-            decisions.add(decision);
-            costs[i] = decision.queueCost();
-        }
-        int plannedCost = fittedPrefixCost(available, costs);
-        int cost = 0;
-        List<PreparedInventoryItem> selectedItems = new ArrayList<PreparedInventoryItem>();
-        for (PreparedInventoryItem decision : decisions) {
-            InventoryMetaItem item = decision.target;
-            int itemCost = decision.queueCost();
-            if (cost + itemCost > plannedCost) break;
-            requireImprovable(item);
-            if (decision.improve && decision.tool == null) {
-                String required = tracker.toolName(item.getId());
-                throw missingTool(required, displayName(item));
-            }
-            selectedItems.add(decision);
-            cost += itemCost;
-        }
-        prepared.get().put(step, new PreparedInventoryPlan(selectedItems, plannedCost));
-        return plannedCost;
+        PreparedBatch batch = prepare(step, hud, budget);
+        prepared.get().put(step, batch);
+        return batch.queueCost;
     }
 
-    void clearPrepared() {
-        prepared.remove();
-    }
-
-    public void execute(SmartImproveStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
-        TargetSpec target = step.getTarget();
-        List<InventoryMetaItem> items = inventoryTargets(target, hud);
-        if (!items.isEmpty()) {
-            PreparedInventoryPlan preparedPlan = prepared.get().remove(step);
-            List<PreparedInventoryItem> plan;
-            if (preparedPlan == null) {
-                prepareWithinBudget(step, hud, Integer.MAX_VALUE);
-                preparedPlan = prepared.get().remove(step);
-            }
-            plan = preparedPlan.items;
-            int[] currentCosts = new int[plan.size()];
-            for (int i = 0; i < plan.size(); i++) {
-                PreparedInventoryItem candidate = plan.get(i);
-                currentCosts[i] = (needsRepair(candidate.target) ? 1 : 0)
-                        + (candidate.improve ? 1 : 0);
-            }
-            int executableItems = fittedPrefixLength(
-                    preparedPlan.queueBudget, currentCosts);
-            if (executableItems < plan.size())
-                log.warning(Messages.text("improve.queue_state_changed",
-                        executableItems, plan.size(), preparedPlan.queueBudget));
-            int repairs = 0;
-            int improvements = 0;
-            int actions = 0;
-            for (int i = 0; i < executableItems; i++) {
-                if (needsRepair(plan.get(i).target)) repairs++;
-                if (plan.get(i).improve) improvements++;
-                actions += currentCosts[i];
-            }
-            log.info(Messages.text("improve.plan_summary", executableItems, repairs,
-                    improvements, actions, preparedPlan.queueBudget));
-            for (int i = 0; i < executableItems; i++) {
-                PreparedInventoryItem preparedItem = plan.get(i);
-                InventoryMetaItem item = preparedItem.target;
-                ToolbeltTool selected = preparedItem.tool;
-                String itemName = displayName(item);
-                boolean repair = needsRepair(item);
-                if (!preparedItem.improve) {
-                    if (selected == null) {
-                        log.info(Messages.text(repair
-                                        ? "improve.repairing_not_glowing"
-                                        : "improve.skipping_not_glowing",
-                                itemName));
-                    } else {
-                        logColdTool(selected, itemName, repair);
-                    }
-                    if (repair) {
-                        hud.sendAction(PlayerAction.REPAIR, item.getId());
-                        tracker.repaired(item.getId());
-                    }
-                    continue;
-                }
-                InventoryMetaItem tool = selected.item;
-                logSelection(selected, itemName, repair);
-                tracker.expect(item.getId());
-                if (repair) {
-                    hud.sendAction(PlayerAction.REPAIR, item.getId());
-                    tracker.repaired(item.getId());
-                }
-                hud.getWorld().getServerConnection().sendAction(
-                        tool.getId(), new long[]{item.getId()}, PlayerAction.IMPROVE);
-            }
-            return;
-        }
-
-        if (target.getKind() == TargetKind.HOVER) {
-            PickableUnit hovered = worldTarget(target, hud);
-            access.select(hud.getSelectBar(), hovered);
-            scheduler.accept(() -> executeDeferredWorld(hovered, hud));
-            return;
-        }
-        PickableUnit selected = target.getKind() == TargetKind.EXACT_OBJECT
-                ? null : worldTarget(target, hud);
-        executeWorldTarget(target, selected, hud);
-    }
-
-    private void executeDeferredWorld(PickableUnit target, HeadsUpDisplay hud) {
-        org.keybinder.wurm.recording.ShadowRecorder.enterInternal();
-        try {
-            PickableUnit selected = access.selected(hud.getSelectBar());
-            if (selected == null || selected.getId() != target.getId()) {
-                access.select(hud.getSelectBar(), target);
-                selected = target;
-            }
-            executeWorldTarget(TargetSpec.simple(TargetKind.SELECTED), selected, hud);
-        } catch (Throwable e) {
-            log.error(Messages.text("improve.deferred_failed",
-                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), e);
-        } finally {
-            org.keybinder.wurm.recording.ShadowRecorder.exitInternal();
-        }
-    }
-
-    private void executeWorldTarget(TargetSpec target, PickableUnit selected, HeadsUpDisplay hud)
+    int prepareWithinBudget(SmartImproveStep step, HeadsUpDisplay hud, int budget,
+                            int queueLimit, java.util.function.IntSupplier occupied)
             throws ReflectiveOperationException {
-        long id;
-        String itemName;
-        if (target.getKind() == TargetKind.EXACT_OBJECT) {
-            ensureExactKnown(target, hud);
-            id = target.getObjectId();
-            itemName = target.getText().isEmpty()
-                    ? Messages.text("target.exact_generic") : target.getText();
-        } else {
-            validateWorldTarget(selected);
-            id = selected.getId();
-            itemName = safeName(selected.getHoverName());
-        }
-        String required = tracker.toolName(id);
-        ToolbeltTool toolSelection = worldImproveTool(id, hud);
-        if (toolSelection == null) {
-            throw missingTool(required, itemName);
-        }
-        InventoryMetaItem tool = toolSelection.item;
-        boolean repair = tracker.damaged(id);
-        if (!isToolTemperatureReady(tool)) {
-            logColdTool(toolSelection, itemName, repair);
-            if (repair) {
-                tracker.expect(id);
-                hud.sendAction(PlayerAction.REPAIR, id);
-                tracker.repaired(id);
-            }
-            return;
-        }
-        logSelection(toolSelection, itemName, repair);
-        tracker.expect(id);
-        if (repair) {
-            hud.sendAction(PlayerAction.REPAIR, id);
-            tracker.repaired(id);
-        }
-        hud.getWorld().getServerConnection().sendAction(tool.getId(), new long[]{id}, PlayerAction.IMPROVE);
+        return prepareWithinBudget(step, hud, budget);
     }
 
-    private List<InventoryMetaItem> inventoryTargets(TargetSpec target, HeadsUpDisplay hud)
+    public void execute(SmartImproveStep step, HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        PreparedBatch batch = prepared.get().remove(step);
+        if (batch == null) batch = prepare(step, hud, Integer.MAX_VALUE);
+        ExecutionOriginGuard.enterInternal();
+        try {
+            for (PreparedItem item : batch.items) {
+                if (item.repair) {
+                    hud.sendAction(PlayerAction.REPAIR, item.targetId);
+                    if (item.world) world.repaired(item.targetId);
+                }
+                if (item.resource == null) continue;
+                logSelection(item.resource, item.targetName);
+                hud.getWorld().getServerConnection().sendAction(
+                        item.resource.getCandidate().getId(),
+                        new long[]{item.targetId}, PlayerAction.IMPROVE);
+            }
+        } finally {
+            ExecutionOriginGuard.exitInternal();
+        }
+    }
+
+    void clearPrepared() { prepared.remove(); }
+
+    private PreparedBatch prepare(SmartImproveStep step, HeadsUpDisplay hud, int budget)
+            throws ReflectiveOperationException {
+        List<InventoryMetaItem> targets = inventoryTargets(step.getTarget(), hud);
+        boolean inventoryMetadata = !targets.isEmpty();
+        for (InventoryMetaItem target : targets)
+            inventoryMetadata &= hasLocalImproveMetadata(target);
+        if (!inventoryMetadata) return prepareWorld(step.getTarget(), hud, budget);
+
+        int[] costs = new int[targets.size()];
+        boolean[] repairs = new boolean[targets.size()];
+        boolean[] improvements = new boolean[targets.size()];
+        for (int i = 0; i < targets.size(); i++) {
+            InventoryMetaItem target = targets.get(i);
+            requireImprovable(target);
+            repairs[i] = needsRepair(target);
+            improvements[i] = isTargetTemperatureReady(target);
+            costs[i] = SmartImproveQueuePlanner.itemCost(
+                    repairs[i], improvements[i]);
+        }
+
+        int count = SmartImproveQueuePlanner.fittedPrefixLength(budget, costs);
+        Set<Long> excludedTargets = new HashSet<Long>();
+        boolean needsSource = false;
+        for (int i = 0; i < count; i++) {
+            excludedTargets.add(targets.get(i).getId());
+            needsSource |= improvements[i];
+        }
+
+        ImproveResourceCandidate inventory = needsSource
+                ? inventoryCandidate(access.playerInventoryRoot(hud), excludedTargets)
+                : null;
+        List<PreparedItem> result = new ArrayList<PreparedItem>(count);
+        int queueCost = 0;
+        for (int i = 0; i < count; i++) {
+            InventoryMetaItem target = targets.get(i);
+            ResolvedImproveResource source = null;
+            if (improvements[i]) {
+                ResourceRequirement requirement;
+                try {
+                    requirement = table.resolve(target.getImproveIconId(),
+                            target.getMaterialId(), access.objectType(target));
+                } catch (UnsupportedImproveMaterialException unsupported) {
+                    throw new StepUnavailableException(unsupported.getMessage());
+                }
+                source = resolveSource(hud, inventory, requirement, excludedTargets);
+                if (source == null)
+                    throw new StepUnavailableException(Messages.text(
+                            "improve.exact_resource_missing",
+                            requirement.getMissingResourceLabel(),
+                            displayName(target)));
+            }
+            result.add(new PreparedItem(target.getId(), displayName(target),
+                    repairs[i], source, false));
+            queueCost += costs[i];
+        }
+        return new PreparedBatch(result, queueCost);
+    }
+
+    private PreparedBatch prepareWorld(TargetSpec requested, HeadsUpDisplay hud,
+                                       int budget)
+            throws ReflectiveOperationException {
+        GroundItemCellRenderable target = selectedWorldTarget(requested, hud);
+        if (target == null)
+            throw new StepUnavailableException(
+                    Messages.text("improve.world_target_required"));
+
+        WorldImproveTracker.Snapshot state = world.snapshot(target.getId());
+        if (state == null)
+            throw new StepUnavailableException(
+                    Messages.text("improve.world_examine_required"));
+
+        byte material = access.materialId(target);
+        String targetType = access.objectType(target);
+        String targetName = target.getHoverName();
+        if (targetName == null || targetName.trim().isEmpty()) targetName = targetType;
+        boolean improve = worldTemperatureReady(material, targetName);
+        int cost = SmartImproveQueuePlanner.itemCost(state.isDamaged(), improve);
+        if (SmartImproveQueuePlanner.fittedPrefixLength(budget, cost) == 0)
+            return new PreparedBatch(new ArrayList<PreparedItem>(), 0);
+
+        ResolvedImproveResource source = null;
+        if (improve) {
+            ResourceRequirement requirement;
+            try {
+                requirement = table.resolve(state.getRequirement(), material, targetType);
+            } catch (UnsupportedImproveMaterialException unsupported) {
+                throw new StepUnavailableException(unsupported.getMessage());
+            }
+            Set<Long> excluded = new HashSet<Long>();
+            excluded.add(target.getId());
+            ImproveResourceCandidate inventory = inventoryCandidate(
+                    access.playerInventoryRoot(hud), excluded);
+            source = resolveSource(hud, inventory, requirement, excluded);
+            if (source == null)
+                throw new StepUnavailableException(Messages.text(
+                        "improve.exact_resource_missing",
+                        requirement.getMissingResourceLabel(), targetName));
+        }
+        List<PreparedItem> result = new ArrayList<PreparedItem>(1);
+        result.add(new PreparedItem(target.getId(), targetName,
+                state.isDamaged(), source, true));
+        return new PreparedBatch(result, cost);
+    }
+
+    private GroundItemCellRenderable selectedWorldTarget(TargetSpec requested,
+                                                         HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        PickableUnit selected = access.selected(hud.getSelectBar());
+        if (!(selected instanceof GroundItemCellRenderable)) return null;
+        long selectedId = selected.getId();
+        if (requested.getKind() == TargetKind.SELECTED) {
+            return (GroundItemCellRenderable) selected;
+        }
+        if (requested.getKind() == TargetKind.EXACT_OBJECT) {
+            return requested.getObjectId() == selectedId
+                    ? (GroundItemCellRenderable) selected : null;
+        }
+        if (requested.getKind() != TargetKind.HOVER) return null;
+        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+        return hovered != null && hovered.getId() == selectedId
+                ? (GroundItemCellRenderable) selected : null;
+    }
+
+    static boolean worldTemperatureReady(byte material, String displayName) {
+        return !MaterialUtilities.isMetal(material)
+                || (displayName != null
+                && displayName.toLowerCase(java.util.Locale.ENGLISH)
+                .contains("(glowing)"));
+    }
+
+    private ResolvedImproveResource resolveSource(HeadsUpDisplay hud,
+                                                   ImproveResourceCandidate inventory,
+                                                   ResourceRequirement requirement,
+                                                   Set<Long> excludedTargets) {
+        if (requirement.getFamily() == RequirementFamily.BODY_HAND) {
+            InventoryMetaItem hand = hud.getPaperDollInventory().getHandItem();
+            ImproveResourceCandidate builtIn = candidate(hand, excludedTargets,
+                    new HashSet<Long>(), false);
+            if (builtIn == null || !requirement.match(builtIn).isAccepted()) return null;
+            return new ResolvedImproveResource(builtIn, null, requirement);
+        }
+        // Candidate rejection details remain silent normally, but become visible
+        // when the existing Debug logging setting is enabled. This makes server-
+        // specific inventory names diagnosable without adding normal Event spam.
+        return resources.resolve(inventory, requirement, log::debug);
+    }
+
+    private List<InventoryMetaItem> inventoryTargets(TargetSpec target,
+                                                     HeadsUpDisplay hud)
             throws ReflectiveOperationException {
         Map<Long, InventoryMetaItem> result = new LinkedHashMap<Long, InventoryMetaItem>();
         if (target.getKind() == TargetKind.ACTIVE_TOOL) {
-            InventoryMetaItem item = access.activeTool(hud);
-            addTarget(result, item);
-            return orderedTargets(result.values());
-        }
-        if (target.getKind() == TargetKind.TOOLBELT_SLOT) {
-            InventoryMetaItem item = hud.getToolBelt().getItemInSlot(target.getSlot() - 1);
-            addTarget(result, item);
-            return orderedTargets(result.values());
-        }
-        if (target.getKind() == TargetKind.EQUIPMENT_SLOT) {
+            addTarget(result, access.activeTool(hud));
+        } else if (target.getKind() == TargetKind.TOOLBELT_SLOT) {
+            addTarget(result, hud.getToolBelt().getItemInSlot(target.getSlot() - 1));
+        } else if (target.getKind() == TargetKind.EQUIPMENT_SLOT) {
             PaperDollSlot frame = access.equipmentSlot(
                     hud.getPaperDollInventory(), (byte) target.getSlot());
             if (frame != null && frame.getEquippedItem() != null)
                 addTarget(result, frame.getEquippedItem().getItem());
-            return orderedTargets(result.values());
-        }
-        if (target.getKind() == TargetKind.EXACT_OBJECT) {
-            InventoryMetaItem item = access.inventoryItem(hud, target.getObjectId());
-            addTarget(result, item);
-            return orderedTargets(result.values());
-        }
-        if (target.getKind() == TargetKind.HOVER) {
+        } else if (target.getKind() == TargetKind.BODY) {
+            addTarget(result, access.bodyItem(hud.getPaperDollInventory()));
+        } else if (target.getKind() == TargetKind.EXACT_OBJECT) {
+            addTarget(result, access.inventoryItem(hud, target.getObjectId()));
+        } else if (target.getKind() == TargetKind.SELECTED) {
+            PickableUnit selected = access.selected(hud.getSelectBar());
+            if (selected != null) addTarget(result,
+                    access.inventoryItem(hud, selected.getId()));
+        } else if (target.getKind() == TargetKind.HOVER) {
             com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
             long[] ids = hud.getCommandTargetsFrom(client.getXMouse(), client.getYMouse());
-            if (ids != null) for (long id : ids) {
-                InventoryMetaItem item = access.inventoryItem(hud, id);
-                addTarget(result, item);
-            }
+            if (ids != null) for (long id : ids)
+                addTarget(result, access.inventoryItem(hud, id));
         }
         return orderedTargets(result.values());
     }
 
-    private ToolbeltTool improveTool(InventoryMetaItem target, HeadsUpDisplay hud,
-                                     boolean temperatureReady) {
-        final short requiredType = target.getImproveIconId();
-        final long targetId = target.getId();
-        // Preserve the old behaviour when a matching item is directly on the belt.
-        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
-            InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
-            if (candidate != null && candidate.getId() != targetId
-                    && candidate.getType() == requiredType
-                    && isToolTemperatureReady(candidate) == temperatureReady)
-                return new ToolbeltTool(candidate, i + 1);
-        }
-        // A belt slot may itself be a backpack, quiver, bucket, etc. Search its
-        // contents without changing the active item or the inventory tree order.
-        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
-            InventoryMetaItem container = hud.getToolBelt().getItemInSlot(i);
-            InventoryMetaItem candidate = findDescendant(container,
-                    item -> item.getId() != targetId && item.getType() == requiredType
-                            && isToolTemperatureReady(item) == temperatureReady);
-            if (candidate != null)
-                return new ToolbeltTool(candidate, i + 1, displayName(container));
-        }
-        return null;
+    static ImproveResourceCandidate inventoryCandidate(InventoryMetaItem root,
+                                                        Set<Long> excluded) {
+        return candidate(root, excluded, new HashSet<Long>(), true);
+    }
+
+    private static ImproveResourceCandidate candidate(InventoryMetaItem item,
+                                                       Set<Long> excluded,
+                                                       Set<Long> visited,
+                                                       boolean descendChildren) {
+        if (item == null || excluded.contains(item.getId())
+                || !visited.add(item.getId())) return null;
+        List<ImproveResourceCandidate> children = new ArrayList<ImproveResourceCandidate>();
+        if (descendChildren && item.getChildren() != null)
+            for (InventoryMetaItem child : item.getChildren()) {
+                ImproveResourceCandidate value = candidate(child, excluded, visited,
+                        true);
+                if (value != null) children.add(value);
+            }
+        return new ImproveResourceCandidate(item.getId(), item.getBaseName(),
+                item.getDisplayName(), item.getMaterialId(), item.getType(),
+                item.getR(), item.getG(), item.getB(), item.getTemperature(), children);
+    }
+
+    private void logSelection(ResolvedImproveResource selection, String itemName) {
+        ImproveResourceCandidate candidate = selection.getCandidate();
+        String name = candidate.getDisplayName().isEmpty()
+                ? candidate.getBaseName() : candidate.getDisplayName();
+        if (selection.getRequirement().getFamily() == RequirementFamily.BODY_HAND)
+            log.info(Messages.text("improve.using_built_in", name, itemName));
+        else if (selection.isNested())
+            log.info(Messages.text("improve.using_from_inventory_container", name,
+                    selection.getContainerName(), itemName));
+        else
+            log.info(Messages.text("improve.using_inventory", name, itemName));
     }
 
     private static void addTarget(Map<Long, InventoryMetaItem> result,
@@ -313,207 +319,54 @@ public final class SmartImproveExecutor {
         if (item != null) result.put(item.getId(), item);
     }
 
-    private static String displayName(InventoryMetaItem item) {
-        String name = item.getDisplayName();
-        return name == null || name.trim().isEmpty()
-                ? Messages.text("improve.generic_item") : name;
-    }
-
-    private PreparedInventoryItem assessInventoryItem(InventoryMetaItem item,
-                                                       HeadsUpDisplay hud) {
-        boolean repair = needsRepair(item);
-        if (!isImprovable(item))
-            return new PreparedInventoryItem(item, null, repair, true);
-        if (!isTargetTemperatureReady(item))
-            return new PreparedInventoryItem(item, null, repair, false);
-        ToolbeltTool ready = improveTool(item, hud, true);
-        if (ready != null)
-            return new PreparedInventoryItem(item, ready, repair, true);
-        ToolbeltTool cold = improveTool(item, hud, false);
-        if (cold != null)
-            return new PreparedInventoryItem(item, cold, repair, false);
-        return new PreparedInventoryItem(item, null, repair, true);
-    }
-
-    private static final class ToolbeltTool {
-        private final InventoryMetaItem item;
-        private final int slot;
-        private final String container;
-
-        private ToolbeltTool(InventoryMetaItem item, int slot) {
-            this(item, slot, null);
-        }
-
-        private ToolbeltTool(InventoryMetaItem item, int slot, String container) {
-            this.item = item;
-            this.slot = slot;
-            this.container = container;
-        }
-    }
-
-    private static final class PreparedInventoryItem {
-        private final InventoryMetaItem target;
-        private final ToolbeltTool tool;
-        private final boolean repair;
-        private final boolean improve;
-
-        private PreparedInventoryItem(InventoryMetaItem target, ToolbeltTool tool,
-                                      boolean repair, boolean improve) {
-            this.target = target;
-            this.tool = tool;
-            this.repair = repair;
-            this.improve = improve;
-        }
-
-        private int queueCost() {
-            return (repair ? 1 : 0) + (improve ? 1 : 0);
-        }
-    }
-
-    private static final class PreparedInventoryPlan {
-        private final List<PreparedInventoryItem> items;
-        private final int queueBudget;
-
-        private PreparedInventoryPlan(List<PreparedInventoryItem> items, int queueBudget) {
-            this.items = items;
-            this.queueBudget = queueBudget;
-        }
+    /**
+     * An opened world container is represented by a synthetic root whose ID is
+     * the world object's ID, but whose item type and Improve icon are both -1.
+     * Its children have real metadata; the root itself does not.
+     */
+    static boolean hasLocalImproveMetadata(InventoryMetaItem item) {
+        return item != null
+                && !(item.getType() == (short) -1
+                && item.getImproveIconId() == (short) -1);
     }
 
     private static void requireImprovable(InventoryMetaItem item) {
         if (!isImprovable(item))
-            throw new StepUnavailableException(
-                    Messages.text("improve.cannot_improve", displayName(item)));
+            throw new StepUnavailableException(Messages.text(
+                    "improve.cannot_improve", displayName(item)));
     }
 
-    private void logSelection(ToolbeltTool selection, String itemName, boolean repairing) {
-        if (selection.container == null) {
-            log.info(Messages.text(repairing ? "improve.repairing_using" : "improve.using",
-                    selection.item.getBaseName(),
-                    selection.slot, itemName));
-        } else {
-            log.info(Messages.text(repairing
-                            ? "improve.repairing_using_from_container"
-                            : "improve.using_from_container",
-                    selection.item.getBaseName(), selection.container,
-                    selection.slot, itemName));
-        }
-    }
-
-    private void logColdTool(ToolbeltTool selection, String itemName, boolean repairing) {
-        if (selection.container == null) {
-            log.info(Messages.text(repairing
-                            ? "improve.repairing_cold_tool"
-                            : "improve.skipping_cold_tool",
-                    itemName, selection.item.getBaseName(), selection.slot));
-        } else {
-            log.info(Messages.text(repairing
-                            ? "improve.repairing_cold_tool_from_container"
-                            : "improve.skipping_cold_tool_from_container",
-                    itemName, selection.item.getBaseName(), selection.container,
-                    selection.slot));
-        }
-    }
-
-    private ToolbeltTool worldImproveTool(long targetId, HeadsUpDisplay hud)
-            throws ReflectiveOperationException {
-        String required = tracker.toolName(targetId);
-        if (required != null) {
-            ToolbeltTool ready = worldImproveTool(required, hud, true);
-            return ready != null ? ready : worldImproveTool(required, hud, false);
-        }
-        InventoryMetaItem active = access.activeTool(hud);
-        if (active == null) return null;
-        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
-            InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
-            if (candidate != null && candidate.getId() == active.getId())
-                return new ToolbeltTool(candidate, i + 1);
-        }
-        return null;
-    }
-
-    private ToolbeltTool worldImproveTool(String required, HeadsUpDisplay hud,
-                                          boolean temperatureReady) {
-        final String requiredName = required.toLowerCase(java.util.Locale.ENGLISH);
-        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
-            InventoryMetaItem candidate = hud.getToolBelt().getItemInSlot(i);
-            if (candidate != null && candidate.getBaseName() != null
-                    && candidate.getBaseName().toLowerCase(java.util.Locale.ENGLISH)
-                    .contains(requiredName)
-                    && isToolTemperatureReady(candidate) == temperatureReady)
-                return new ToolbeltTool(candidate, i + 1);
-        }
-        for (int i = 0; i < hud.getToolBelt().getSlotCount(); i++) {
-            InventoryMetaItem container = hud.getToolBelt().getItemInSlot(i);
-            InventoryMetaItem candidate = findDescendant(container,
-                    item -> item.getBaseName() != null
-                            && item.getBaseName().toLowerCase(java.util.Locale.ENGLISH)
-                            .contains(requiredName)
-                            && isToolTemperatureReady(item) == temperatureReady);
-            if (candidate != null)
-                return new ToolbeltTool(candidate, i + 1, displayName(container));
-        }
-        return null;
-    }
-
-    private long worldTargetId(TargetSpec target, HeadsUpDisplay hud) throws ReflectiveOperationException {
-        if (target.getKind() == TargetKind.EXACT_OBJECT) {
-            ensureExactKnown(target, hud);
-            return target.getObjectId();
-        }
-        PickableUnit selected = worldTarget(target, hud);
-        validateWorldTarget(selected);
-        return selected.getId();
-    }
-
-    private PickableUnit worldTarget(TargetSpec target, HeadsUpDisplay hud)
-            throws ReflectiveOperationException {
-        PickableUnit unit;
-        if (target.getKind() == TargetKind.SELECTED) unit = access.selected(hud.getSelectBar());
-        else if (target.getKind() == TargetKind.HOVER)
-            unit = hud.getWorld().getCurrentHoveredObject();
-        else throw new IllegalArgumentException(Messages.text(
-                    "improve.unsupported_target", target.getKind()));
-        if (unit == null)
-            throw new StepUnavailableException(Messages.text("improve.target_missing"));
-        return unit;
-    }
-
-    private static void validateWorldTarget(PickableUnit selected) {
-        String itemName = safeName(selected.getHoverName());
-        if (!selected.targetMatches(PlayerAction.IMPROVE.getTargetMask())) {
-            throw new StepUnavailableException(
-                    Messages.text("improve.cannot_improve", itemName));
-        }
-        if (selected instanceof CellRenderable
-                && ((CellRenderable) selected).getSquaredLengthFromPlayer()
-                > ACTION_REACH_SQUARED) {
-            throw new StepUnavailableException(Messages.text("improve.too_far", itemName));
-        }
-    }
-
-    private void ensureExactKnown(TargetSpec target, HeadsUpDisplay hud)
-            throws ReflectiveOperationException {
-        long id = target.getObjectId();
-        if (access.inventoryItem(hud, id) != null) return;
-        PickableUnit selected = access.selected(hud.getSelectBar());
-        if (selected != null && selected.getId() == id) return;
-        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
-        if (hovered != null && hovered.getId() == id) return;
-        throw new StepUnavailableException(Messages.text("unavailable.exact_object",
-                target.getText().isEmpty()
-                        ? Long.toString(id) : "\"" + target.getText() + "\""));
-    }
-
-    private static String safeName(String value) {
+    private static String displayName(InventoryMetaItem item) {
+        if (item == null) return Messages.text("improve.generic_item");
+        String value = item.getDisplayName();
         return value == null || value.trim().isEmpty()
                 ? Messages.text("improve.generic_item") : value;
     }
 
-    private static StepUnavailableException missingTool(String required, String itemName) {
-        String tool = required == null
-                ? Messages.text("improve.required_by_item") : "\"" + required + "\"";
-        return new StepUnavailableException(
-                Messages.text("improve.tool_missing", tool, itemName));
+    private static final class PreparedBatch {
+        private final List<PreparedItem> items;
+        private final int queueCost;
+
+        private PreparedBatch(List<PreparedItem> items, int queueCost) {
+            this.items = items;
+            this.queueCost = queueCost;
+        }
+    }
+
+    private static final class PreparedItem {
+        private final long targetId;
+        private final String targetName;
+        private final boolean repair;
+        private final ResolvedImproveResource resource;
+        private final boolean world;
+
+        private PreparedItem(long targetId, String targetName, boolean repair,
+                             ResolvedImproveResource resource, boolean world) {
+            this.targetId = targetId;
+            this.targetName = targetName;
+            this.repair = repair;
+            this.resource = resource;
+            this.world = world;
+        }
     }
 }

@@ -1,4 +1,4 @@
-package org.keybinder.wurm.command;
+package org.keybinder.wurm.model;
 
 import java.util.Arrays;
 import java.util.HashSet;

@@ -2,7 +2,7 @@ package org.keybinder.wurm.recording;
 
 import org.keybinder.wurm.command.ExactObjectTarget;
 import org.keybinder.wurm.command.NearbyTypeTarget;
-import org.keybinder.wurm.command.ObjectTypeNormalizer;
+import org.keybinder.wurm.model.ObjectTypeNormalizer;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.Messages;
 

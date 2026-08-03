@@ -7,6 +7,7 @@ import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.model.ActionStep;
+import org.keybinder.wurm.model.ActionSourcePolicy;
 import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindRecord;
@@ -17,7 +18,7 @@ import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.ItemSelectorKind;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.VanillaActionStep;
-import org.keybinder.wurm.recording.ShadowRecorder;
+import org.keybinder.wurm.integration.ExecutionOriginGuard;
 import org.keybinder.wurm.queue.QueueCapacityPreflight;
 
 import java.util.HashSet;
@@ -37,19 +38,13 @@ public final class KeybindExecutionService {
     private final EventLogger log;
 
     public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log) {
-        this(actions, access, log, new ImproveRequirementTracker(), Runnable::run);
+        this(actions, access, log, new WorldImproveTracker());
     }
 
     public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log,
-                                   ImproveRequirementTracker tracker) {
-        this(actions, access, log, tracker, Runnable::run);
-    }
-
-    public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log,
-                                   ImproveRequirementTracker tracker,
-                                   java.util.function.Consumer<Runnable> scheduler) {
+                                   WorldImproveTracker worldImprove) {
         this.actions = actions;
-        this.improve = new SmartImproveExecutor(access, tracker, log, scheduler);
+        this.improve = new SmartImproveExecutor(access, log, worldImprove);
         this.access = access;
         this.log = log;
     }
@@ -69,7 +64,8 @@ public final class KeybindExecutionService {
             int occupied = occupiedQueueSlots == null ? 0
                     : Math.max(0, occupiedQueueSlots.getAsInt());
             int free = Math.max(0, queueLimit - occupied);
-            ExecutionPlan plan = planWithinQueue(record.getKeybindSteps(), hud, free);
+            ExecutionPlan plan = planWithinQueue(record.getKeybindSteps(), hud, free,
+                    queueLimit, occupiedQueueSlots);
             for (ExecutionPlan.Entry entry : plan.getEntries()) {
                 if (!entry.isSkipped()) continue;
                 Throwable failure = entry.getSkippedBy();
@@ -80,7 +76,7 @@ public final class KeybindExecutionService {
             }
             QueueCapacityPreflight.requireFits(plan.getQueueCost(), queueLimit, occupied);
 
-            ShadowRecorder.enterInternal();
+            ExecutionOriginGuard.enterInternal();
             try {
                 for (ExecutionPlan.Entry entry : plan.getEntries()) {
                     if (entry.isSkipped()) continue;
@@ -97,7 +93,7 @@ public final class KeybindExecutionService {
                     }
                 }
             } finally {
-                ShadowRecorder.exitInternal();
+                ExecutionOriginGuard.exitInternal();
             }
         } finally {
             improve.clearPrepared();
@@ -107,7 +103,8 @@ public final class KeybindExecutionService {
     }
 
     private ExecutionPlan planWithinQueue(List<KeybindStep> steps, HeadsUpDisplay hud,
-                                          int freeQueueSlots) {
+                                          int freeQueueSlots, int queueLimit,
+                                          IntSupplier occupiedQueueSlots) {
         List<ExecutionPlan.Entry> entries = new ArrayList<ExecutionPlan.Entry>(steps.size());
         int nonImproveCost = 0;
         for (int index = 0; index < steps.size(); index++) {
@@ -135,7 +132,8 @@ public final class KeybindExecutionService {
             KeybindStep step = steps.get(index);
             if (!(step instanceof SmartImproveStep)) continue;
             try {
-                int cost = improve.prepareWithinBudget((SmartImproveStep) step, hud, remaining);
+                int cost = improve.prepareWithinBudget((SmartImproveStep) step, hud,
+                        remaining, queueLimit, occupiedQueueSlots);
                 entries.set(index, new ExecutionPlan.Entry(index, step, cost, null));
                 remaining = Math.max(0, remaining - cost);
                 improveCost += cost;
@@ -292,7 +290,8 @@ public final class KeybindExecutionService {
     private String describe(KeybindStep step) {
         if (step instanceof ActionStep) {
             ActionStep action = (ActionStep) step;
-            if (action.getSource().getKind() != ItemSelectorKind.CURRENT_ACTIVE)
+            if (ActionSourcePolicy.acceptsSelectableTool(action.getActionId())
+                    && action.getSource().getKind() != ItemSelectorKind.CURRENT_ACTIVE)
                 return Messages.text("event.describe_action_source",
                         actions.actionName(action.getActionId()),
                         ItemSelectorCodec.display(action.getSource()),
@@ -319,4 +318,5 @@ public final class KeybindExecutionService {
         return error.getMessage() == null || error.getMessage().trim().isEmpty()
                 ? error.getClass().getSimpleName() : error.getMessage();
     }
+
 }

@@ -2,6 +2,7 @@ package org.keybinder.wurm.command;
 
 import java.util.Locale;
 import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.model.ObjectTypeNormalizer;
 
 /** Portable nearby target based on the stable type portion of a Wurm hover name. */
 public final class NearbyTypeTarget {

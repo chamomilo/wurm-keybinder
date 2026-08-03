@@ -3,6 +3,7 @@ package org.keybinder.wurm.integration;
 import static org.junit.Assert.*;
 import org.junit.After;
 import org.junit.Test;
+import org.keybinder.wurm.command.ActionSourceResolver;
 import org.keybinder.wurm.command.StepUnavailableException;
 import org.keybinder.wurm.model.ItemSelector;
 
