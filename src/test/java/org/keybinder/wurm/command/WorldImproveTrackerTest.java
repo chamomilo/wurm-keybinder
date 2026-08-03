@@ -118,13 +118,26 @@ public class WorldImproveTrackerTest {
     @Test public void defaultActionCandidateIgnoresNonExamineEventText() {
         WorldImproveTracker tracker = new WorldImproveTracker();
         tracker.examineSent(32L);
-        tracker.event(32L, ":Event", "You must use a hammer to continue.");
+        tracker.event(32L, ":Event", "You hear a raven in the distance.");
         assertNull(tracker.snapshot(32L));
 
         tracker.event(32L, ":Event", "A forge has some irregularities that must "
                 + "be removed with a stone chisel. Ql: 88.48, Dam: 0.0.");
         assertEquals(RequirementFamily.STONE_CHISEL,
                 tracker.snapshot(32L).getRequirement());
+    }
+
+    @Test public void portableWorldItemMayOmitQualityAndDamageFields() {
+        WorldImproveTracker tracker = new WorldImproveTracker();
+        tracker.examineSent(33L);
+        tracker.event(33L, ":Event", "A heavy knife with a bent blade perfect "
+                + "for butchering. This is a very rare and interesting version "
+                + "of the item. You need to temper the butchering knife by "
+                + "dipping it in water while it's hot.");
+
+        WorldImproveTracker.Snapshot state = tracker.snapshot(33L);
+        assertEquals(RequirementFamily.WATER, state.getRequirement());
+        assertFalse(state.isDamaged());
     }
 
     @Test public void targetToolNameInSuccessTextIsNotARequirement() {

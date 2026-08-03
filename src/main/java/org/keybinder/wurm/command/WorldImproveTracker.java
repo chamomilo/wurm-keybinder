@@ -39,13 +39,16 @@ public final class WorldImproveTracker {
             clear();
             return;
         }
+        WorldImproveEventParser.Parsed parsed = WorldImproveEventParser.parse(message);
         if (!descriptionConfirmed) {
-            // DEFAULT_ACTION is only a possible Examine. Do not let another
-            // default-action response seed Smart Improve state.
-            if (!WorldImproveEventParser.isExamineDescription(message)) return;
+            // DEFAULT_ACTION is only a possible Examine. Most world-object
+            // descriptions carry Ql/Dam, but portable items placed in the
+            // world can omit both and report only their standard Improve
+            // requirement (for example a butchering knife needing water).
+            if (!WorldImproveEventParser.isExamineDescription(message)
+                    && parsed.getRequirement() == null) return;
             descriptionConfirmed = true;
         }
-        WorldImproveEventParser.Parsed parsed = WorldImproveEventParser.parse(message);
         if (parsed.getRequirement() != null) requirement = parsed.getRequirement();
         if (parsed.getDamaged() != null) damaged = parsed.getDamaged();
     }

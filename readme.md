@@ -4,155 +4,191 @@
 
 # Keybinder 0.7.0 for Wurm Unlimited
 
-Tired of managing keybinds through console commands, juggling toolbelt setup
-files, and remembering dozens of keys? Keybinder replaces all of that with one
-clear in-game window. It is a convenient keybind manager with many QOL improvements.
-All your keybinds are visible in one place, where you can create, edit, disable, or delete them
-without using the console, digging through configuration files, or memorizing commands.
+## One key, many actions
 
-Start with a single key binding. Let Keybinder capture your action and convert it into a keybind.
-Add target selection like an exact object, nearby item, or toolbelt slot. Each custom action has an independent
-**Tool | Action | Target** row, so it can resolve a tool without changing the active item.
-So, with your keypress you do it all - select the tool, target, and do the action.
-Then, add more actions to the same keybind - "select rake"+"farm hovered tile 7x7"+"harvest and replant 7x7 over hovered tile".
-Enjoy a complex action by pressing one key. Nice?
+Now with portable tools, better Multi-keybinds, and rebuilt Smart Improve.
 
-Then, add an alternative keybind to the same key. Repeat 13 times - now you have 15 keybinds on 1 key. Switch by long press.
-Dice meat - mince meat - chop veggie - chop herb - all on one key, easily switched in 1 second. Nice? It's called Multi-keybind.
+[Read and discuss the Keybinder forum post on SKLOTOPOLIS](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder).
 
-Then, bind Mouse wheel up and down with push and pull commands. Feel like a telekinetic mage :)
-Then bind embark to Tab, disembark to Shift-Tab. Super convenient. When embarking, you will face your horses automatically. Nice?
+Keybinder 0.7.0 is ready for testing.
 
-Get rid of a 10-year-old mod with complex programming and console usage.
-The future has come, and it's convenient.
+Keybinder puts all your Wurm keybinds into one in-game window. You can capture
+an action, choose its tool and target, combine several actions into one key,
+and manage everything without writing console commands or editing configuration
+files.
 
-## What's new in 0.7.0
+This release is a large update. You can now assign a specific tool to every
+step, Multi-keybinds are much easier to build and reorganize, keybinds can be
+imported and exported, and Smart Improve has been improved to get rid of its
+previous limitations.
 
-- Every custom action now has its own portable **Tool** selector: current active item,
-  empty hand, hovered inventory item, toolbelt slot, equipment slot, or an exact
-  inventory object. The advanced **Switch active item** step remains available when
-  later actions really should inherit a new active item.
-- Added **Hovered + filter** and renamed the visible nearby option to
-  **Nearby + filter**. Both compare normalized object types without
-  material, articles, or creature condition prefixes.
-- Added **Duplicate**, row double-click editing, and drag-to-merge. A center drop
-  appends all alternatives after confirmation; the destination keeps its key,
-  HUD mode, active alternative, and restore history. The source record and its
-  independent restore history are removed.
-- Alternative actions can now be extracted with the curved-arrow icon beside
-  Remove. Extraction saves current editor changes, removes that alternative from
-  its parent, and inserts a disabled standalone keybind directly below it. Names
-  receive derived `Multi` and `HUD Multi` prefixes; the prefixes and multi/HUD
-  tracking are removed automatically when only one alternative remains.
-- Added portable `.keybinder` **Import file** and **Export all**. Imported records
-  receive new identities and stay disabled until reviewed. Exact object IDs are
-  deliberately marked non-portable and require extra review.
-- On the first successful launch, Keybinder provides a bundled eight-record
-  **Keybind Value Pack** as disabled examples. These rows have a green background
-  and an explanation on their enable checkbox. The `valuePackProvided` setting is
-  written only after the records are saved; a durable data marker repairs that
-  setting if an upgrade replaces the distributable defaults, without reimporting.
-- Multi-keybinds now offer separate **Ordinary Multi** and **HUD Multi** behavior.
-  Ordinary Multi runs the active choice on a short press and opens a select-only
-  menu on a long press; the pointer moves to the active choice once. HUD Multi
-  opens immediately and executes the item chosen from the menu.
-- Smart Improve now discovers and caches a typed requirement through `Examine`,
-  matches tools and consumables by exact semantic family and material, and updates
-  the cached requirement from the terminal Improve report. Shards and metal lumps
-  are material-specific; ordinary leather is positively identified and protected
-  dragon leather, drake hide, and scale are never used as fallbacks.
-- Smart Improve searches the complete player-inventory tree. Backpack and
-  inventory containers are followed by item identity rather than by their
-  displayed names; pinning either container to the toolbelt does not create a
-  separate search source.
-- Repair and Improve are no longer sent together. A damaged target is repaired,
-  its damage is checked again on the next game tick, and only then is Improve sent.
-  Repeated Smart Improve presses are not locked locally: every press performs the
-  normal queue check and reaches the server, which remains authoritative about
-  repeated actions. Both plain and multicolored Event responses refresh the next
-  requirement. Every actual Examine, Repair, and Improve is checked against the
-  currently free Wurm action queue.
-- The persisted definition format is now schema 9. Before the first successful
-  schema-8 save, Keybinder creates `mods/keybinder/keybinds.pre-v8.properties`
-  once. To downgrade, close the client and manually restore that file as
-  `keybinds.properties`; the normal rolling `.bak` remains a separate recovery file.
+## What is new in 0.7.0?
 
-## Previously in 0.6.2
+### A separate Tool selector for every action
 
-- Fixed **Nearby by type** targets reverting to **Hovered** when a keybind was
-  saved immediately after selecting an object.
-- Smart Improve can now find the required tool or material inside a backpack or another
-  container placed in a toolbelt slot. Yes, now you can have a sack, backpack, or huge tub called "imping wood item" in
-  toolbelt slot 1, and it's enough. Keep related mats and tools inside. C for convenience.
-- If a hovered inventory stack resolves to several items, Smart Improve starts one
-  safely correlated attempt with the lowest-quality item. Repeat the command after
-  that attempt completes to process the next item.
+Every action step is now defined by a **Tool | Action | Target** row.
 
-## Previously in 0.6.1
+The tool can be:
 
-- Target selection is now more reliable across inventories, containers, the
-  toolbelt, equipment, and the game world. Keybinder can select a tool from
-  your toolbelt, backpack, inventory or outside easily.
-- Added **Import Wurm keybinds** and **Prepare mod removal** controls to the
-  main window. Keybinder can restore imported commands without overwriting
-  keys that now belong to something else.
-- Vanilla keybinds like movement, camera, and essential HUD controls are excluded
-  from import, so no mess inside Keybinder list of keybinds.
-- Complete English and Brazilian Portuguese localization with a persistent
-  Wurm-styled language selector and a safe English fallback. More languages
-  are welcome! Ask me for help with this.
-- There are now 3 ways to add an action: perform it and let Keybinder record
-  it, choose it from the complete list of vanilla actions, or enter your console command directly.
-- Keybinder is server-friendly. It checks the remaining slots in action queue on key press. If the entire
-  keybind cannot fit into the remaining queue, it will tell you "sorry, you are still too busy, push it a bit later".
-  And nothing will go to server this time.
-- Sometimes, with complex keybinds, some of the commands cannot find the proper target on keypress.
-  Again, server-friendly. Keybinder will just skip those exact steps and send nothing to server. It's safe.
-  "chop tree"+"bash nearby stump"+"chop up felled tree"+"pick up any log"+"pick up scraps" = E key for tree chopper.
-  Like it? Give it a try!
-- Even more server-friendly. If, for instance, you have Push on a keybind and try to push your horse :)
-  What will happen? Answer - nothing will happen. And the command will not go to the server. Keybinder will even
-  notify you about your tragic fault in Event tab.
-- There was a bug in Wurm with `Push` and `Push gently` commands - after them, the server deselects your target.
-  Inconvenient, I know. Fixed. Now you are a true Anakin, a telekinetic guy. Try it yourself.
-- All "nearby" targets are now smart. They check the surroundings, keeping in mind the commands which you are using.
-  Some commands have very short range, some very long. If a target is close, but not close enough,
-  Keybinder will confirm you are doing well but need to come closer.
-- Your current mount or vehicle can now be used as a target. Want to disembark
-  or open a cart hold with one key? Easy.
-- All your alts use the same keybinds list. What one created, all can use. It's so convenient!
+- your current active item;
+- empty hand;
+- a hovered inventory item;
+- a toolbelt slot;
+- an equipment slot;
+- an exact object from your inventory, toolbelt, or equipment slot.
 
-## Installation
+For example, a Smart Farmer keybind for `E` can contain:
 
-1. Disable the old `action` and `i2improve` client mods.
-2. Extract `keybinder-0.7.0.zip` into the Wurm Unlimited client directory using
-   Ago's mod loader as usual.
-3. If the Keybinder introduction does not appear after startup, enable
-   **Keybinder** in HUD Settings.
+1. Rake | Farm 7×7 | Hovered
+2. Scythe | Harvest & replant 7×7 | Hovered
 
-## Runtime commands
+One press of `E` performs both farming and harvest-and-replant. The tools are
+picked directly from inventory.
 
-You do not need these, but if you can't live without the console, they are available:
-```text
-keybinder_run <managed-id>
-```
+### Hovered + filter and Nearby + filter
 
-## Attribution
+Your keybind can now check whether a hovered or nearby item belongs to a chosen
+item type.
 
-Keybinder began as derivative work based on bdew's
-[Custom Actions](https://github.com/bdew-wurm/action), licensed under
-LGPL-3.0-or-later.
+Examples:
 
-The Smart Improve feature is a clean-room reimplementation inspired by the
-complete Improved Improve mod lineage. Special thanks to:
+- **Nearby + filter | Stump** executes only when a stump is nearby.
+- **Hovered + filter | Minced meat** executes only when your pointer is over
+  minced meat.
 
-- [Munsta0](https://github.com/munsta0/WUClientImprovedImprove), who created
-  the original Improved Improve client mod;
-- [inniria](https://github.com/inniria/i2improve), who rewrote and extended it
-  as i2improve;
-- [Snidor](https://github.com/Snidor/i2improve), who continued i2improve and
-  whose 0.2.1 release was used as the final research baseline.
+Both commands ignore material, so a cedarwood stump and a walnut stump are both
+treated as stumps.
 
-No source code from these Improved Improve mods is bundled.
+With this, you can build one keybind to dice or mince any type of meat, another
+to chop any vegetables or herbs, and so on. Experiment!
 
-See `lgpl-3.0.txt` for the inherited Custom Actions license.
+### Duplicate, merge, and extract
+
+Handling keybinds is now easier:
+
+1. **Duplicate.** If your main Multi-keybind contains 15 commands and you want
+   the same set with a different key for an alt, one button does it.
+2. **Merge.** Drag a standalone keybind and drop it onto your Multi-keybind to
+   add it there.
+3. **Extract.** If you merged the wrong command, open the Multi-keybind and
+   press Extract.
+
+### New type of Multi-keybind: HUD button
+
+**Ordinary Multi** executes the selected command on a short press and opens the
+command list on a long press so you can select another action.
+
+**HUD Multi** opens its menu on a short press and immediately executes the
+selected action.
+
+This lets you make one key for many HUD actions: inventory, backpack, cart hold,
+sleep bonus, livemap, drink water, pray to Fo, main menu, climb, and more.
+
+The mouse pointer automatically jumps to the selection when you press the HUD
+key.
+
+### Portable `.keybinder` files
+
+Keybinder now has **Import file** and **Export all**. Use them to share your
+keybind set with another Steam account or a friend.
+
+### Bundled Keybind Essentials (Value Pack)
+
+The update installs examples that answer the question: “What can I do with
+Keybinder?” Enable them, see how they work, and start experimenting.
+
+Do not forget to try mouse-wheel-based push, pull, and turn bindings. Now you
+are Yoda—or Darth Vader. Choose for yourself.
+
+### Smart Improve rebuilt
+
+Smart Improve was redesigned from scratch again, mainly to remove unclear i2i
+defaults and limitations.
+
+1. **Inventory instead of toolbelt.** Smart Improve does not care what you have
+   on your toolbelt. It browses your inventory and backpack and uses whatever
+   you keep there for improving. Drop your glowing-hot lumps into your pocket
+   and start working.
+2. **Premium materials are protected.** Smart Improve never uses premium
+   materials such as dragon hides as ordinary Improve materials. A dedicated
+   check keeps them safe. It can still use a supreme string.
+3. **No outside limitation.** It works on improvable outside objects, including
+   any altar material. Start with a double-click on the object.
+4. **Correct stack sequence.** Stack improving selects the lowest-quality items
+   and improves them first.
+5. **Server friendly.** Smart Improve calculates exactly how many Repair and
+   Improve actions fit into the current action queue. Press the key as often as
+   you want; only commands that fit are sent to the server.
+6. **Smart material and tool selection.** It distinguishes marble from stone
+   shards, carving knives from stone chisels, yarn from string, and handles logs
+   correctly.
+7. **Roleplay.** Take your future Ring of Power—currently just a simple,
+   low-quality gold ring—place it on an anvil, and work on it there. Put the item
+   on the table and improve it in the world.
+
+### Safe upgrade and storage
+
+Overwrite the `mods` folder in your WurmLauncher directory. Your existing
+keybinds are safely backed up and are not lost.
+
+## A few things Keybinder already does
+
+- Captures an action you perform and turns it into an editable action step. All
+  server and client mods are supported.
+- Combines several Wurm actions into one keybind while respecting your action
+  queue limit.
+- Combines several keybinds into one Multi-keybind, giving you a convenient
+  command switcher for daily tasks.
+- Supports hovered, selected, exact, nearby, filtered, tile, area, inventory,
+  equipment, toolbelt, and current-ride targets.
+- Enables mouse-wheel bindings; push, pull, and rotate are examples.
+- Supports embark and disembark bindings and turns your head toward the horses
+  when you embark.
+- Shares managed bindings between your alts and remembers who enabled what.
+- Checks the available Wurm action queue before sending a complete binding.
+- Imports your keybinds and lets you work with them.
+- Can be localized for specific languages.
+- Does not force you to use the console or chat.
+
+Keybinder is a keybind manager, not a scripting or unattended automation
+system. It sends the same ordinary Wurm actions a player can perform while
+respecting the character's action queue. It simply makes Wurm much more
+convenient.
+
+## Installation and upgrade
+
+1. Disable the old **Custom Actions** and **i2improve** client mods.
+2. Download [Keybinder 0.7.0 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases).
+3. Extract `keybinder-0.7.0.zip` into your Wurm Unlimited client directory, as
+   usual for Ago's Client Mod Launcher.
+4. When upgrading, overwrite the previous Keybinder files. Your managed
+   bindings are stored separately and are not replaced by the distribution
+   archive.
+5. Start the game. If the Keybinder introduction does not appear, enable
+   **Keybinder** in **HUD Settings**.
+
+The console is optional. Everything needed for normal use is available in the
+in-game interface.
+
+## Credits and license
+
+Keybinder began as derivative work based on
+[bdew's Custom Actions](https://github.com/bdew-wurm/action).
+
+Smart Improve is a clean-room reimplementation inspired by the work of:
+
+- **Munsta0**, creator of the original Improved Improve;
+- **inniria**, creator of i2improve;
+- **Snidor**, who continued i2improve.
+
+No source code from those Improved Improve mods is bundled.
+
+Keybinder is licensed under **GNU LGPL 3.0 or later**.
+
+**Thank you FlpSilva and Wolfbane for beta testing!**
+
+If you find a bug, have an idea, or would like to help with another translation,
+please reply in the [SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
+or message **Chamomilo** on SKLOTOPOLIS.
+
+Cheers! **Chamomilo**
