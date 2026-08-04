@@ -8,21 +8,49 @@
 
 Keybinder is a Wurm Unlimited client mod for creating and managing keybinds
 through a Wurm-styled in-game interface. Capture an action, choose its tool and
-target, combine several actions under one key, and keep different enabled sets
-for different characters without editing configuration files or writing console
+target, combine several actions under one key, and give each character its own
+set of enabled keybinds—without editing configuration files or writing console
 commands.
 
-Keybinder 0.7.1 is ready for testing.
+Version 0.7.1 is ready for testing. This is a focused follow-up to 0.7.0, built
+around player reports and real in-game use. Its main additions are bulk-storage
+transfers, portable inventory filters, per-character enabled keybinds, and a
+better Smart Improve search order.
 
-- [Download releases from GitHub](https://github.com/chamomilo/wurm-keybinder/releases)
+This may be the last major feature update for a while, so now is a good time to
+put it through its paces.
+
+- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
 ## What is new in 0.7.1?
 
-### Pick up from bulk
+### Pick up from bulk: Keybinder meets panfilling
 
-An action chain can take a chosen quantity of an exact item type from bulk
-storage and place it into another inventory. Supported sources include:
+Yes, panfilling. I know—it is painful. Wolfbane and I think we found a good
+balance between convenience and ordinary Wurm gameplay.
+
+After helping you dice, mince, and chop your ingredients, Keybinder can now
+take the prepared components from bulk storage and place them into the pan you
+point at. A single keybind can contain several **Pick up from bulk** steps, so
+one press can request all six ingredients for a recipe.
+
+There is no unattended automation here: prepare the ingredients, point at the
+pan, and press the key. Old-school panfilling, just without the unnecessary
+side work. Point and press **F**—or whichever key you prefer.
+
+To create the keybind:
+
+1. Put the prepared ingredients into bulk storage.
+2. Add one **Pick up from bulk** step for each ingredient.
+3. Select the exact ingredient row and enter the required quantity.
+4. Set the target to **Hovered inventory**.
+5. Point at the destination pan or container and run the keybind.
+
+A keybind may contain as many bulk-transfer steps as the character's action
+queue permits. Bulk transfers may also be mixed with ordinary actions.
+
+Supported bulk sources include:
 
 - bulk storage bins;
 - food storage bins;
@@ -30,89 +58,104 @@ storage and place it into another inventory. Supported sources include:
 - bulk container units;
 - bulk containers opened inside vehicles.
 
-Select the item row in the opened bulk container. Keybinder remembers both the
-item and its source storage, so the source window may then be closed.
+Select the required item row in the opened bulk container. Keybinder remembers
+both the item and its source storage, so the source window may then be closed.
 
-The destination can be:
+Available destinations are:
 
 - **Player inventory**;
-- **Hovered inventory**: an opened inventory window, a container row, or a
-  container in the world;
-- **Captured inventory**: one exact inventory or container selected while the
-  keybind is being edited.
+- **Hovered inventory**—an opened inventory window, a container row inside an
+  inventory, or a container in the world;
+- **Captured inventory**—one specific inventory or container selected while
+  creating the keybind.
 
-Several bulk transfers can be placed in one keybind and mixed with ordinary
-actions. Keybinder sends one transfer, waits locally for the matching server
-quantity form, answers it, and only then continues the chain. Server rejection
-messages and timeouts release the local continuation instead of leaving later
-executions blocked.
+Keybinder sends each transfer, waits locally for the matching server quantity
+form, answers it, and then continues the chain. A server rejection or timeout
+releases the local continuation instead of leaving the keybind stuck.
 
-### Inventory + filter
+### Inventory + filter: drink whatever water you have
 
-**Inventory + filter** stores a portable item type rather than a runtime object
-ID. At execution time it searches:
+**Inventory + filter** was created for a simple HUD command: “drink
+something.” I wanted a keybind that could search my inventory for water and
+drink whatever it found, because my water regularly moves between a bucket, a
+barrel, and other containers.
+
+Instead of remembering one runtime object, this target stores the portable item
+type. When the keybind runs, Keybinder searches:
 
 1. the toolbelt;
-2. the complete player inventory and backpack tree;
-3. containers nested inside other containers.
+2. the complete player inventory;
+3. the backpack;
+4. containers inside the inventory or backpack;
+5. containers nested inside other containers.
 
-Materials and state descriptions are ignored where appropriate. For example,
-`kindling, oakenwood` matches `kindling`, while `salty water` matches `water`.
-This makes target-only actions such as Drink portable between containers and
-characters.
+Material and state descriptions are ignored where appropriate. For example:
+
+- `kindling, oakenwood` is stored as `kindling`;
+- `salty water` is stored as `water`.
+
+The action is then applied to the first matching item Keybinder finds. This is
+especially useful for target-only actions such as **Drink**.
 
 Only contents currently delivered to the client can be searched. If a closed
 container has not loaded its children, open it before running the keybind.
 
-### Smart Improve source modes
+### Smart Improve: toolbelt first
 
-Every Smart Improve step has a **Tool** dropdown with two modes:
+Thanks to Spike for the feedback. Every Smart Improve step now has two
+self-explanatory Tool modes:
 
 - **Take tools only from toolbelt**;
 - **First toolbelt, then inventory**.
 
-The second mode is the compatibility default for existing keybinds. In both
-modes, a container placed in a toolbelt slot is searched recursively, including
-its loaded nested containers. The inventory fallback is used only by the second
-mode.
+Both modes begin with the toolbelt. The second mode falls back to the inventory
+and backpack only when the required tool or material was not found there. It is
+also the compatibility default for existing keybinds.
 
-Missing-resource messages name the selected source mode, so it is clear where
-Keybinder searched. Tool and material matching remains strict, and ordinary
-Improve lookup continues to reject protected premium materials.
+If a container is placed on the toolbelt, Keybinder searches inside it and its
+loaded nested containers. Missing-resource messages name the selected search
+mode, making it clear where Keybinder looked.
 
-### Independent character profiles
+Premium-material protection remains active in either mode. Dragon hide, you
+shall not pass.
 
-Keybind definitions are shared, but every character keeps its own enabled and
-disabled selection. On login Keybinder first removes the known managed binds
-from that client's live bind table, then installs the saved set for the current
-character.
+### Per-character enabled keybinds
+
+Every character can now have a different set of enabled and disabled keybinds.
+The checkbox selection is saved separately and restored when that character
+logs in.
 
 Several Wurm clients may run at the same time:
 
 - each client has its own live bindings;
-- the same key may run different Keybinder records on different characters;
-- action-queue tracking is local to the client;
-- pending and queued **Pick up from bulk** operations are local to the client;
-- concurrent profile saves are serialized so one client cannot overwrite
-  another character's enabled set.
+- a keybind may be enabled for one character and disabled for another;
+- the same key may run different Keybinder records in different clients;
+- action-queue tracking is local to each client;
+- pending **Pick up from bulk** transfers and their local continuation queues
+  are isolated per client;
+- concurrent profile saves are serialized so clients do not overwrite one
+  another's enabled sets.
 
-A conflict is retained only when the live key belongs to a foreign vanilla
-command or to an unknown `keybinder_run` command whose record has already been
-deleted from the shared definition table.
+The multi-client scenarios have been tested with up to four simultaneously
+loaded characters.
 
 ### Cleaner startup
 
-After the Introduction is completed, Keybinder starts collapsed to its launcher
-icon. If the Introduction was disabled earlier, it starts directly in the same
-collapsed state. Click the icon to open the full keybind manager.
+Thanks again to Spike for highlighting this issue. After the Introduction,
+Keybinder now starts minimised to its **KB** launcher icon instead of opening
+the full list of keybinds. If the Introduction was disabled earlier, Keybinder
+starts directly in the same minimised state.
 
-### Reliability fixes
+Click **KB** whenever you want to open the manager.
 
-- HUD Multi preserves the original hovered object while its selector owns and
-  moves the mouse pointer.
+### Other reliability fixes
+
+- Drink is treated as a target-only action and no longer displays a Tool
+  selector.
 - Player Inventory, modified inventory windows, ordinary rows, container rows,
   and world containers resolve consistently as bulk destinations.
-- Drink is treated as a target-only action and does not display a Tool selector.
+- HUD Multi preserves the original hovered object while its selector owns and
+  moves the mouse pointer.
 - Captured server and mod action names no longer regress to `Unknown action`.
 - Bulk-transfer server failures no longer leave the local chain permanently
   waiting for a quantity form.
@@ -137,8 +180,8 @@ collapsed state. Click the icon to open the full keybind manager.
 - English and Brazilian Portuguese localization.
 
 Keybinder is a keybind manager, not an unattended automation or scripting
-system. It sends the same ordinary Wurm actions available to the player while
-respecting the character's action queue.
+system. It sends ordinary Wurm actions while respecting the character's action
+queue.
 
 ## Installation and upgrade
 
@@ -148,18 +191,18 @@ respecting the character's action queue.
    [GitHub releases page](https://github.com/chamomilo/wurm-keybinder/releases).
 3. Extract the archive into the Wurm Unlimited client directory used by Ago's
    Client Mod Launcher.
-4. When upgrading, overwrite the existing Keybinder files. Managed definitions
-   are stored separately and are not replaced by the distribution archive.
-5. Start the game. If the launcher icon is not visible, enable **Keybinder** in
+4. When upgrading, overwrite the existing Keybinder files. Managed keybinds are
+   stored separately and are not replaced by the distribution archive.
+5. Start the game. If the **KB** icon is not visible, enable **Keybinder** in
    **HUD Settings**.
 
-The default shared definition file is:
+The shared keybind definitions are stored in:
 
 ```text
 mods/keybinder/keybinds.properties
 ```
 
-Per-character enabled selections are stored beside it in:
+Per-character enabled selections are stored beside them in:
 
 ```text
 mods/keybinder/keybinds.properties.accounts
@@ -170,11 +213,15 @@ The console remains optional for normal use.
 
 ## Reporting problems
 
-Enable **Debug logging** in Keybinder when reproducing a problem. Include the
-relevant `[Keybinder]` Event lines, the selected step type, Tool mode, Target,
-and whether the source or destination container was opened in its own window.
+Thank you to everyone who tested the new functions and sent detailed Event
+logs. They were extremely useful.
 
-Reports and feature ideas are welcome in the
+If you find a bug, enable **Debug logging**, reproduce the problem, and include
+the relevant `[Keybinder]` Event lines in your report. Please also mention the
+step type, Tool mode, Target, and whether the source or destination container
+was opened in its own window.
+
+Bug reports and ideas are welcome in the
 [SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 or by message to **Chamomilo** on SKLOTOPOLIS.
 
