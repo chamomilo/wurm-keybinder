@@ -8,6 +8,7 @@ import com.wurmonline.client.renderer.ObjectData;
 import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.cell.CreatureCellRenderable;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
+import com.wurmonline.client.renderer.gui.KeybinderInventorySelectionBridge;
 import com.wurmonline.client.renderer.gui.PaperDollInventory;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.client.renderer.gui.SelectBar;
@@ -20,6 +21,7 @@ import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import org.keybinder.wurm.model.InventoryReference;
 
 @SuppressWarnings("unchecked")
 public final class ClientAccess {
@@ -104,7 +106,7 @@ public final class ClientAccess {
                 hud.getWorld().getInventoryManager();
         InventoryMetaItem item = manager.getPlayerInventory().getItem(id);
         if (item != null) return item;
-        item = findInventoryItem(manager.getPlayerInventory().getRootItem(), id);
+        item = findInventoryItem(playerInventoryRoot(hud), id);
         if (item != null) return item;
         item = manager.getPlayerEquipment().getItem(id);
         if (item != null) return item;
@@ -123,9 +125,51 @@ public final class ClientAccess {
         return null;
     }
 
+    /** Finds the non-player open inventory window that currently owns an item row. */
+    public InventoryReference openInventoryContaining(HeadsUpDisplay hud, long itemId)
+            throws ReflectiveOperationException {
+        com.wurmonline.client.game.inventory.InventoryMetaWindowManager manager =
+                hud.getWorld().getInventoryManager();
+        Map<Long, com.wurmonline.client.game.inventory.InventoryMetaWindowView> windows =
+                ReflectionUtil.getPrivateField(manager,
+                        required(inventoryWindows, "inventory window lookup"));
+        for (com.wurmonline.client.game.inventory.InventoryMetaWindowView window : windows.values()) {
+            if (window == null || !window.contains(itemId)) continue;
+            return new InventoryReference(window.getWindowId(), window.getWindowName());
+        }
+        return null;
+    }
+
+    /**
+     * Finds an open non-player inventory whose server window or synthetic root
+     * represents the supplied world object. World-container roots deliberately
+     * carry incomplete item metadata, so their matching ID is the authoritative
+     * evidence that the server exposed an inventory for that object.
+     */
+    public InventoryReference openWorldInventory(HeadsUpDisplay hud, long objectId)
+            throws ReflectiveOperationException {
+        if (objectId <= 0L) return null;
+        com.wurmonline.client.game.inventory.InventoryMetaWindowManager manager =
+                hud.getWorld().getInventoryManager();
+        Map<Long, com.wurmonline.client.game.inventory.InventoryMetaWindowView> windows =
+                ReflectionUtil.getPrivateField(manager,
+                        required(inventoryWindows, "inventory window lookup"));
+        for (com.wurmonline.client.game.inventory.InventoryMetaWindowView window : windows.values()) {
+            if (window == null) continue;
+            InventoryMetaItem root = window.getRootItem();
+            if (window.getWindowId() == objectId
+                    || (root != null && root.getId() == objectId))
+                return new InventoryReference(window.getWindowId(), window.getWindowName());
+        }
+        return null;
+    }
+
     /** Live root used for bounded Smart Improve resource discovery. */
     public InventoryMetaItem playerInventoryRoot(HeadsUpDisplay hud) {
-        return hud.getWorld().getInventoryManager().getPlayerInventory().getRootItem();
+        InventoryMetaItem managerRoot = hud.getWorld().getInventoryManager()
+                .getPlayerInventory().getRootItem();
+        return managerRoot != null ? managerRoot
+                : KeybinderInventorySelectionBridge.playerInventoryRoot(hud);
     }
 
     private static InventoryMetaItem findInventoryItem(InventoryMetaItem root, long id) {
@@ -271,6 +315,16 @@ public final class ClientAccess {
 
     public boolean isPaperDollVisible(HeadsUpDisplay hud) throws ReflectiveOperationException {
         return ReflectionUtil.callPrivateMethod(hud, isComponentEnabled, paperDollComponent(hud));
+    }
+
+    public boolean isInventoryVisible(HeadsUpDisplay hud) throws ReflectiveOperationException {
+        com.wurmonline.client.renderer.gui.WurmComponent inventory = hud.getInventoryWindow();
+        return inventory != null && (Boolean) ReflectionUtil.callPrivateMethod(
+                hud, isComponentEnabled, inventory);
+    }
+
+    public void ensureInventoryVisible(HeadsUpDisplay hud) throws ReflectiveOperationException {
+        if (!isInventoryVisible(hud)) hud.toggleInventoryVisible();
     }
 
     public com.wurmonline.client.renderer.gui.WurmComponent toolbeltComponent(HeadsUpDisplay hud)

@@ -6,6 +6,7 @@ import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.StepKind;
+import org.keybinder.wurm.model.BulkTransferStep;
 
 /** Stable editor classification based only on the persisted step model. */
 public final class EditorStepType {
@@ -17,11 +18,13 @@ public final class EditorStepType {
         if (step instanceof SmartImproveStep) return 1;
         if (step instanceof ConsoleCommandStep) return 2;
         if (step == null || step instanceof ActionStep) return 3;
+        if (step instanceof BulkTransferStep) return 4;
         return -1;
     }
 
     public static boolean supportsCapture(StepKind kind) {
         return kind != null && kind != StepKind.CONSOLE_COMMAND
-                && kind != StepKind.VANILLA_ACTION;
+                && kind != StepKind.VANILLA_ACTION
+                && kind != StepKind.BULK_TRANSFER;
     }
 }

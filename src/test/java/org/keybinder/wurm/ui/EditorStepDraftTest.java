@@ -9,6 +9,10 @@ import org.keybinder.wurm.model.ItemSelectorKind;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.StepKind;
 import org.keybinder.wurm.model.TargetKind;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.model.InventoryReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -56,6 +60,22 @@ public class EditorStepDraftTest {
 
         assertTrue(step instanceof ActionStep);
         assertEquals(TargetKind.HOVER, ((ActionStep) step).getTarget().getKind());
+    }
+
+    @Test public void bulkSnapshotKeepsExactIdsAndArbitraryQuantity() {
+        BulkTransferStep step = (BulkTransferStep) new EditorStepDraft(
+                StepKind.BULK_TRANSFER, "", "", ItemSelector.currentActive(), "",
+                null, null,
+                new BulkStorageItem(
+                        new InventoryReference(101L, "bulk storage bin"),
+                        new InventoryReference(202L, "barley (100x)")),
+                "43", BulkDestinationKind.CAPTURED_INVENTORY,
+                new InventoryReference(303L, "small barrel")).toStep(null);
+
+        assertEquals(101L, step.getSource().getStorage().getId());
+        assertEquals(202L, step.getSource().getItem().getId());
+        assertEquals(43, step.getQuantity());
+        assertEquals(303L, step.getCapturedDestination().getId());
     }
 
     private static EditorStepDraft draft(

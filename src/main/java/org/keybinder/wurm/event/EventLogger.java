@@ -42,6 +42,17 @@ public final class EventLogger {
         if (debugEnabled)
             publish(Messages.text("event.prefix.debug", text), 0.65f, 0.65f, 0.65f);
     }
+    /** Always reaches the mod log; reaches Event only when Debug logging is enabled. */
+    public synchronized void diagnostic(String text) {
+        String line = "[Keybinder] [Debug] " + text;
+        logger.info(line);
+        if (debugEnabled && eventEnabled) {
+            if (hud == null) {
+                if (pending.size() == BUFFER_LIMIT) pending.removeFirst();
+                pending.addLast(line);
+            } else send(line, 0.65f, 0.65f, 0.65f);
+        }
+    }
     public synchronized void execution(String text) {
         if (executionEnabled) publish(text, 0.7f, 1f, 0.7f);
     }

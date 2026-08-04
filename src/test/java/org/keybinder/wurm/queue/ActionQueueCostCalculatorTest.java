@@ -10,6 +10,10 @@ import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.model.InventoryReference;
 
 import java.util.Arrays;
 
@@ -97,5 +101,19 @@ public class ActionQueueCostCalculatorTest {
         KeybindRecord record = new KeybindRecord("id", "Command", "R",
                 Arrays.<KeybindStep>asList(new ConsoleCommandStep("toggle inventory")));
         assertEquals(QueueCost.Kind.UNKNOWN, calculator.keybindCost(record).getKind());
+    }
+
+    @Test public void bulkInventoryMoveDoesNotConsumeActionQueue() {
+        BulkTransferStep transfer = new BulkTransferStep(new BulkStorageItem(
+                new InventoryReference(101L, "bulk storage bin"),
+                new InventoryReference(202L, "barley")), 1,
+                BulkDestinationKind.PLAYER_INVENTORY, null);
+        KeybindRecord record = new KeybindRecord("bulk", "Bulk", "B",
+                Arrays.<KeybindStep>asList(transfer));
+
+        QueueCost cost = calculator.keybindCost(record);
+
+        assertEquals(QueueCost.Kind.FIXED, cost.getKind());
+        assertEquals(0, cost.getValue());
     }
 }

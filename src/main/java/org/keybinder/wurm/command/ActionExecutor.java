@@ -12,6 +12,7 @@ import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.ActionSourceOverride;
+import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.catalog.VanillaPlayerActionCatalog;
 import org.keybinder.wurm.model.ActionStep;
@@ -31,6 +32,8 @@ public final class ActionExecutor {
     private final VanillaPlayerActionCatalog vanillaActions;
     private final PushSelectionRetention pushSelection;
     private final ActionSourceResolver sources;
+    private final InventoryFilterResolver inventoryFilters =
+            new InventoryFilterResolver();
 
     public ActionExecutor(ClientAccess access) {
         this(access, ActionExecutor::defaultActionName, new PushSelectionRetention());
@@ -110,7 +113,13 @@ public final class ActionExecutor {
         PlayerAction action = vanillaActions.resolveOrGeneric(id);
 
         switch (target.getKind()) {
-            case HOVER: hud.getWorld().sendHoveredAction(action); return;
+            case HOVER:
+                ExecutionHoverOverride.Snapshot hoverOverride =
+                        ExecutionHoverOverride.current();
+                if (hoverOverride != null && hoverOverride.getWorldObjectId() > 0L)
+                    sendObjectAction(action, hoverOverride.getWorldObjectId(), hud);
+                else hud.getWorld().sendHoveredAction(action);
+                return;
             case BODY:
                 InventoryMetaItem body = access.bodyItem(hud.getPaperDollInventory());
                 if (body == null) throw unavailable(Messages.text("unavailable.body"));
@@ -171,6 +180,13 @@ public final class ActionExecutor {
                 long[] hoverIds = new long[targetCount];
                 for (int i = 0; i < hoverIds.length; i++) hoverIds[i] = hoverMatches.ids.get(i);
                 hud.sendAction(action, hoverIds);
+                return;
+            case INVENTORY_FILTER:
+                InventoryMetaItem filtered = inventoryFilterItem(target, hud);
+                if (filtered == null)
+                    throw unavailable(Messages.text(
+                            "unavailable.inventory_filter", target.getText()));
+                sendObjectAction(action, filtered.getId(), hud);
                 return;
             case EXACT_OBJECT:
                 if (!exactObjectAvailable(target, hud))
@@ -368,6 +384,11 @@ public final class ActionExecutor {
             case HOVER_TYPE:
                 hoverTypeTargets(step, hud);
                 return;
+            case INVENTORY_FILTER:
+                if (inventoryFilterItem(target, hud) == null)
+                    throw unavailable(Messages.text(
+                            "unavailable.inventory_filter", target.getText()));
+                return;
             case EXACT_OBJECT:
                 if (!exactObjectAvailable(target, hud))
                     throw unavailable(Messages.text("unavailable.exact_object", exactName(target)));
@@ -394,6 +415,16 @@ public final class ActionExecutor {
                 hud.getWorld().getServerConnection().getServerConnectionListener();
         if (access.groundItems(listener).containsKey(id)) return true;
         return listener.getCreatures().containsKey(id);
+    }
+
+    private InventoryMetaItem inventoryFilterItem(TargetSpec target,
+                                                   HeadsUpDisplay hud) {
+        List<InventoryMetaItem> toolbelt = new ArrayList<InventoryMetaItem>(10);
+        if (hud.getToolBelt() != null)
+            for (int slot = 0; slot < 10; slot++)
+                toolbelt.add(hud.getToolBelt().getItemInSlot(slot));
+        return inventoryFilters.resolve(target.getText(), toolbelt,
+                access.playerInventoryRoot(hud));
     }
 
     private static CreatureCellRenderable currentRide(HeadsUpDisplay hud) {

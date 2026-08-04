@@ -2,27 +2,79 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.7.0 for Wurm Unlimited
+# Keybinder 0.7.1 for Wurm Unlimited
 
 ## One key, many actions
 
-Now with portable tools, better Multi-keybinds, and rebuilt Smart Improve.
+Now with bulk-storage transfers, portable inventory filters, per-character
+profiles, and rebuilt Smart Improve.
 
 [Read and discuss the Keybinder forum post on SKLOTOPOLIS](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder).
 
-Keybinder 0.7.0 is ready for testing.
+Keybinder 0.7.1 is ready for testing.
 
 Keybinder puts all your Wurm keybinds into one in-game window. You can capture
 an action, choose its tool and target, combine several actions into one key,
 and manage everything without writing console commands or editing configuration
 files.
 
-This release is a large update. You can now assign a specific tool to every
-step, Multi-keybinds are much easier to build and reorganize, keybinds can be
-imported and exported, and Smart Improve has been improved to get rid of its
-previous limitations.
+## What is new in 0.7.1?
 
-## What is new in 0.7.0?
+### Pick up from bulk
+
+Action chains can now take an exact item type from bulk storage and put a
+chosen quantity into another inventory. The source picker supports bulk storage
+bins, food storage bins, small and large crates, bulk container units, and bulk
+containers opened inside vehicles.
+
+Destinations can be:
+
+- player inventory;
+- the inventory window, container row, or world container under the pointer;
+- an exact captured inventory or container.
+
+Several bulk transfers can be used in one keybind and mixed with ordinary
+actions. Keybinder waits locally for each server quantity form, answers it, and
+then continues the chain in order.
+
+### Inventory + filter
+
+`Inventory + filter` stores only the portable item type, never a runtime item
+ID. At execution time Keybinder searches the toolbelt first, then the complete
+player inventory and backpack tree, including containers nested inside other
+containers.
+
+Materials and item-state adjectives are ignored where appropriate. For
+example, `kindling, oakenwood` matches `kindling`, and `salty water` matches
+`water`. This makes target-only actions such as Drink portable between
+containers and characters.
+
+### Per-character enabled state
+
+Each character can now enable and disable its own managed keybinds. The
+checkbox selection is saved with the account profile and restored when that
+character logs in without changing another alt's selection.
+
+### Smart Improve search order
+
+Smart Improve now searches the toolbelt before descending into inventory,
+backpack, and nested containers. Its material and tool matching remains strict,
+including protection against accidental premium-material use.
+
+### Reliability fixes
+
+- HUD Multi preserves the original hovered object while its selector owns and
+  moves the mouse pointer.
+- Player Inventory, modified inventory windows, container rows, ordinary
+  inventory rows, and world containers resolve consistently as bulk targets.
+- Bulk requests time out and release their local continuation instead of
+  leaving later keybind executions blocked indefinitely.
+- Known server rejection messages release pending bulk transfers immediately.
+- Drink is correctly treated as a target-only action with no Tool selector.
+- Action names captured from server and mod actions no longer regress to an
+  `Unknown action` placeholder.
+
+## What was new in 0.7.0?
 
 ### A separate Tool selector for every action
 
@@ -158,8 +210,8 @@ convenient.
 ## Installation and upgrade
 
 1. Disable the old **Custom Actions** and **i2improve** client mods.
-2. Download [Keybinder 0.7.0 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases).
-3. Extract `keybinder-0.7.0.zip` into your Wurm Unlimited client directory, as
+2. Download [Keybinder 0.7.1 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases).
+3. Extract `keybinder-0.7.1.zip` into your Wurm Unlimited client directory, as
    usual for Ago's Client Mod Launcher.
 4. When upgrading, overwrite the previous Keybinder files. Your managed
    bindings are stored separately and are not replaced by the distribution

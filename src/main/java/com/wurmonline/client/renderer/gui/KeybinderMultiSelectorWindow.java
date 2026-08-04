@@ -19,14 +19,19 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
     private final String recordId;
     private final Map<WButton, String> variants = new LinkedHashMap<WButton, String>();
     private final boolean hudSelection;
+    private final int originalMouseX;
+    private final int originalMouseY;
     private WButton activeButton;
     private boolean centered;
     private boolean warpAttempted;
 
-    public KeybinderMultiSelectorWindow(KeybindRecord record, boolean hudSelection) {
+    public KeybinderMultiSelectorWindow(KeybindRecord record, boolean hudSelection,
+                                        int originalMouseX, int originalMouseY) {
         super("keybinder.multi.selector", false);
         this.recordId = record.getId();
         this.hudSelection = hudSelection;
+        this.originalMouseX = originalMouseX;
+        this.originalMouseY = originalMouseY;
         setTitle(record.getName());
         resizable = false;
         WurmArrayPanel<FlexComponent> content =
@@ -101,4 +106,15 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
     public boolean selectsRecord(String id) {
         return id != null && id.equals(recordId);
     }
+
+    /** Restores the world/inventory hover displaced by the selector's pointer warp. */
+    public void restoreOriginalPointer() {
+        if (!hudSelection || !Mouse.isCreated() || !Mouse.isInsideWindow()) return;
+        CursorWarpCoordinates.Point point = CursorWarpCoordinates.fromGuiPoint(
+                originalMouseX, originalMouseY, Display.getWidth(), Display.getHeight());
+        Mouse.setCursorPosition(point.getX(), point.getY());
+    }
+
+    public int getOriginalMouseX() { return originalMouseX; }
+    public int getOriginalMouseY() { return originalMouseY; }
 }

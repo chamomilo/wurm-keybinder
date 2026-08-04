@@ -20,6 +20,7 @@ public class ObjectTypeNormalizerTest {
                 {"an angry black wolf", "black wolf"},
                 {"old oak tree stump", "tree stump"},
                 {"pinewood felled tree", "felled tree"},
+                {"salty water", "water"},
                 {"  THE   LARGE   RAT PELT  ", "large rat pelt"}
         });
     }

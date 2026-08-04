@@ -23,9 +23,15 @@ import org.keybinder.wurm.model.StepKind;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.integration.BulkInventoryDestinationPolicy;
+import org.keybinder.wurm.model.InventoryReference;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.ui.EditorOptionPresentation;
 import org.keybinder.wurm.ui.EditorStepDraft;
+import org.keybinder.wurm.ui.EditorActionNamePolicy;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.ui.EditorTargetValue;
 import org.keybinder.wurm.ui.EditorStepType;
@@ -57,7 +63,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private static final String[] BASE_TARGET_OPTIONS = {
             "hover", "body", "tool", "selected", "current ride", "tiles",
             "toolbelt", "equipment", "exact object", "nearby", "nearby by type",
-            "hover by type"
+            "hover by type", "inventory+filter"
     };
     private static final String[] SOURCE_OPTIONS = {
             "current-active", "empty-hand", "hovered-item",
@@ -66,7 +72,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private static final VanillaKeybindCatalog VANILLA_CATALOG = new VanillaKeybindCatalog();
     private static final VanillaCatalogStepFactory VANILLA_STEPS =
             new VanillaCatalogStepFactory();
-    private static final int VANILLA_TYPE_OFFSET = 4;
+    private static final int VANILLA_TYPE_OFFSET = 5;
     private static final String[] ACTIVATE_TARGET_OPTIONS = {
             "hand", "hover", "toolbelt", "equipment", "exact object"
     };
@@ -89,6 +95,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         options[1] = Messages.text("editor.step_type.improve");
         options[2] = Messages.text("editor.step_type.console");
         options[3] = Messages.text("editor.step_type.custom");
+        options[4] = Messages.text("editor.step_type.bulk_transfer");
         for (int i = 0; i < categories.size(); i++)
             options[VANILLA_TYPE_OFFSET + i] =
                     Messages.text("editor.step_type.vanilla", categories.get(i).getDisplayName());
@@ -140,6 +147,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private final WurmArrayPanel<FlexComponent> footerArea;
     private ActionRow pendingTargetRow;
     private ActionRow pendingSourceRow;
+    private ActionRow pendingBulkSourceRow;
+    private ActionRow pendingBulkDestinationRow;
     private ActionRow selectedRow;
     private ActionRow captureTargetRow;
     private int lastLayoutWidth = -1;
@@ -367,6 +376,14 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
         for (int i = 0; i < rows.size(); i++) {
             ActionRow row = rows.get(i);
+            if (button == row.bulkSourceButton) {
+                pendingTargetRow = null;
+                pendingSourceRow = null;
+                pendingBulkDestinationRow = null;
+                pendingBulkSourceRow = row;
+                controller.requestTargetSelection("bulk source");
+                return;
+            }
             if (button == row.capture) {
                 captureTargetRow = row;
                 if (row.kind() == StepKind.CUSTOM_ACTION) controller.beginCapture();
@@ -411,7 +428,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     private ActionRow ownerOf(WButton button) {
         for (ActionRow row : rows)
-            if (button == row.add || button == row.remove || button == row.capture) return row;
+            if (button == row.add || button == row.remove || button == row.capture
+                    || button == row.bulkSourceButton) return row;
         return null;
     }
 
@@ -422,7 +440,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             // Hover token when both clicks happen between two ticks.
             updateEditorState();
             applyCompletedTargetSelection(false);
-            if (pendingSourceRow != null || pendingTargetRow != null)
+            applyCompletedBulkSelections(false);
+            if (pendingSourceRow != null || pendingTargetRow != null
+                    || pendingBulkSourceRow != null || pendingBulkDestinationRow != null)
                 throw new IllegalArgumentException(Messages.text("validation.selection_pending"));
             List<KeybindVariant> variants = new ArrayList<KeybindVariant>();
             for (VariantZone zone : zones) variants.add(zone.toVariant());
@@ -472,6 +492,45 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 row.zone.updateActionLimit();
             }
             row.updateActionName();
+            if (row.kind() == StepKind.BULK_TRANSFER) {
+                int destinationValue = row.bulkDestination.getValue();
+                if (destinationValue != row.lastBulkDestinationValue) {
+                    selectedRow = row;
+                    row.lastBulkDestinationValue = destinationValue;
+                    if (!(row.hasCapturedBulkDestination && destinationValue == 0)) {
+                        int baseIndex = row.hasCapturedBulkDestination
+                                ? destinationValue - 1 : destinationValue;
+                        if (baseIndex == 0) {
+                            boolean removeCapturedOption = row.hasCapturedBulkDestination;
+                            if (pendingBulkDestinationRow == row) {
+                                pendingBulkDestinationRow = null;
+                                controller.cancelTargetSelection();
+                            }
+                            row.bulkDestinationKind = BulkDestinationKind.PLAYER_INVENTORY;
+                            row.capturedBulkDestination = null;
+                            if (removeCapturedOption)
+                                KeybinderMod.deferUi(row::refreshBulkDestination);
+                        } else if (baseIndex == 1) {
+                            boolean removeCapturedOption = row.hasCapturedBulkDestination;
+                            if (pendingBulkDestinationRow == row) {
+                                pendingBulkDestinationRow = null;
+                                controller.cancelTargetSelection();
+                            }
+                            row.bulkDestinationKind = BulkDestinationKind.HOVERED_INVENTORY;
+                            row.capturedBulkDestination = null;
+                            if (removeCapturedOption)
+                                KeybinderMod.deferUi(row::refreshBulkDestination);
+                        } else if (baseIndex == 2) {
+                            pendingTargetRow = null;
+                            pendingSourceRow = null;
+                            pendingBulkSourceRow = null;
+                            pendingBulkDestinationRow = row;
+                            controller.requestTargetSelection("bulk destination");
+                        }
+                    }
+                }
+                continue;
+            }
             if (row.usesActionSource()) {
                 int sourceValue = row.source.getValue();
                 if (sourceValue != row.lastSourceValue) {
@@ -525,18 +584,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if ("toolbelt".equals(selected) || "equipment".equals(selected)
                     || "tiles".equals(selected) || "exact object".equals(selected)
                     || "nearby by type".equals(selected)
-                    || "hover by type".equals(selected)) {
+                    || "hover by type".equals(selected)
+                    || "inventory+filter".equals(selected)) {
                 pendingSourceRow = null;
                 pendingTargetRow = row;
-                if ("toolbelt".equals(selected)) {
-                    // A concrete @tbN value belongs only to the completed
-                    // one-shot selection. Clear it before every new request so
-                    // choosing "Toolbelt slot..." again cannot silently retain
-                    // and compile the previously selected slot. Keep the menu
-                    // selection visible while the click capture is pending,
-                    // but use a valid unresolved model token for previews.
-                    row.selectedTarget = "unresolved";
-                }
+                // A concrete target belongs only to the completed one-shot
+                // selection. Clear it before every picker so Save can never
+                // retain an old exact object/slot/type if the new capture has
+                // not yet been applied. The dropdown itself remains visible.
+                row.selectedTarget = "unresolved";
                 controller.requestTargetSelection(selected);
             } else {
                 row.selectedTarget = selected;
@@ -546,12 +602,29 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         if (selected != null && (pendingTargetRow != null || pendingSourceRow != null)) {
             applyCompletedTargetSelection(selected, true);
         }
+        BulkStorageItem bulkSource = controller.consumeSelectedBulkSource();
+        if (bulkSource != null && pendingBulkSourceRow != null) {
+            ActionRow row = pendingBulkSourceRow;
+            pendingBulkSourceRow = null;
+            row.selectedBulkSource = bulkSource;
+            KeybinderMod.deferUi(row::refreshBulkSource);
+        }
+        InventoryReference bulkDestination = controller.consumeSelectedBulkDestination();
+        if (bulkDestination != null && pendingBulkDestinationRow != null) {
+            ActionRow row = pendingBulkDestinationRow;
+            pendingBulkDestinationRow = null;
+            row.bulkDestinationKind = BulkDestinationKind.CAPTURED_INVENTORY;
+            row.capturedBulkDestination = bulkDestination;
+            KeybinderMod.deferUi(row::refreshBulkDestination);
+        }
     }
 
     private void extractVariant(VariantZone extracted) {
         try {
             applyCompletedTargetSelection(false);
-            if (pendingSourceRow != null || pendingTargetRow != null)
+            applyCompletedBulkSelections(false);
+            if (pendingSourceRow != null || pendingTargetRow != null
+                    || pendingBulkSourceRow != null || pendingBulkDestinationRow != null)
                 throw new IllegalArgumentException(Messages.text("validation.selection_pending"));
             if (extracted.defaultZone || zones.size() <= 1) return;
             List<KeybindVariant> variants = new ArrayList<KeybindVariant>();
@@ -600,6 +673,24 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         // but Save must never observe the old target in the intervening frame.
         targetRow.selectedTarget = selected;
         if (rebuild) KeybinderMod.deferUi(targetRow::refreshSelectedTarget);
+    }
+
+    private void applyCompletedBulkSelections(boolean rebuild) {
+        BulkStorageItem source = controller.consumeSelectedBulkSource();
+        if (source != null && pendingBulkSourceRow != null) {
+            ActionRow row = pendingBulkSourceRow;
+            pendingBulkSourceRow = null;
+            row.selectedBulkSource = source;
+            if (rebuild) KeybinderMod.deferUi(row::refreshBulkSource);
+        }
+        InventoryReference destination = controller.consumeSelectedBulkDestination();
+        if (destination != null && pendingBulkDestinationRow != null) {
+            ActionRow row = pendingBulkDestinationRow;
+            pendingBulkDestinationRow = null;
+            row.bulkDestinationKind = BulkDestinationKind.CAPTURED_INVENTORY;
+            row.capturedBulkDestination = destination;
+            if (rebuild) KeybinderMod.deferUi(row::refreshBulkDestination);
+        }
     }
 
     @Override
@@ -1153,7 +1244,25 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 KeybinderGlyphButton.Kind.RECORD_DOT, KeybinderEditorWindow.this,
                 Messages.text("editor.capture_step"));
         private final WurmLabel captureGap = horizontalSpacer(CAPTURE_WIDTH);
+        private final WButton bulkSourceButton = new WButton(
+                Messages.text("editor.bulk.select_item"), KeybinderEditorWindow.this);
+        private final WurmInputField bulkQuantity = new WurmInputField(
+                "keybinder.bulk.quantity", KeybinderEditorWindow.this);
+        private final WurmArrayPanel<FlexComponent> bulkQuantityPanel =
+                new WurmArrayPanel<>("keybinder.bulk.quantity.panel",
+                        WurmArrayPanel.DIR_HORIZONTAL);
+        private final WurmLabel bulkQuantityLabel =
+                new WurmLabel(Messages.text("editor.bulk.quantity"));
+        private WurmDropDown bulkDestination;
+        private int lastBulkDestinationValue;
+        private boolean hasCapturedBulkDestination;
+        private BulkStorageItem selectedBulkSource;
+        private BulkDestinationKind bulkDestinationKind =
+                BulkDestinationKind.PLAYER_INVENTORY;
+        private InventoryReference capturedBulkDestination;
         private String actionIdValue = "";
+        private short rememberedActionNameId;
+        private String rememberedActionName = "";
         private final WurmInputField command =
                 new WurmInputField("keybinder.command.value", KeybinderEditorWindow.this);
         private final SelectableActionLabel actionName;
@@ -1189,14 +1298,33 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             controls.addComponent(remove);
             command.prompt = "";
             command.setMaxInput(KeybindLimits.MAX_COMMAND_LENGTH);
-            if (step instanceof ActionStep)
+            if (step instanceof ActionStep) {
                 actionIdValue = String.valueOf(((ActionStep) step).getActionId());
+                rememberActionName((ActionStep) step);
+            }
             selectedSource = step instanceof ActionStep
                     ? ((ActionStep) step).getSource() : ItemSelector.currentActive();
             createSource();
             if (step instanceof ConsoleCommandStep)
                 command.setText(((ConsoleCommandStep) step).getCommand());
             else command.setText("");
+            bulkQuantity.prompt = "";
+            bulkQuantity.setMaxInput(10);
+            bulkQuantity.setText(step instanceof BulkTransferStep
+                    ? Integer.toString(((BulkTransferStep) step).getQuantity()) : "1");
+            bulkQuantityPanel.componentWidthOffset = 4;
+            bulkQuantityPanel.addComponent(bulkQuantityLabel);
+            bulkQuantityPanel.addComponent(bulkQuantity);
+            if (step instanceof BulkTransferStep) {
+                BulkTransferStep bulk = (BulkTransferStep) step;
+                selectedBulkSource = BulkStorageItem.copyOf(bulk.getSource());
+                bulkDestinationKind = bulk.getDestinationKind() == null
+                        ? BulkDestinationKind.PLAYER_INVENTORY : bulk.getDestinationKind();
+                capturedBulkDestination = InventoryReference.copyOf(
+                        bulk.getCapturedDestination());
+            }
+            refreshBulkSourceLabel();
+            createBulkDestination();
             createVanillaAction(selectedVanillaCommand);
             selectedTarget = step instanceof ActionStep
                     ? TargetCodec.encode(((ActionStep) step).getTarget())
@@ -1265,6 +1393,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private boolean usesActionTarget() {
             if (isVanilla()) return vanillaUsesTarget();
+            if (kind() == StepKind.BULK_TRANSFER) return false;
             if (kind() != StepKind.CUSTOM_ACTION) return kind() != StepKind.CONSOLE_COMMAND;
             try {
                 int value = Integer.parseInt(actionIdValue.trim());
@@ -1315,6 +1444,61 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             target = new SelectableTargetDropDown(this, lastDropdownValue, options);
         }
 
+        private void createBulkDestination() {
+            String[] base = {
+                    Messages.text("editor.bulk.destination.player"),
+                    Messages.text("editor.bulk.destination.hovered"),
+                    Messages.text("editor.bulk.destination.captured")
+            };
+            hasCapturedBulkDestination = bulkDestinationKind
+                    == BulkDestinationKind.CAPTURED_INVENTORY
+                    && capturedBulkDestination != null
+                    && BulkInventoryDestinationPolicy.isValid(
+                    capturedBulkDestination.getId());
+            String[] options = new String[base.length
+                    + (hasCapturedBulkDestination ? 1 : 0)];
+            int offset = hasCapturedBulkDestination ? 1 : 0;
+            if (hasCapturedBulkDestination)
+                options[0] = Messages.text("editor.bulk.destination.selected",
+                        capturedBulkDestination.getName(), capturedBulkDestination.getId());
+            System.arraycopy(base, 0, options, offset, base.length);
+            int selected = hasCapturedBulkDestination ? 0
+                    : bulkDestinationKind == BulkDestinationKind.HOVERED_INVENTORY ? 1 : 0;
+            bulkDestination = new WurmDropDown(
+                    "keybinder.bulk.destination", selected, options);
+            lastBulkDestinationValue = selected;
+        }
+
+        private void refreshBulkSourceLabel() {
+            if (selectedBulkSource == null || selectedBulkSource.getItem() == null
+                    || selectedBulkSource.getStorage() == null) {
+                bulkSourceButton.setLabel(Messages.text("editor.bulk.select_item"));
+                bulkSourceButton.setHoverString(Messages.text("editor.help.bulk"));
+                return;
+            }
+            bulkSourceButton.setLabel(Messages.text("editor.bulk.source.selected",
+                    selectedBulkSource.getItem().getName()));
+            bulkSourceButton.setHoverString(Messages.text("editor.bulk.source.details",
+                    selectedBulkSource.getItem().getName(),
+                    selectedBulkSource.getItem().getId(),
+                    selectedBulkSource.getStorage().getName(),
+                    selectedBulkSource.getStorage().getId()));
+        }
+
+        private void refreshBulkSource() {
+            refreshBulkSourceLabel();
+            rebuildPanel();
+            applyActionLayout(Math.max(300, width - WINDOW_CHROME));
+            zone.updateActionLimit();
+        }
+
+        private void refreshBulkDestination() {
+            createBulkDestination();
+            rebuildPanel();
+            applyActionLayout(Math.max(300, width - WINDOW_CHROME));
+            zone.updateActionLimit();
+        }
+
         private void createSource() {
             hasConcreteSource = selectedSource.getKind()
                     == org.keybinder.wurm.model.ItemSelectorKind.TOOLBELT_SLOT
@@ -1342,6 +1526,14 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             panel.addComponent(EditorStepType.supportsCapture(kind()) ? capture : captureGap);
             if (kind() == StepKind.CONSOLE_COMMAND) {
                 panel.addComponent(command);
+                return;
+            }
+            if (kind() == StepKind.BULK_TRANSFER) {
+                panel.addComponent(bulkSourceButton);
+                panel.addComponent(sourceSeparator);
+                panel.addComponent(bulkQuantityPanel);
+                panel.addComponent(targetSeparator);
+                panel.addComponent(bulkDestination);
                 return;
             }
             if (isVanilla()) {
@@ -1388,6 +1580,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private void setActionStep(ActionStep step) {
             actionIdValue = String.valueOf(step.getActionId());
+            rememberActionName(step);
             lastIdText = null;
             // Capture identifies the action the player performed. It must not
             // replace an explicit portable target already chosen in the editor.
@@ -1409,6 +1602,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 return;
             }
             if (kind() == StepKind.CONSOLE_COMMAND) return;
+            if (kind() == StepKind.BULK_TRANSFER) return;
             if (isVanilla()) return;
             String value = actionIdValue.trim();
             if (value.equals(lastIdText)) return;
@@ -1422,11 +1616,21 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 if (parsed < Short.MIN_VALUE || parsed > Short.MAX_VALUE)
                     actionName.setLabel(Messages.text("editor.invalid_id"));
                 else
-                    actionName.setLabel(nonEmpty(controller.getActionName((short) parsed),
+                    actionName.setLabel(nonEmpty(resolveActionName((short) parsed),
                             Messages.text("editor.unknown_action", parsed)));
             } catch (NumberFormatException e) {
                 actionName.setLabel(Messages.text("editor.invalid_id"));
             }
+        }
+
+        private void rememberActionName(ActionStep step) {
+            rememberedActionNameId = step.getActionId();
+            rememberedActionName = step.getLastKnownName();
+        }
+
+        private String resolveActionName(short actionId) {
+            return EditorActionNamePolicy.resolve(actionId, rememberedActionNameId,
+                    rememberedActionName, id -> controller.getActionName(id));
         }
 
         private void resize(int contentWidth) {
@@ -1438,6 +1642,23 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
                 command.setSize(commandWidth, command.height);
+                capture.setEnabled(false);
+                updateControlStates();
+                panel.componentResized();
+                return;
+            }
+            if (kind() == StepKind.BULK_TRANSFER) {
+                int[] columns = actionColumnWidths(contentWidth, controls.width);
+                controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
+                captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
+                bulkSourceButton.setSize(columns[0], bulkSourceButton.height);
+                sourceSeparator.setSize(SEPARATOR_WIDTH, sourceSeparator.height);
+                bulkQuantityPanel.setSize(columns[1], bulkQuantityPanel.height);
+                int quantityWidth = Math.max(32, columns[1] - bulkQuantityLabel.width - 4);
+                bulkQuantity.setSize(quantityWidth, bulkQuantity.height);
+                bulkQuantityPanel.componentResized();
+                targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
+                bulkDestination.setSize(columns[2], bulkDestination.height);
                 capture.setEnabled(false);
                 updateControlStates();
                 panel.componentResized();
@@ -1515,8 +1736,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private KeybindStep toStep() {
             EditorStepDraft draft = new EditorStepDraft(kind(), actionIdValue,
                     command.getText(), selectedSource, selectedTarget,
-                    vanillaCategory(), vanillaEntry());
-            return draft.toStep(actionId -> controller.getActionName(actionId));
+                    vanillaCategory(), vanillaEntry(), selectedBulkSource,
+                    bulkQuantity.getText(), bulkDestinationKind,
+                    capturedBulkDestination);
+            return draft.toStep(actionId -> resolveActionName(actionId));
         }
 
         private StepKind kind() {
@@ -1525,6 +1748,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 case 1: return StepKind.SMART_IMPROVE;
                 case 2: return StepKind.CONSOLE_COMMAND;
                 case 3: return StepKind.CUSTOM_ACTION;
+                case 4: return StepKind.BULK_TRANSFER;
                 default: return StepKind.VANILLA_ACTION;
             }
         }
@@ -1540,12 +1764,23 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private void resetForType() {
             controller.cancelCapture();
             controller.cancelTargetSelection();
+            if (pendingTargetRow == this) pendingTargetRow = null;
+            if (pendingSourceRow == this) pendingSourceRow = null;
+            if (pendingBulkSourceRow == this) pendingBulkSourceRow = null;
+            if (pendingBulkDestinationRow == this) pendingBulkDestinationRow = null;
             selectedTarget = baseTargetOptions()[0];
             selectedSource = ItemSelector.currentActive();
+            selectedBulkSource = null;
+            rememberedActionName = "";
+            bulkDestinationKind = BulkDestinationKind.PLAYER_INVENTORY;
+            capturedBulkDestination = null;
+            bulkQuantity.setText("1");
             lastIdText = null;
             createVanillaAction(null);
             createTarget();
             createSource();
+            refreshBulkSourceLabel();
+            createBulkDestination();
             updateActionName();
             updateHelpText();
         }
@@ -1558,6 +1793,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 text = Messages.text("editor.help.improve");
             } else if (kind() == StepKind.CONSOLE_COMMAND) {
                 text = Messages.text("editor.help.console");
+            } else if (kind() == StepKind.BULK_TRANSFER) {
+                text = Messages.text("editor.help.bulk");
             } else if (isVanilla()) {
                 text = Messages.text("editor.help.vanilla", vanillaCategory().getDisplayName());
                 if (usesActionSource())

@@ -8,6 +8,10 @@ import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.model.VanillaActionStep;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkQuantityLimit;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.integration.BulkInventoryDestinationPolicy;
 
 import java.util.List;
 
@@ -94,6 +98,9 @@ public final class KeybindValidator {
             throw new IllegalArgumentException(Messages.text("validation.steps_too_many",
                     KeybindLimits.MAX_STEPS_PER_VARIANT));
         for (KeybindStep step : steps) {
+            if (step instanceof BulkTransferStep) {
+                validateBulk((BulkTransferStep) step);
+            }
             String command = step instanceof ConsoleCommandStep
                     ? ((ConsoleCommandStep) step).getCommand()
                     : step instanceof VanillaActionStep
@@ -102,6 +109,28 @@ public final class KeybindValidator {
                 throw new IllegalArgumentException(Messages.text("validation.command_too_long",
                         KeybindLimits.MAX_COMMAND_LENGTH));
         }
+    }
+
+    private static void validateBulk(BulkTransferStep step) {
+        if (step.getSource() == null || step.getSource().getStorage() == null
+                || step.getSource().getItem() == null
+                || step.getSource().getStorage().getId() <= 0L
+                || step.getSource().getItem().getId() <= 0L)
+            throw new IllegalArgumentException(Messages.text("validation.bulk_source_missing"));
+        int maximum = BulkQuantityLimit.capturedMaximum(step.getSource());
+        if (!BulkQuantityLimit.accepts(step.getSource(), step.getQuantity()))
+            throw new IllegalArgumentException(Messages.text(
+                    "validation.bulk_quantity_range", maximum,
+                    step.getSource().getItem().getName()));
+        if (step.getDestinationKind() == null)
+            throw new IllegalArgumentException(Messages.text(
+                    "validation.bulk_destination_missing"));
+        if (step.getDestinationKind() == BulkDestinationKind.CAPTURED_INVENTORY
+                && (step.getCapturedDestination() == null
+                || !BulkInventoryDestinationPolicy.isValid(
+                step.getCapturedDestination().getId())))
+            throw new IllegalArgumentException(Messages.text(
+                    "validation.bulk_destination_missing"));
     }
 
     private static void requireLength(String value, int maximum, String message) {

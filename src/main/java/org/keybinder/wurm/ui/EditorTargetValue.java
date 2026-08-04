@@ -2,6 +2,7 @@ package org.keybinder.wurm.ui;
 
 import org.keybinder.wurm.command.ExactObjectTarget;
 import org.keybinder.wurm.command.NearbyTypeTarget;
+import org.keybinder.wurm.command.InventoryFilterTarget;
 
 /** Identifies editor target tokens that carry a resolved parameter or capture. */
 public final class EditorTargetValue {
@@ -12,6 +13,7 @@ public final class EditorTargetValue {
                 || target.startsWith("@nearby")
                 || ExactObjectTarget.isExact(target)
                 || NearbyTypeTarget.isNearbyType(target)
+                || InventoryFilterTarget.isInventoryFilter(target)
                 || target.startsWith("hover-type ")
                 || target.equals("tile") || target.startsWith("tile_")
                 || target.equals("area"));

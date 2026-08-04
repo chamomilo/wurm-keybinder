@@ -17,4 +17,11 @@ public class CursorWarpCoordinatesTest {
         assertEquals(99, point.getX());
         assertEquals(79, point.getY());
     }
+
+    @Test public void restoresAnExactGuiPointAndInvertsY() {
+        CursorWarpCoordinates.Point point = CursorWarpCoordinates.fromGuiPoint(
+                73, 19, 100, 80);
+        assertEquals(73, point.getX());
+        assertEquals(61, point.getY());
+    }
 }

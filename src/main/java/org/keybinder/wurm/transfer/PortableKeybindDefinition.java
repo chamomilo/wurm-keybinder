@@ -12,6 +12,7 @@ import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
+import org.keybinder.wurm.model.BulkTransferStep;
 
 /** Runtime-identity-free definition stored in a .keybinder bundle. */
 public final class PortableKeybindDefinition {
@@ -86,6 +87,7 @@ public final class PortableKeybindDefinition {
                 else if (step instanceof SmartImproveStep
                         && ((SmartImproveStep) step).getTarget().getKind()
                         == TargetKind.EXACT_OBJECT) return true;
+                else if (step instanceof BulkTransferStep) return true;
             }
         return false;
     }

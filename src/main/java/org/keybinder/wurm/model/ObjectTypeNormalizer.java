@@ -19,6 +19,8 @@ public final class ObjectTypeNormalizer {
             "orangewood", "iron", "steel", "copper", "tin", "lead", "silver",
             "gold", "zinc", "brass", "bronze", "adamantine", "glimmersteel",
             "seryll", "stone", "slate", "marble", "sandstone"));
+    private static final Set<String> ITEM_STATE_MODIFIERS =
+            new HashSet<String>(Arrays.asList("salty"));
 
     private ObjectTypeNormalizer() { }
 
@@ -35,7 +37,9 @@ public final class ObjectTypeNormalizer {
         String[] words = value.split(" ");
         int first = 0;
         while (first < words.length - 1
-                && (CREATURE_MODIFIERS.contains(words[first]) || MATERIALS.contains(words[first])))
+                && (CREATURE_MODIFIERS.contains(words[first])
+                || ITEM_STATE_MODIFIERS.contains(words[first])
+                || MATERIALS.contains(words[first])))
             first++;
         int last = words.length;
         while (last - first > 1 && MATERIALS.contains(words[last - 1])) last--;

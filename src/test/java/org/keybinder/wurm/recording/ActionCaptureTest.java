@@ -21,6 +21,7 @@ public class ActionCaptureTest {
 
         ActionStep step = capture.poll();
         assertEquals(PlayerAction.EXAMINE.getId(), step.getActionId());
+        assertEquals(PlayerAction.EXAMINE.getName(), step.getLastKnownName());
         assertEquals(TargetKind.TILE, step.getTarget().getKind());
         assertFalse(capture.isArmed());
         assertNull(capture.poll());

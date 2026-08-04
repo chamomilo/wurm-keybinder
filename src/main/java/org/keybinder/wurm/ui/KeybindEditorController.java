@@ -5,6 +5,8 @@ import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.model.ConflictResolution;
 import org.keybinder.wurm.queue.QueueCost;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.InventoryReference;
 
 import java.util.List;
 
@@ -30,5 +32,7 @@ public interface KeybindEditorController {
     void requestTargetSelection(String kind);
     void cancelTargetSelection();
     String consumeSelectedTarget();
+    BulkStorageItem consumeSelectedBulkSource();
+    InventoryReference consumeSelectedBulkDestination();
     void closeEditor();
 }

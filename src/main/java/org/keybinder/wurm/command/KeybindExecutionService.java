@@ -18,24 +18,22 @@ import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.ItemSelectorKind;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.VanillaActionStep;
+import org.keybinder.wurm.model.BulkTransferStep;
 import org.keybinder.wurm.integration.ExecutionOriginGuard;
+import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.queue.QueueCapacityPreflight;
 
-import java.util.HashSet;
-import java.util.Set;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntSupplier;
 
 public final class KeybindExecutionService {
-    private static final ThreadLocal<Set<String>> ACTIVE = new ThreadLocal<Set<String>>() {
-        @Override protected Set<String> initialValue() { return new HashSet<String>(); }
-    };
-
     private final ActionExecutor actions;
     private final SmartImproveExecutor improve;
     private final ClientAccess access;
     private final EventLogger log;
+    private final BulkTransferExecutor bulk;
+    private String activeRecordId;
 
     public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log) {
         this(actions, access, log, new WorldImproveTracker());
@@ -43,10 +41,17 @@ public final class KeybindExecutionService {
 
     public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log,
                                    WorldImproveTracker worldImprove) {
+        this(actions, access, log, worldImprove, new BulkTransferCoordinator(log));
+    }
+
+    public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log,
+                                   WorldImproveTracker worldImprove,
+                                   BulkTransferCoordinator bulkCoordinator) {
         this.actions = actions;
         this.improve = new SmartImproveExecutor(access, log, worldImprove);
         this.access = access;
         this.log = log;
+        this.bulk = new BulkTransferExecutor(access, log, bulkCoordinator);
     }
 
     public void execute(KeybindRecord record, HeadsUpDisplay hud, int queueLimit)
@@ -57,15 +62,27 @@ public final class KeybindExecutionService {
     public void execute(KeybindRecord record, HeadsUpDisplay hud, int queueLimit,
                         IntSupplier occupiedQueueSlots)
             throws ReflectiveOperationException {
-        if (!ACTIVE.get().add(record.getId()))
+        execute(record, hud, queueLimit, occupiedQueueSlots, null);
+    }
+
+    public void execute(KeybindRecord record, HeadsUpDisplay hud, int queueLimit,
+                        IntSupplier occupiedQueueSlots,
+                        ExecutionHoverOverride.Snapshot hoverSnapshot)
+            throws ReflectiveOperationException {
+        if (!beginExecution(record.getId()))
             throw new IllegalStateException(
-                    Messages.text("execution.recursive", record.getName()));
+                    Messages.text("execution.sequence_pending", record.getName()));
+        boolean waitingForBulk = false;
         try {
             int occupied = occupiedQueueSlots == null ? 0
                     : Math.max(0, occupiedQueueSlots.getAsInt());
             int free = Math.max(0, queueLimit - occupied);
-            ExecutionPlan plan = planWithinQueue(record.getKeybindSteps(), hud, free,
-                    queueLimit, occupiedQueueSlots);
+            ExecutionPlan plan;
+            try (ExecutionHoverOverride.Scope ignored =
+                         ExecutionHoverOverride.push(hoverSnapshot)) {
+                plan = planWithinQueue(record.getKeybindSteps(), hud, free,
+                        queueLimit, occupiedQueueSlots);
+            }
             for (ExecutionPlan.Entry entry : plan.getEntries()) {
                 if (!entry.isSkipped()) continue;
                 Throwable failure = entry.getSkippedBy();
@@ -75,14 +92,59 @@ public final class KeybindExecutionService {
                 else log.error(message, failure);
             }
             QueueCapacityPreflight.requireFits(plan.getQueueCost(), queueLimit, occupied);
+            waitingForBulk = new ExecutionSequence(
+                    record.getId(), hud, plan, hoverSnapshot).runFrom(0);
+        } finally {
+            if (!waitingForBulk) finishExecution(record.getId());
+        }
+    }
 
+    private synchronized boolean beginExecution(String recordId) {
+        if (activeRecordId != null) return false;
+        activeRecordId = recordId;
+        return true;
+    }
+
+    private synchronized void finishExecution(String recordId) {
+        if (activeRecordId == null || !activeRecordId.equals(recordId)) return;
+        improve.clearPrepared();
+        bulk.clearPrepared();
+        activeRecordId = null;
+    }
+
+    /** Executes until the next asynchronous bulk handshake, then resumes in-order. */
+    private final class ExecutionSequence {
+        private final String recordId;
+        private final HeadsUpDisplay hud;
+        private final ExecutionPlan plan;
+        private final ExecutionHoverOverride.Snapshot hoverSnapshot;
+
+        private ExecutionSequence(String recordId, HeadsUpDisplay hud,
+                                  ExecutionPlan plan,
+                                  ExecutionHoverOverride.Snapshot hoverSnapshot) {
+            this.recordId = recordId;
+            this.hud = hud;
+            this.plan = plan;
+            this.hoverSnapshot = hoverSnapshot;
+        }
+
+        private boolean runFrom(int position) {
             ExecutionOriginGuard.enterInternal();
-            try {
-                for (ExecutionPlan.Entry entry : plan.getEntries()) {
+            try (ExecutionHoverOverride.Scope ignored =
+                         ExecutionHoverOverride.push(hoverSnapshot)) {
+                List<ExecutionPlan.Entry> entries = plan.getEntries();
+                for (int current = position; current < entries.size(); current++) {
+                    ExecutionPlan.Entry entry = entries.get(current);
                     if (entry.isSkipped()) continue;
                     int index = entry.getIndex();
                     KeybindStep step = entry.getStep();
                     try {
+                        if (step instanceof BulkTransferStep) {
+                            final int resumeAt = current + 1;
+                            bulk.execute((BulkTransferStep) step, hud,
+                                    proceed -> continueAfterBulk(resumeAt, proceed));
+                            return true;
+                        }
                         executeStep(step, hud, entry.getQueueCost());
                     } catch (StepUnavailableException unavailable) {
                         log.warning(skipMessage(index, step, unavailable.getMessage()));
@@ -92,13 +154,21 @@ public final class KeybindExecutionService {
                         log.error(skipMessage(index, step, safeMessage(failure)), failure);
                     }
                 }
+                return false;
             } finally {
                 ExecutionOriginGuard.exitInternal();
             }
-        } finally {
-            improve.clearPrepared();
-            ACTIVE.get().remove(record.getId());
-            if (ACTIVE.get().isEmpty()) ACTIVE.remove();
+        }
+
+        private void continueAfterBulk(int position, boolean proceed) {
+            boolean waitingAgain = false;
+            try {
+                if (proceed) waitingAgain = runFrom(position);
+            } catch (RuntimeException failure) {
+                log.error(Messages.text("error.bulk_continuation"), failure);
+            } finally {
+                if (!waitingAgain) finishExecution(recordId);
+            }
         }
     }
 
@@ -195,6 +265,8 @@ public final class KeybindExecutionService {
             return actions.runtimeQueueCost((ActionStep) step, hud);
         if (step instanceof SmartImproveStep)
             return improve.runtimeCost((SmartImproveStep) step, hud);
+        if (step instanceof BulkTransferStep)
+            return bulk.prepare((BulkTransferStep) step, hud);
         if (step instanceof ActivateToolStep) {
             if (((ActivateToolStep) step).getTarget().getKind() != TargetKind.HOVER)
                 resolveActivateItem((ActivateToolStep) step, hud);
@@ -211,6 +283,8 @@ public final class KeybindExecutionService {
             activate((ActivateToolStep) step, hud);
         } else if (step instanceof SmartImproveStep) {
             improve.execute((SmartImproveStep) step, hud);
+        } else if (step instanceof BulkTransferStep) {
+            bulk.execute((BulkTransferStep) step, hud);
         } else if (step instanceof VanillaActionStep) {
             executeVanilla((VanillaActionStep) step, hud);
         } else if (step instanceof ConsoleCommandStep) {
@@ -306,6 +380,13 @@ public final class KeybindExecutionService {
         if (step instanceof SmartImproveStep)
             return Messages.text("event.describe_improve",
                     TargetCodec.display(((SmartImproveStep) step).getTarget()));
+        if (step instanceof BulkTransferStep) {
+            BulkTransferStep transfer = (BulkTransferStep) step;
+            String item = transfer.getSource() == null || transfer.getSource().getItem() == null
+                    ? "?" : transfer.getSource().getItem().getName();
+            return Messages.text("event.describe_bulk", transfer.getQuantity(), item,
+                    transfer.getDestinationKind());
+        }
         if (step instanceof ConsoleCommandStep)
             return Messages.text("event.describe_console");
         if (step instanceof VanillaActionStep)

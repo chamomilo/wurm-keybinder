@@ -14,6 +14,7 @@ public enum TargetKind {
     NEARBY_RADIUS,
     NEARBY_TYPE,
     HOVER_TYPE,
+    INVENTORY_FILTER,
     EXACT_OBJECT,
     CURRENT_RIDE,
     EMPTY_HAND,

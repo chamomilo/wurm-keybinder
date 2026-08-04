@@ -26,7 +26,8 @@ import org.keybinder.wurm.model.KeybindStep;
 public final class KeybindTransferStore {
     public static final String EXTENSION = ".keybinder";
     public static final int VERSION = 1;
-    public static final int DEFINITION_SCHEMA = 8;
+    public static final int DEFINITION_SCHEMA = 10;
+    private static final int LEGACY_DEFINITION_SCHEMA = 8;
 
     public void write(Path file, List<KeybindRecord> records, String originUser,
                       String originServer, String keybinderVersion) throws IOException {
@@ -68,7 +69,9 @@ public final class KeybindTransferStore {
             throw new IOException("Invalid Keybinder transfer format");
         if (parse(properties, "version") != VERSION)
             throw new IOException("Unsupported Keybinder transfer version");
-        if (parse(properties, "definitionSchema") != DEFINITION_SCHEMA)
+        int definitionSchema = parse(properties, "definitionSchema");
+        if (definitionSchema != DEFINITION_SCHEMA
+                && definitionSchema != LEGACY_DEFINITION_SCHEMA)
             throw new IOException("Unsupported Keybinder definition schema");
         int count = parse(properties, "count");
         if (count < 0 || count > KeybindLimits.MAX_RECORDS_IN_TRANSFER)

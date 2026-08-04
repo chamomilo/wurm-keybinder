@@ -24,10 +24,14 @@ public final class AccountBindingCoordinator {
 
     public String activate(String account, List<KeybindRecord> records) {
         if (account == null || account.trim().isEmpty()) return "";
-        activeAccount = account.trim();
-        if (store == null) return activeAccount;
+        String requestedAccount = account.trim();
+        if (store == null) {
+            activeAccount = requestedAccount;
+            return activeAccount;
+        }
         try {
-            AccountKeybindStateStore.State state = store.load(activeAccount);
+            AccountKeybindStateStore.State state = store.load(requestedAccount);
+            activeAccount = requestedAccount;
             if (state.isPresent()) {
                 for (KeybindRecord record : records) {
                     boolean enabled = state.getEnabledIds().contains(record.getId());
@@ -39,7 +43,9 @@ public final class AccountBindingCoordinator {
                 persist(records);
             }
         } catch (Exception failure) {
-            log.error(Messages.text("registry.account_load_failed", activeAccount), failure);
+            activeAccount = "";
+            log.error(Messages.text("registry.account_load_failed", requestedAccount), failure);
+            return "";
         }
         return activeAccount;
     }

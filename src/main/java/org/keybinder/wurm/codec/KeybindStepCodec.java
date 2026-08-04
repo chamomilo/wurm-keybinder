@@ -5,6 +5,10 @@ import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.model.InventoryReference;
 import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.KeybindLimits;
 import org.keybinder.wurm.model.KeybindStep;
@@ -50,6 +54,8 @@ public final class KeybindStepCodec {
             case SMART_IMPROVE:
                 return new SmartImproveStep(TargetCodec.decode(
                         decoded(properties, prefix + "target", false)));
+            case BULK_TRANSFER:
+                return readBulk(properties, prefix, false);
             case VANILLA_ACTION:
                 return new VanillaActionStep(decoded(properties, prefix + "value", false));
             case CONSOLE_COMMAND:
@@ -82,6 +88,8 @@ public final class KeybindStepCodec {
             case SMART_IMPROVE:
                 return new SmartImproveStep(TargetCodec.decode(
                         decoded(properties, prefix + "target", true)));
+            case BULK_TRANSFER:
+                return readBulk(properties, prefix, true);
             case VANILLA_ACTION:
                 return new VanillaActionStep(command(properties, prefix));
             case CONSOLE_COMMAND:
@@ -116,6 +124,8 @@ public final class KeybindStepCodec {
         } else if (step instanceof SmartImproveStep) {
             encoded(properties, prefix + "target",
                     TargetCodec.encode(((SmartImproveStep) step).getTarget()), transfer);
+        } else if (step instanceof BulkTransferStep) {
+            writeBulk(properties, prefix, (BulkTransferStep) step, transfer);
         } else if (step instanceof VanillaActionStep) {
             writeCommand(properties, prefix,
                     ((VanillaActionStep) step).getCommand(), false, transfer);
@@ -126,6 +136,62 @@ public final class KeybindStepCodec {
         } else {
             throw new IOException("Unsupported keybind step " + step.getClass().getName());
         }
+    }
+
+    private static void writeBulk(Properties properties, String prefix,
+                                  BulkTransferStep step, boolean transfer)
+            throws IOException {
+        BulkStorageItem source = step.getSource();
+        if (source == null || source.getStorage() == null || source.getItem() == null)
+            throw new IOException("Bulk transfer source is missing");
+        properties.setProperty(prefix + "bulkStorageId",
+                Long.toString(source.getStorage().getId()));
+        encoded(properties, prefix + "bulkStorageName", source.getStorage().getName(), transfer);
+        properties.setProperty(prefix + "bulkItemId", Long.toString(source.getItem().getId()));
+        encoded(properties, prefix + "bulkItemName", source.getItem().getName(), transfer);
+        properties.setProperty(prefix + "quantity", Integer.toString(step.getQuantity()));
+        if (step.getDestinationKind() == null)
+            throw new IOException("Bulk transfer destination is missing");
+        properties.setProperty(prefix + "destinationKind", step.getDestinationKind().name());
+        InventoryReference destination = step.getCapturedDestination();
+        properties.setProperty(prefix + "destinationId",
+                Long.toString(destination == null ? 0L : destination.getId()));
+        encoded(properties, prefix + "destinationName",
+                destination == null ? "" : destination.getName(), transfer);
+    }
+
+    private static BulkTransferStep readBulk(Properties properties, String prefix,
+                                             boolean strict) throws IOException {
+        long storageId = longNumber(value(properties, prefix + "bulkStorageId", "0", strict),
+                "bulk storage ID");
+        String storageName = decoded(properties, prefix + "bulkStorageName", strict);
+        long itemId = longNumber(value(properties, prefix + "bulkItemId", "0", strict),
+                "bulk item ID");
+        String itemName = decoded(properties, prefix + "bulkItemName", strict);
+        int quantity = number(value(properties, prefix + "quantity", "1", strict),
+                "bulk quantity");
+        String destinationValue = value(properties, prefix + "destinationKind",
+                BulkDestinationKind.PLAYER_INVENTORY.name(), strict);
+        final BulkDestinationKind destinationKind;
+        try {
+            destinationKind = BulkDestinationKind.valueOf(destinationValue);
+        } catch (IllegalArgumentException failure) {
+            throw new IOException("Unsupported bulk destination " + destinationValue, failure);
+        }
+        long destinationId = longNumber(value(properties, prefix + "destinationId", "0", strict),
+                "bulk destination ID");
+        String destinationName = decoded(properties, prefix + "destinationName", strict);
+        InventoryReference destination = destinationId == 0L && destinationName.isEmpty()
+                ? null : new InventoryReference(destinationId, destinationName);
+        return new BulkTransferStep(new BulkStorageItem(
+                new InventoryReference(storageId, storageName),
+                new InventoryReference(itemId, itemName)), quantity,
+                destinationKind, destination);
+    }
+
+    private static String value(Properties properties, String key, String fallback,
+                                boolean strict) throws IOException {
+        return strict ? required(properties, key) : properties.getProperty(key, fallback);
     }
 
     private static ItemSelector sourceFromFields(Properties properties, String prefix,

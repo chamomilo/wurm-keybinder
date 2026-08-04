@@ -28,6 +28,7 @@ public final class TargetSpec {
         if (kind == TargetKind.TILE || kind == TargetKind.TOOLBELT_SLOT
                 || kind == TargetKind.EQUIPMENT_SLOT || kind == TargetKind.NEARBY_RADIUS
                 || kind == TargetKind.NEARBY_TYPE || kind == TargetKind.HOVER_TYPE
+                || kind == TargetKind.INVENTORY_FILTER
                 || kind == TargetKind.EXACT_OBJECT)
             throw new IllegalArgumentException(
                     Messages.text("validation.target_parameters", kind));
@@ -68,6 +69,12 @@ public final class TargetSpec {
         String value = ObjectTypeNormalizer.normalizeType(
                 requireText(type, Messages.text("validation.nearby_type")));
         return new TargetSpec(TargetKind.HOVER_TYPE, 0, 0, 0, 0f, 0L, value);
+    }
+
+    public static TargetSpec inventoryFilter(String type) {
+        String value = ObjectTypeNormalizer.normalizeType(
+                requireText(type, Messages.text("validation.inventory_filter_missing")));
+        return new TargetSpec(TargetKind.INVENTORY_FILTER, 0, 0, 0, 0f, 0L, value);
     }
 
     public static TargetSpec exactObject(long id, String name) {

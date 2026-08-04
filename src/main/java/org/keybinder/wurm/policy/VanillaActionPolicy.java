@@ -21,6 +21,8 @@ import java.util.logging.Logger;
  * so both layers can consume the same snapshot without a dependency cycle.
  */
 public final class VanillaActionPolicy {
+    /** Confirmed current-client Drink action; it consumes its target, not a tool. */
+    private static final short DRINK_ACTION_ID = 183;
     private static final Logger LOGGER = Logger.getLogger("Chamomilo.Keybinder");
     private static final Map<String, Short> ACTION_IDS_BY_BIND = loadActionIdsByBind();
     private static final Map<Short, Capabilities> CAPABILITIES =
@@ -30,6 +32,7 @@ public final class VanillaActionPolicy {
 
     /** Unknown server/mod actions remain fully configurable. */
     public static boolean acceptsSelectableTool(short actionId) {
+        if (actionId == DRINK_ACTION_ID) return false;
         Capabilities capabilities = CAPABILITIES.get(actionId);
         return capabilities == null || capabilities.selectableTool;
     }

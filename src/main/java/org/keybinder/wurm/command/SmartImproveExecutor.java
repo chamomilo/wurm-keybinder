@@ -38,7 +38,7 @@ public final class SmartImproveExecutor {
     private final ClientAccess access;
     private final EventLogger log;
     private final WorldImproveTracker world;
-    private final ImproveResourceResolver resources = new ImproveResourceResolver();
+    private final ImproveSourceResolver resources = new ImproveSourceResolver();
     private final ImproveMaterialCompatibilityTable table =
             new ImproveMaterialCompatibilityTable();
     private final ThreadLocal<Map<SmartImproveStep, PreparedBatch>> prepared =
@@ -235,17 +235,32 @@ public final class SmartImproveExecutor {
                                                    ImproveResourceCandidate inventory,
                                                    ResourceRequirement requirement,
                                                    Set<Long> excludedTargets) {
+        List<ImproveResourceCandidate> toolbelt =
+                toolbeltCandidates(hud, excludedTargets);
+        ImproveResourceCandidate builtIn = null;
         if (requirement.getFamily() == RequirementFamily.BODY_HAND) {
             InventoryMetaItem hand = hud.getPaperDollInventory().getHandItem();
-            ImproveResourceCandidate builtIn = candidate(hand, excludedTargets,
+            builtIn = candidate(hand, excludedTargets,
                     new HashSet<Long>(), false);
-            if (builtIn == null || !requirement.match(builtIn).isAccepted()) return null;
-            return new ResolvedImproveResource(builtIn, null, requirement);
         }
         // Candidate rejection details remain silent normally, but become visible
         // when the existing Debug logging setting is enabled. This makes server-
         // specific inventory names diagnosable without adding normal Event spam.
-        return resources.resolve(inventory, requirement, log::debug);
+        return resources.resolve(toolbelt, inventory, builtIn, requirement, log::debug);
+    }
+
+    private static List<ImproveResourceCandidate> toolbeltCandidates(
+            HeadsUpDisplay hud, Set<Long> excludedTargets) {
+        List<ImproveResourceCandidate> result = new ArrayList<ImproveResourceCandidate>();
+        if (hud == null || hud.getToolBelt() == null) return result;
+        Set<Long> visited = new HashSet<Long>();
+        for (int slot = 0; slot < 10; slot++) {
+            ImproveResourceCandidate value = candidate(
+                    hud.getToolBelt().getItemInSlot(slot), excludedTargets,
+                    visited, false);
+            if (value != null) result.add(value);
+        }
+        return result;
     }
 
     private List<InventoryMetaItem> inventoryTargets(TargetSpec target,
@@ -305,7 +320,9 @@ public final class SmartImproveExecutor {
         ImproveResourceCandidate candidate = selection.getCandidate();
         String name = candidate.getDisplayName().isEmpty()
                 ? candidate.getBaseName() : candidate.getDisplayName();
-        if (selection.getRequirement().getFamily() == RequirementFamily.BODY_HAND)
+        if (selection.isToolbelt())
+            log.info(Messages.text("improve.using_toolbelt", name, itemName));
+        else if (selection.isBuiltIn())
             log.info(Messages.text("improve.using_built_in", name, itemName));
         else if (selection.isNested())
             log.info(Messages.text("improve.using_from_inventory_container", name,

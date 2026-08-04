@@ -8,6 +8,10 @@ import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.model.StepKind;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.model.InventoryReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -34,5 +38,14 @@ public class EditorStepTypeTest {
         assertTrue(EditorStepType.supportsCapture(StepKind.CUSTOM_ACTION));
         assertTrue(EditorStepType.supportsCapture(StepKind.ACTIVATE_TOOL));
         assertTrue(EditorStepType.supportsCapture(StepKind.SMART_IMPROVE));
+        assertFalse(EditorStepType.supportsCapture(StepKind.BULK_TRANSFER));
+    }
+
+    @Test public void bulkTransferHasItsOwnEditorType() {
+        BulkTransferStep bulk = new BulkTransferStep(new BulkStorageItem(
+                new InventoryReference(1L, "bulk storage bin"),
+                new InventoryReference(2L, "barley")), 1,
+                BulkDestinationKind.PLAYER_INVENTORY, null);
+        assertEquals(4, EditorStepType.initialIndex(bulk));
     }
 }

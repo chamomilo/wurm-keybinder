@@ -11,6 +11,10 @@ import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.StepKind;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.model.InventoryReference;
 
 /**
  * UI-independent snapshot of one editor row.
@@ -34,6 +38,10 @@ public final class EditorStepDraft {
     private final String target;
     private final VanillaKeybindCatalog.Category vanillaCategory;
     private final VanillaKeybindCatalog.Entry vanillaEntry;
+    private final BulkStorageItem bulkSource;
+    private final String bulkQuantity;
+    private final BulkDestinationKind bulkDestinationKind;
+    private final InventoryReference bulkCapturedDestination;
 
     public EditorStepDraft(
             StepKind kind,
@@ -43,6 +51,22 @@ public final class EditorStepDraft {
             String target,
             VanillaKeybindCatalog.Category vanillaCategory,
             VanillaKeybindCatalog.Entry vanillaEntry) {
+        this(kind, actionId, command, source, target, vanillaCategory, vanillaEntry,
+                null, "1", BulkDestinationKind.PLAYER_INVENTORY, null);
+    }
+
+    public EditorStepDraft(
+            StepKind kind,
+            String actionId,
+            String command,
+            ItemSelector source,
+            String target,
+            VanillaKeybindCatalog.Category vanillaCategory,
+            VanillaKeybindCatalog.Entry vanillaEntry,
+            BulkStorageItem bulkSource,
+            String bulkQuantity,
+            BulkDestinationKind bulkDestinationKind,
+            InventoryReference bulkCapturedDestination) {
         this.kind = kind;
         this.actionId = actionId == null ? "" : actionId;
         this.command = command == null ? "" : command;
@@ -50,6 +74,10 @@ public final class EditorStepDraft {
         this.target = target == null ? "" : target;
         this.vanillaCategory = vanillaCategory;
         this.vanillaEntry = vanillaEntry;
+        this.bulkSource = bulkSource;
+        this.bulkQuantity = bulkQuantity == null ? "" : bulkQuantity;
+        this.bulkDestinationKind = bulkDestinationKind;
+        this.bulkCapturedDestination = bulkCapturedDestination;
     }
 
     public KeybindStep toStep(ActionNameLookup names) {
@@ -59,6 +87,18 @@ public final class EditorStepDraft {
             return new ActivateToolStep(TargetCodec.decode(target));
         if (kind == StepKind.SMART_IMPROVE)
             return new SmartImproveStep(TargetCodec.decode(target));
+        if (kind == StepKind.BULK_TRANSFER) {
+            final int quantity;
+            try {
+                quantity = Integer.parseInt(bulkQuantity.trim());
+            } catch (NumberFormatException invalid) {
+                throw new IllegalArgumentException(Messages.text(
+                        "validation.bulk_quantity_number"));
+            }
+            return new BulkTransferStep(BulkStorageItem.copyOf(bulkSource), quantity,
+                    bulkDestinationKind,
+                    InventoryReference.copyOf(bulkCapturedDestination));
+        }
         if (kind == StepKind.CONSOLE_COMMAND) {
             if (command.trim().isEmpty())
                 throw new IllegalArgumentException(Messages.text("validation.console_missing"));

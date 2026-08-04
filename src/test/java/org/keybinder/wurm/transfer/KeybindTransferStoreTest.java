@@ -23,6 +23,10 @@ import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
+import org.keybinder.wurm.model.BulkDestinationKind;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.BulkTransferStep;
+import org.keybinder.wurm.model.InventoryReference;
 
 public class KeybindTransferStoreTest {
     @Rule public final TemporaryFolder temporary = new TemporaryFolder();
@@ -87,6 +91,30 @@ public class KeybindTransferStoreTest {
         Files.write(version, Arrays.asList("format=keybinder-transfer", "version=2",
                 "definitionSchema=8", "count=0"), StandardCharsets.ISO_8859_1);
         assertReadFails(version);
+    }
+
+    @Test public void roundTripsServerBoundBulkTransferAsExactObjectDefinition()
+            throws Exception {
+        BulkTransferStep bulk = new BulkTransferStep(new BulkStorageItem(
+                new InventoryReference(101L, "bulk storage bin"),
+                new InventoryReference(202L, "barley (100x)")), 43,
+                BulkDestinationKind.CAPTURED_INVENTORY,
+                new InventoryReference(303L, "small barrel"));
+        KeybindRecord record = new KeybindRecord("bulk", "Bulk", "B",
+                Collections.<KeybindStep>singletonList(bulk));
+        Path file = temporary.newFile("bulk.keybinder").toPath();
+
+        new KeybindTransferStore().write(file, Collections.singletonList(record),
+                "user", "server", "0.7.0");
+        PortableKeybindDefinition definition =
+                new KeybindTransferStore().read(file).get(0);
+        BulkTransferStep loaded = (BulkTransferStep)
+                definition.getVariants().get(0).getSteps().get(0);
+
+        assertTrue(definition.hasExactObject());
+        assertEquals(202L, loaded.getSource().getItem().getId());
+        assertEquals(43, loaded.getQuantity());
+        assertEquals(303L, loaded.getCapturedDestination().getId());
     }
 
     private static ActionStep action(int id, ItemSelector source, TargetSpec target) {

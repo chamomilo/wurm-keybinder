@@ -9,6 +9,8 @@ import org.keybinder.wurm.model.ConflictResolution;
 import org.keybinder.wurm.model.KeybindConflict;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindVariant;
+import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.BulkTransferStep;
 import org.keybinder.wurm.validation.KeybindValidator;
 
 import java.util.ArrayList;
@@ -75,6 +77,7 @@ public final class EditorWorkflow {
                                 String createdOnServer) {
         try {
             KeybindValidator.validatePendingVariants(name, key, variants);
+            diagnosticBulk("validated for save", name, key, variants);
             PendingSave requested = PendingSave.variants(id, name, key, variants,
                     activeVariantId, hudMulti, createdByUser, createdOnServer);
             KeybindConflict conflict = registry.findKeybindSaveConflict(
@@ -179,6 +182,7 @@ public final class EditorWorkflow {
     private boolean commit(PendingSave requested) {
         if (requested.kind == SaveKind.EXTRACT) return commitExtract(requested, null);
         try {
+            diagnosticBulk("committing", requested.name, requested.key, requested.variants);
             registry.updateVariants(requested.id, requested.name, requested.key,
                     requested.variants, requested.activeVariantId, requested.hudMulti,
                     requested.createdByUser, requested.createdOnServer,
@@ -214,6 +218,31 @@ public final class EditorWorkflow {
     private static String safeMessage(Throwable error) {
         return error.getMessage() == null
                 ? error.getClass().getSimpleName() : error.getMessage();
+    }
+
+    private void diagnosticBulk(String phase, String name, String key,
+                                List<KeybindVariant> variants) {
+        if (variants == null) return;
+        for (int variantIndex = 0; variantIndex < variants.size(); variantIndex++) {
+            List<KeybindStep> steps = variants.get(variantIndex).getSteps();
+            for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
+                if (!(steps.get(stepIndex) instanceof BulkTransferStep)) continue;
+                BulkTransferStep bulk = (BulkTransferStep) steps.get(stepIndex);
+                log.diagnostic("bulk-transfer " + phase + ": record='" + name
+                        + "', key='" + key + "', variant=" + variantIndex
+                        + ", step=" + stepIndex + ", storageId="
+                        + (bulk.getSource() == null || bulk.getSource().getStorage() == null
+                        ? 0L : bulk.getSource().getStorage().getId())
+                        + ", itemId="
+                        + (bulk.getSource() == null || bulk.getSource().getItem() == null
+                        ? 0L : bulk.getSource().getItem().getId())
+                        + ", quantity=" + bulk.getQuantity()
+                        + ", destinationKind=" + bulk.getDestinationKind()
+                        + ", capturedDestinationId="
+                        + (bulk.getCapturedDestination() == null
+                        ? 0L : bulk.getCapturedDestination().getId()));
+            }
+        }
     }
 
     private enum SaveKind { VARIANTS, EXTRACT }

@@ -30,6 +30,25 @@ public class AccountBindingCoordinatorTest {
         assertTrue(second.isEnabled());
     }
 
+    @Test public void switchingAltsRestoresTheirIndependentPicks() throws Exception {
+        AccountKeybindStateStore store = new AccountKeybindStateStore(
+                Files.createTempDirectory("account-switch").resolve("accounts.properties"));
+        KeybindRecord first = record("first");
+        KeybindRecord second = record("second");
+        store.save("First Alt", Collections.singleton("first"));
+        store.save("Second Alt", Collections.singleton("second"));
+        AccountBindingCoordinator coordinator = new AccountBindingCoordinator(store,
+                new EventLogger(Logger.getAnonymousLogger()));
+
+        coordinator.activate("First Alt", Arrays.asList(first, second));
+        assertTrue(first.isEnabled());
+        assertFalse(second.isEnabled());
+
+        coordinator.activate("Second Alt", Arrays.asList(first, second));
+        assertFalse(first.isEnabled());
+        assertTrue(second.isEnabled());
+    }
+
     private static KeybindRecord record(String id) {
         return new KeybindRecord(id, id, id.substring(0, 1).toUpperCase(),
                 Collections.singletonList(new ConsoleCommandStep("say " + id)));

@@ -28,6 +28,7 @@ import org.keybinder.wurm.bind.VanillaBindService;
 import org.keybinder.wurm.bind.MultiKeyController;
 import org.keybinder.wurm.bind.WheelInputHandler;
 import org.keybinder.wurm.bind.BindSnapshot;
+import org.keybinder.wurm.bind.AccountActivationGate;
 import org.keybinder.wurm.bind.VanillaImportCandidate;
 import org.keybinder.wurm.bind.VanillaImportReviewService;
 import org.keybinder.wurm.command.ActionExecutor;
@@ -35,17 +36,21 @@ import org.keybinder.wurm.command.KeybindExecutionService;
 import org.keybinder.wurm.command.KeybinderCommandRouter;
 import org.keybinder.wurm.command.PushSelectionRetention;
 import org.keybinder.wurm.command.WorldImproveTracker;
+import org.keybinder.wurm.command.BulkTransferCoordinator;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.ActionSourceOverride;
 import org.keybinder.wurm.integration.DeferredUiQueue;
 import org.keybinder.wurm.integration.EmbarkHeadingController;
+import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.integration.FailOpenHookInstaller;
 import org.keybinder.wurm.integration.HudIntegration;
 import org.keybinder.wurm.integration.HudSessionDisposer;
 import org.keybinder.wurm.integration.HudSessionController;
 import org.keybinder.wurm.integration.TransferFileChooser;
 import org.keybinder.wurm.integration.ServerNameResolver;
+import org.keybinder.wurm.integration.BulkStorageSourceResolver;
+import org.keybinder.wurm.integration.BulkInventoryDestinationPolicy;
 import org.keybinder.wurm.i18n.Language;
 import org.keybinder.wurm.i18n.LanguageChangePolicy;
 import org.keybinder.wurm.i18n.LocalizationSettings;
@@ -60,6 +65,8 @@ import org.keybinder.wurm.model.ConflictResolution;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.model.BulkStorageItem;
+import org.keybinder.wurm.model.InventoryReference;
 import org.keybinder.wurm.migration.CustomActionsImporter;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
 import org.keybinder.wurm.queue.ActionQueueOccupancyTracker;
@@ -104,7 +111,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.7.0";
+    public static final String VERSION = "0.7.1";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -124,6 +131,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             new PushSelectionRetention();
     private static final WorldImproveTracker WORLD_IMPROVE =
             new WorldImproveTracker();
+    private static final BulkTransferCoordinator BULK_TRANSFERS =
+            new BulkTransferCoordinator(EVENTS);
     private static final CustomActionsImporter CUSTOM_ACTIONS_IMPORTER = new CustomActionsImporter();
     private static final QueueLimitService LIMITS = new QueueLimitService();
     private static final ActionQueueCostCalculator COSTS = new ActionQueueCostCalculator();
@@ -150,6 +159,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static volatile HeadsUpDisplay hud;
     private static final HudSessionController<HeadsUpDisplay> HUD_SESSIONS =
             new HudSessionController<HeadsUpDisplay>();
+    private static final AccountActivationGate ACCOUNT_ACTIVATION =
+            new AccountActivationGate();
     private static volatile KeybinderWindow window;
     private static volatile KeybinderTagWindow tagWindow;
     private static volatile KeybinderEditorWindow editorWindow;
@@ -160,6 +171,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static volatile KeybinderLegacyWindow legacyWindow;
     private static volatile KeybinderImportWindow importWindow;
     private static volatile KeybinderMultiSelectorWindow multiSelectorWindow;
+    private static volatile ExecutionHoverOverride.Snapshot multiSelectorHoverSnapshot;
     private static volatile KeybinderMergeWindow mergeWindow;
     private static final KeybindTransferStore TRANSFER = new KeybindTransferStore();
     private static final ValuePackProvider VALUE_PACK = new ValuePackProvider();
@@ -171,7 +183,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static final long LONG_PRESS_NANOS = 200_000_000L;
     private static volatile boolean toolbeltOpenedForSelection;
     private static volatile boolean equipmentOpenedForSelection;
+    private static volatile boolean inventoryOpenedForSelection;
     private static final TargetClickGesture TARGET_CLICK = new TargetClickGesture();
+    private static final BulkStorageSourceResolver BULK_SOURCES =
+            new BulkStorageSourceResolver();
     private static volatile long lastWheelFailureAt;
     private static volatile String lastWheelFailure = "";
     private static volatile long lastSharedSyncPoll;
@@ -252,6 +267,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         HOOKS.install("equipment target selection", this::hookEquipmentSelection);
         HOOKS.install("world target selection", () -> hookWorldSelection(pool));
         HOOKS.install("inventory target selection", this::hookInventorySelection);
+        HOOKS.install("bulk transfer quantity response", this::hookBulkTransferBml);
         HOOKS.install("push selection retention", () -> hookPushSelection(pool));
         HOOKS.install("server identity", () -> hookSelectedServer(pool));
     }
@@ -425,6 +441,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.HeadsUpDisplay", "gameTick", "()V",
                 () -> (proxy, method, args) -> {
                     Object result = method.invoke(proxy, args);
+                    applyAccountBindingsIfReady((HeadsUpDisplay) proxy);
                     drainUiQueue();
                     return result;
                 });
@@ -466,6 +483,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     private static void drainUiQueue() {
         UI_AFTER_TICK.drain();
+        BULK_TRANSFERS.tick();
         pollSharedDefinitions();
         pollLongPress();
     }
@@ -521,11 +539,30 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     private static void openMultiSelector(KeybindRecord record, boolean hudSelection) {
+        final int originalMouseX = hud == null ? 0
+                : hud.getWorld().getClient().getXMouse();
+        final int originalMouseY = hud == null ? 0
+                : hud.getWorld().getClient().getYMouse();
+        final PickableUnit originalHovered = hud == null ? null
+                : hud.getWorld().getCurrentHoveredObject();
+        boolean worldPoint = hud != null
+                && hud.getComponentAt(originalMouseX, originalMouseY) == null;
+        multiSelectorHoverSnapshot = hudSelection && worldPoint && originalHovered != null
+                ? new ExecutionHoverOverride.Snapshot(originalHovered.getId(),
+                originalHovered instanceof com.wurmonline.client.renderer.cell.GroundItemCellRenderable)
+                : null;
+        EVENTS.diagnostic("multi-selector opening: recordId=" + record.getId()
+                + ", hudSelection=" + hudSelection + ", originalMouseX="
+                + originalMouseX + ", originalMouseY=" + originalMouseY
+                + ", originalWorldHoveredId="
+                + (originalHovered == null ? 0L : originalHovered.getId())
+                + ", worldPoint=" + worldPoint
+                + ", overrideCaptured=" + (multiSelectorHoverSnapshot != null));
         deferUi(() -> {
             try {
                 hideSafely(multiSelectorWindow);
                 multiSelectorWindow = new KeybinderMultiSelectorWindow(
-                        record, hudSelection);
+                        record, hudSelection, originalMouseX, originalMouseY);
                 new HudIntegration(ACCESS).add(hud, multiSelectorWindow);
             } catch (Exception e) {
                 EVENTS.error(Messages.text("error.multi_selector"), e);
@@ -540,10 +577,17 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     private static void executeManaged(KeybindRecord record, HeadsUpDisplay currentHud)
             throws ReflectiveOperationException {
+        executeManaged(record, currentHud, null);
+    }
+
+    private static void executeManaged(KeybindRecord record, HeadsUpDisplay currentHud,
+                                       ExecutionHoverOverride.Snapshot hoverSnapshot)
+            throws ReflectiveOperationException {
         final int queueLimit = LIMITS.readLimit(currentHud);
         try {
             KEYBIND_EXECUTOR.execute(record, currentHud, queueLimit,
-                    () -> ACTION_QUEUE.occupied(hudShowsAction(currentHud)));
+                    () -> ACTION_QUEUE.occupied(hudShowsAction(currentHud)),
+                    hoverSnapshot);
         } catch (QueueCapacityException capacity) {
             EVENTS.warning(capacity.getMessage());
             return;
@@ -590,18 +634,43 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             closeMultiSelector();
             return;
         }
-        if (hudSelection) {
+        if (!hudSelection) {
+            closeMultiSelector();
+            return;
+        }
+        final KeybindRecord executionRecord = selected;
+        final ExecutionHoverOverride.Snapshot hoverSnapshot = multiSelectorHoverSnapshot;
+        multiSelectorHoverSnapshot = null;
+        final KeybinderMultiSelectorWindow selector = multiSelectorWindow;
+        multiSelectorWindow = null;
+        clearLongPress();
+        hideSafely(selector);
+        try {
+            if (selector != null) selector.restoreOriginalPointer();
+            EVENTS.diagnostic("multi-selector execution hover restored: recordId="
+                    + recordId + ", mouseX="
+                    + (selector == null ? 0 : selector.getOriginalMouseX())
+                    + ", mouseY="
+                    + (selector == null ? 0 : selector.getOriginalMouseY()));
+        } catch (RuntimeException failure) {
+            debugMultiPointerWarp(failure);
+        }
+        // Execute after the next native HUD tick so Wurm has refreshed its
+        // GUI/world hover state at the restored pointer coordinates.
+        deferUi(() -> {
             try {
-                executeManaged(selected);
+                executeManaged(executionRecord, hud, hoverSnapshot);
             } catch (Exception e) {
                 EVENTS.error(Messages.text("error.execute_selected_action"), e);
             }
-        }
-        closeMultiSelector();
+            if (INSTANCE.pendingLanguage != null)
+                INSTANCE.applyLanguage(INSTANCE.pendingLanguage);
+        });
     }
 
     public static void closeMultiSelector() {
         clearLongPress();
+        multiSelectorHoverSnapshot = null;
         KeybinderMultiSelectorWindow selector = multiSelectorWindow;
         multiSelectorWindow = null;
         deferUi(() -> {
@@ -676,7 +745,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 "sendAction", "(J[JLcom/wurmonline/shared/constants/PlayerAction;)V",
                 () -> (proxy, method, args) -> {
                     PlayerAction action = (PlayerAction) args[2];
-                    ACTION_CAPTURE.observe(action);
+                    observeCapturedAction(action);
                     observeWorldImproveAction((long[]) args[1], action);
                     return method.invoke(proxy, args);
                 });
@@ -731,6 +800,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     public static void observeWorldImproveEvent(String context, String message) {
+        try {
+            BULK_TRANSFERS.observeEvent(context, message);
+        } catch (Throwable failure) {
+            LOGGER.log(Level.FINE, "Unable to observe bulk-transfer rejection", failure);
+        }
         try {
             if (ACCESS == null || hud == null) return;
             PickableUnit selected = ACCESS.selected(hud.getSelectBar());
@@ -846,8 +920,44 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 "leftPressed", "(III)V", () -> (proxy, method, args) -> {
                     if (SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
                             || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
-                            || SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE)
+                            || SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE
+                            || SELECTION.getMode() == SelectionController.Mode.INVENTORY_FILTER
+                            || SELECTION.getMode() == SelectionController.Mode.BULK_SOURCE
+                            || SELECTION.getMode() == SelectionController.Mode.BULK_DESTINATION)
                         captureInventoryTarget(proxy, (Integer) args[0], (Integer) args[1]);
+                    return method.invoke(proxy, args);
+                });
+    }
+
+    private static void observeCapturedAction(PlayerAction action) {
+        try {
+            if (action != null) rememberActionName(action.getId(), action.getName());
+            ACTION_CAPTURE.observe(action);
+        } catch (Throwable failure) {
+            // Observation is passive. It must never block the action selected
+            // by the player if a client build exposes unexpected metadata.
+            LOGGER.log(Level.FINE, "Unable to observe action for capture", failure);
+        }
+    }
+
+    private void hookBulkTransferBml() {
+        HookManager.getInstance().registerHook(
+                "com.wurmonline.client.renderer.gui.HeadsUpDisplay",
+                "showBml",
+                "(SLjava/lang/String;IIFFZZFFFLjava/lang/String;)V",
+                () -> (proxy, method, args) -> {
+                    try {
+                        final HeadsUpDisplay currentHud = (HeadsUpDisplay) proxy;
+                        boolean answered = BULK_TRANSFERS.intercept(
+                                (String) args[1], (String) args[11],
+                                (fields, buttonId) -> currentHud.getWorld()
+                                        .getServerConnection()
+                                        .sendBmlResponse(fields, buttonId));
+                        if (answered) return null;
+                    } catch (Throwable failure) {
+                        LOGGER.log(Level.WARNING,
+                                "Bulk-transfer BML hook failed open", failure);
+                    }
                     return method.invoke(proxy, args);
                 });
     }
@@ -1029,6 +1139,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static void finishExactObjectSelection() {
         hideSafely(selectionWindow);
         selectionWindow = null;
+        if (inventoryOpenedForSelection && hud != null)
+            hideSafely(hud.getInventoryWindow());
+        inventoryOpenedForSelection = false;
     }
 
     private static void cancelSlotSelection() {
@@ -1037,11 +1150,14 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             if (toolbeltOpenedForSelection) hideSafely(ACCESS.toolbeltComponent(hud));
             if (equipmentOpenedForSelection) hideSafely(ACCESS.paperDollComponent(hud));
+            if (inventoryOpenedForSelection && hud != null)
+                hideSafely(hud.getInventoryWindow());
         } catch (Exception e) {
             EVENTS.error(Messages.text("error.restore_selection_windows"), e);
         } finally {
             toolbeltOpenedForSelection = false;
             equipmentOpenedForSelection = false;
+            inventoryOpenedForSelection = false;
         }
     }
 
@@ -1090,6 +1206,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 INSTANCE.activatePendingLanguageForHudReplacement();
             ACCESS.setup();
             hud = newHud;
+            ACCOUNT_ACTIVATION.clear();
             embarkHeading.initializeClientAccess(INSTANCE.centerViewAfterEmbark);
             refreshCreationContext();
             EVENTS.attach(newHud);
@@ -1098,6 +1215,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             ACTION_QUEUE.clear();
             PUSH_SELECTION.clear();
             WORLD_IMPROVE.clear();
+            BULK_TRANSFERS.clear("HUD initialized");
             resetExactPress();
             clearLongPress();
             closeMultiSelector();
@@ -1121,9 +1239,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             ACCESS.setComponentVisible(newHud, tagWindow, false);
             if (registry != null) {
                 WurmConsole console = ACCESS.console(newHud);
-                registry.enforceLimit(LIMITS.readLimit(newHud), console);
-                registry.restoreAccountBindings(
-                        registry.getCurrentUser(), console, LIMITS.readLimit(newHud));
+                applyAccountBindingsIfReady(newHud);
                 List<org.keybinder.wurm.bind.BindSnapshot> candidates = registry.importCandidates(console);
                 if (!candidates.isEmpty()) {
                     EVENTS.info(Messages.text("event.import_candidates_found", candidates.size()));
@@ -1163,6 +1279,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         ACTION_QUEUE.clear();
         PUSH_SELECTION.clear();
         WORLD_IMPROVE.clear();
+        BULK_TRANSFERS.clear("HUD replaced");
         resetExactPress();
         clearLongPress();
         UI_AFTER_TICK.clear();
@@ -1186,6 +1303,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         if (editorWorkflow != null) editorWorkflow.clear();
         toolbeltOpenedForSelection = false;
         equipmentOpenedForSelection = false;
+        inventoryOpenedForSelection = false;
     }
 
     private static synchronized void ensureRuntimeServices() {
@@ -1197,13 +1315,15 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                                 + "until the next HUD initialization", failure));
         EXECUTOR = new ActionExecutor(ACCESS, INSTANCE::getActionName, PUSH_SELECTION);
         KEYBIND_EXECUTOR = new KeybindExecutionService(
-                EXECUTOR, ACCESS, EVENTS, WORLD_IMPROVE);
+                EXECUTOR, ACCESS, EVENTS, WORLD_IMPROVE, BULK_TRANSFERS);
     }
 
     public static void onConnectionEnded() {
         try {
             ACTION_QUEUE.clear();
             WORLD_IMPROVE.clear();
+            BULK_TRANSFERS.clear("connection ended");
+            ACCOUNT_ACTIVATION.clear();
         } catch (Throwable failure) {
             LOGGER.log(Level.FINE, "Unable to clear action queue on disconnect", failure);
         }
@@ -1236,6 +1356,48 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
         registry.setCreationContext(user, server);
         registry.enrichCurrentServerName(shortServer, server);
+    }
+
+    /**
+     * HUD construction can finish before World exposes the logged-in player
+     * name. Retry cheaply from the HUD tick and apply exactly once per alt.
+     */
+    private static boolean applyAccountBindingsIfReady(HeadsUpDisplay currentHud) {
+        if (registry == null || ACCESS == null || currentHud == null) return false;
+        String account = currentPlayerName(currentHud);
+        if (ACCOUNT_ACTIVATION.isApplied(account)) return true;
+        long now = System.currentTimeMillis();
+        if (!ACCOUNT_ACTIVATION.shouldApply(account, now)) return false;
+        try {
+            refreshCreationContext();
+            WurmConsole console = ACCESS.console(currentHud);
+            int limit = LIMITS.readLimit(currentHud);
+            if (!registry.restoreAccountBindings(account, console, limit)) {
+                ACCOUNT_ACTIVATION.failed(account, now, 5000L);
+                return false;
+            }
+            registry.enforceLimit(limit, console);
+            ACCOUNT_ACTIVATION.applied(account);
+            if (window != null) window.refresh();
+            LOGGER.info("Applied Keybinder activation profile for " + account);
+            EVENTS.info(Messages.text("registry.account_applied", account));
+            return true;
+        } catch (Throwable failure) {
+            ACCOUNT_ACTIVATION.failed(account, now, 5000L);
+            LOGGER.log(Level.WARNING,
+                    "Unable to apply Keybinder activation profile for " + account, failure);
+            return false;
+        }
+    }
+
+    private static String currentPlayerName(HeadsUpDisplay currentHud) {
+        try {
+            if (currentHud.getWorld() == null) return "";
+            String value = currentHud.getWorld().getUsername();
+            return value == null ? "" : value.trim();
+        } catch (RuntimeException notReady) {
+            return "";
+        }
     }
 
     private static String resolveFullServerName(String worldServerName) {
@@ -1397,9 +1559,17 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         } catch (Exception e) { EVENTS.error(Messages.text("error.delete_keybind"), e); }
     }
     @Override public void setKeybindEnabled(String id, boolean enabled) {
+        if (!applyAccountBindingsIfReady(hud)) {
+            EVENTS.warning(Messages.text("registry.account_not_ready"));
+            return;
+        }
         if (editorWorkflow != null) editorWorkflow.setEnabled(id, enabled);
     }
     @Override public void setKeybindsEnabled(List<String> ids, boolean enabled) {
+        if (!applyAccountBindingsIfReady(hud)) {
+            EVENTS.warning(Messages.text("registry.account_not_ready"));
+            return;
+        }
         int changed = 0;
         for (String id : new java.util.ArrayList<>(ids)) {
             try {
@@ -1493,21 +1663,96 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static void captureInventoryTarget(Object panel, int mouseX, int mouseY) {
         try {
-            if (SELECTION.getMode() != SelectionController.Mode.EXACT_OBJECT
-                    && SELECTION.getMode() != SelectionController.Mode.NEARBY_TYPE
-                    && SELECTION.getMode() != SelectionController.Mode.HOVER_TYPE) return;
+            SelectionController.Mode mode = SELECTION.getMode();
+            if (mode != SelectionController.Mode.EXACT_OBJECT
+                    && mode != SelectionController.Mode.NEARBY_TYPE
+                    && mode != SelectionController.Mode.HOVER_TYPE
+                    && mode != SelectionController.Mode.INVENTORY_FILTER
+                    && mode != SelectionController.Mode.BULK_SOURCE
+                    && mode != SelectionController.Mode.BULK_DESTINATION) return;
+            if (mode == SelectionController.Mode.BULK_SOURCE
+                    || mode == SelectionController.Mode.BULK_DESTINATION) {
+                KeybinderInventorySelectionBridge.Row row =
+                        KeybinderInventorySelectionBridge.rowAt(panel, mouseX, mouseY);
+                if (row == null || row.getItem() == null) return;
+                InventoryMetaItem clicked = row.getItem();
+                String clickedName = preferredName(clicked);
+                if (mode == SelectionController.Mode.BULK_DESTINATION) {
+                    InventoryMetaItem destination =
+                            KeybinderInventorySelectionBridge.itemUnderMouse(
+                                    hud, mouseX, mouseY);
+                    if (destination == null || !BulkInventoryDestinationPolicy.isValid(
+                            destination.getId())) {
+                        EVENTS.warning(Messages.text("event.bulk_destination_rejected"));
+                        return;
+                    }
+                    String destinationName = preferredName(destination);
+                    EVENTS.diagnostic("bulk destination click: clickedRowId="
+                            + clicked.getId() + ", clickedRowName='" + clickedName
+                            + "', clickedRowContainer="
+                            + com.wurmonline.shared.util.ItemTypeUtilites.isContainer(
+                            clicked.getTypeBits()) + ", resolvedDestinationId="
+                            + destination.getId() + ", resolvedDestinationName='"
+                            + destinationName + "'");
+                    if (SELECTION.acceptBulkDestination(
+                            destination.getId(), destinationName))
+                        deferUi(KeybinderMod::finishExactObjectSelection);
+                    return;
+                }
+                InventoryReference storage = ACCESS.openInventoryContaining(hud, clicked.getId());
+                InventoryMetaItem storageRoot = storage == null
+                        ? null : ACCESS.inventoryItem(hud, storage.getId());
+                InventoryReference sourceStorage = BULK_SOURCES.resolve(
+                        clicked, row.getAncestors(), storage, storageRoot,
+                        id -> ACCESS.inventoryItem(hud, id));
+                EVENTS.diagnostic("bulk source click: rowId=" + clicked.getId()
+                        + ", rowName='" + clickedName + "', inventoryGroup="
+                        + row.isInventoryGroup() + ", containingWindowId="
+                        + (storage == null ? 0L : storage.getId()) + ", containingWindowName='"
+                        + (storage == null ? "" : storage.getName())
+                        + "', clickedParentId=" + clicked.getParentId()
+                        + ", visibleAncestorCount=" + row.getAncestors().size()
+                        + ", resolvedBulkStorageId="
+                        + (sourceStorage == null ? 0L : sourceStorage.getId())
+                        + ", resolvedBulkStorageName='"
+                        + (sourceStorage == null ? "" : sourceStorage.getName()) + "'");
+                if (row.isInventoryGroup() || sourceStorage == null) {
+                    EVENTS.warning(Messages.text("event.bulk_source_rejected",
+                            clickedName, clicked.getId(),
+                            storage == null ? "?" : storage.getName()));
+                    return;
+                }
+                if (SELECTION.acceptBulkSource(sourceStorage.getId(),
+                        sourceStorage.getName(),
+                        clicked.getId(), clickedName))
+                    deferUi(KeybinderMod::finishExactObjectSelection);
+                return;
+            }
             InventoryMetaItem item =
                     KeybinderInventorySelectionBridge.itemAt(panel, mouseX, mouseY);
             if (item == null) return;
+            if (mode == SelectionController.Mode.INVENTORY_FILTER) {
+                if (SELECTION.acceptInventoryFilter(ACCESS.objectType(item)))
+                    deferUi(KeybinderMod::finishExactObjectSelection);
+                return;
+            }
             boolean accepted = SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
                     ? SELECTION.acceptNearbyType(item.getBaseName())
                     : SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE
                     ? SELECTION.acceptHoverType(item.getBaseName())
                     : SELECTION.acceptExactObject(item.getId(), item.getDisplayName());
             if (accepted) deferUi(KeybinderMod::finishExactObjectSelection);
-        } catch (RuntimeException e) {
+        } catch (ReflectiveOperationException | RuntimeException e) {
             LOGGER.log(Level.WARNING, "Unable to resolve clicked inventory row", e);
         }
+    }
+
+    private static String preferredName(InventoryMetaItem item) {
+        if (item == null) return "";
+        String display = item.getDisplayName();
+        if (display != null && !display.trim().isEmpty()) return display.trim();
+        String base = item.getBaseName();
+        return base == null ? "" : base.trim();
     }
     @Override public void restoreOriginalBindings() {
         try {
@@ -1636,7 +1881,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             ACTION_NAMES.put(actionId, constantName);
             return constantName;
         }
-        return Messages.text("editor.unknown_action", actionId);
+        // Callers own their context-specific fallback. Returning an empty value
+        // also prevents a localized "Unknown action" label from being persisted
+        // as if it were authoritative action metadata.
+        return "";
     }
 
     private static String actionConstantName(short actionId) {
@@ -1815,6 +2063,54 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     EVENTS.error(Messages.text("error.hover_type_start"), e);
                 }
             });
+        } else if ("inventory+filter".equals(kind)) {
+            ACTION_CAPTURE.cancel();
+            resetExactPress();
+            SELECTION.requestInventoryFilter();
+            deferUi(() -> {
+                try {
+                    cancelSlotSelection();
+                    inventoryOpenedForSelection = !ACCESS.isInventoryVisible(hud);
+                    ACCESS.ensureInventoryVisible(hud);
+                    selectionWindow = new KeybinderSelectionWindow(
+                            INSTANCE, Messages.text("selection.inventory_filter"));
+                    new HudIntegration(ACCESS).add(hud, selectionWindow);
+                } catch (Exception e) {
+                    inventoryOpenedForSelection = false;
+                    SELECTION.cancel();
+                    EVENTS.error(Messages.text("error.inventory_filter_start"), e);
+                }
+            });
+        } else if ("bulk source".equals(kind)) {
+            ACTION_CAPTURE.cancel();
+            resetExactPress();
+            SELECTION.requestBulkSource();
+            deferUi(() -> {
+                try {
+                    cancelSlotSelection();
+                    selectionWindow = new KeybinderSelectionWindow(
+                            INSTANCE, Messages.text("selection.bulk_source"));
+                    new HudIntegration(ACCESS).add(hud, selectionWindow);
+                } catch (Exception e) {
+                    SELECTION.cancel();
+                    EVENTS.error(Messages.text("error.bulk_source_start"), e);
+                }
+            });
+        } else if ("bulk destination".equals(kind)) {
+            ACTION_CAPTURE.cancel();
+            resetExactPress();
+            SELECTION.requestBulkDestination();
+            deferUi(() -> {
+                try {
+                    cancelSlotSelection();
+                    selectionWindow = new KeybinderSelectionWindow(
+                            INSTANCE, Messages.text("selection.bulk_destination"));
+                    new HudIntegration(ACCESS).add(hud, selectionWindow);
+                } catch (Exception e) {
+                    SELECTION.cancel();
+                    EVENTS.error(Messages.text("error.bulk_destination_start"), e);
+                }
+            });
         } else {
             SELECTION.selectTile(kind);
         }
@@ -1825,6 +2121,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         deferUi(KeybinderMod::cancelSlotSelection);
     }
     @Override public String consumeSelectedTarget() { return SELECTION.consumeSelectedTarget(); }
+    @Override public BulkStorageItem consumeSelectedBulkSource() {
+        return SELECTION.consumeSelectedBulkSource();
+    }
+    @Override public InventoryReference consumeSelectedBulkDestination() {
+        return SELECTION.consumeSelectedBulkDestination();
+    }
     @Override public void closeEditor() {
         ACTION_CAPTURE.cancel();
         SELECTION.cancel();

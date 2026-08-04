@@ -190,10 +190,11 @@ public final class KeybindRegistry implements ValuePackTarget {
      * Applies the account-local desired activation list after Wurm has loaded
      * that player's keybindings, then repairs missing owned dispatcher binds.
      */
-    public synchronized void restoreAccountBindings(
+    public synchronized boolean restoreAccountBindings(
             String account, WurmConsole console, int limit) {
-        if (account == null || account.trim().isEmpty() || console == null) return;
+        if (account == null || account.trim().isEmpty() || console == null) return false;
         String activeAccount = accountBindings.activate(account, records);
+        if (activeAccount.isEmpty()) return false;
 
         int restored = 0;
         int removed = 0;
@@ -243,6 +244,7 @@ public final class KeybindRegistry implements ValuePackTarget {
         if (restored > 0 || removed > 0 || conflicts > 0)
             log.info(Messages.text("registry.restore_summary",
                     activeAccount, restored, removed, conflicts));
+        return true;
     }
 
     public synchronized KeybindRecord createDraft() throws IOException {

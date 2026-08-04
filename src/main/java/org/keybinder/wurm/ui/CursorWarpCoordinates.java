@@ -9,6 +9,11 @@ public final class CursorWarpCoordinates {
                                       int gameWidth, int gameHeight) {
         int uiX = componentX + Math.max(0, componentWidth) / 2;
         int uiY = componentY + Math.max(0, componentHeight) / 2;
+        return fromGuiPoint(uiX, uiY, gameWidth, gameHeight);
+    }
+
+    public static Point fromGuiPoint(int uiX, int uiY,
+                                     int gameWidth, int gameHeight) {
         int x = clamp(uiX, 0, Math.max(0, gameWidth - 1));
         int y = clamp(gameHeight - uiY, 0, Math.max(0, gameHeight - 1));
         return new Point(x, y);

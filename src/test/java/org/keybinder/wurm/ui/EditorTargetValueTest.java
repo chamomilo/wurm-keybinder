@@ -11,5 +11,7 @@ public class EditorTargetValueTest {
         assertTrue(EditorTargetValue.isConcrete("@nearby4.5"));
         assertFalse(EditorTargetValue.isConcrete("nearby"));
         assertFalse(EditorTargetValue.isConcrete("hover"));
+        assertTrue(EditorTargetValue.isConcrete("inventory+filter water"));
+        assertFalse(EditorTargetValue.isConcrete("inventory+filter"));
     }
 }

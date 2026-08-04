@@ -6,6 +6,7 @@ import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
+import org.keybinder.wurm.model.BulkTransferStep;
 
 import java.util.List;
 
@@ -44,6 +45,7 @@ public final class ActionQueueCostCalculator {
             QueueCost cost;
             if (step instanceof ActionStep) cost = stepCost((ActionStep) step);
             else if (step instanceof SmartImproveStep) cost = QueueCost.dynamic();
+            else if (step instanceof BulkTransferStep) cost = QueueCost.fixed(0);
             else if (step instanceof ConsoleCommandStep) cost = QueueCost.unknown();
             else cost = QueueCost.fixed(0);
             if (cost.getKind() == QueueCost.Kind.UNKNOWN) return QueueCost.unknown();

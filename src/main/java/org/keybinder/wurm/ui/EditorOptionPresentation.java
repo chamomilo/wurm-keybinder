@@ -2,6 +2,7 @@ package org.keybinder.wurm.ui;
 
 import org.keybinder.wurm.command.ExactObjectTarget;
 import org.keybinder.wurm.command.NearbyTypeTarget;
+import org.keybinder.wurm.command.InventoryFilterTarget;
 import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.ItemSelectorKind;
@@ -24,6 +25,9 @@ public final class EditorOptionPresentation {
         }
         if (ExactObjectTarget.isExact(target)) return ExactObjectTarget.display(target);
         if (NearbyTypeTarget.isNearbyType(target)) return target;
+        if (InventoryFilterTarget.isInventoryFilter(target))
+            return Messages.text("target.inventory_filter_named",
+                    InventoryFilterTarget.type(target));
         if (target.startsWith("hover-type "))
             return Messages.text("target.hover_type_named",
                     target.substring("hover-type ".length()));
@@ -47,6 +51,8 @@ public final class EditorOptionPresentation {
         if ("nearby".equals(token)) return Messages.text("target.nearby");
         if ("nearby by type".equals(token)) return Messages.text("target.nearby_type");
         if ("hover by type".equals(token)) return Messages.text("target.hover_type");
+        if (InventoryFilterTarget.OPTION.equals(token))
+            return Messages.text("target.inventory_filter");
         if ("hand".equals(token)) return Messages.text("target.hand");
         return token;
     }

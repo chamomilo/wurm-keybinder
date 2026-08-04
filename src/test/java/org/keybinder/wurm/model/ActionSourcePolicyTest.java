@@ -26,6 +26,15 @@ public class ActionSourcePolicyTest {
     }
 
     @Test
+    public void drinkUsesOnlyItsTargetAndNeverCarriesATool() {
+        short drink = 183;
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(drink));
+        ActionStep step = new ActionStep(drink,
+                ItemSelector.currentActive(), TargetSpec.inventoryFilter("water"), "Drink");
+        assertEquals(ItemSelectorKind.EMPTY_HAND, step.getSource().getKind());
+    }
+
+    @Test
     public void ordinaryActionsKeepTheirSelectedTool() {
         assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.IMPROVE.getId()));
         ActionStep improve = new ActionStep(PlayerAction.IMPROVE.getId(),

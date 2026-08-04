@@ -10,6 +10,7 @@ import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.VanillaActionStep;
+import org.keybinder.wurm.model.BulkTransferStep;
 
 /** Deterministic fingerprint of portable semantics, excluding runtime identity. */
 public final class SemanticFingerprint {
@@ -49,6 +50,18 @@ public final class SemanticFingerprint {
             add(digest, TargetCodec.encode(((ActivateToolStep) step).getTarget()));
         } else if (step instanceof SmartImproveStep) {
             add(digest, TargetCodec.encode(((SmartImproveStep) step).getTarget()));
+        } else if (step instanceof BulkTransferStep) {
+            BulkTransferStep bulk = (BulkTransferStep) step;
+            add(digest, Long.toString(bulk.getSource().getStorage().getId()));
+            add(digest, bulk.getSource().getStorage().getName());
+            add(digest, Long.toString(bulk.getSource().getItem().getId()));
+            add(digest, bulk.getSource().getItem().getName());
+            add(digest, Integer.toString(bulk.getQuantity()));
+            add(digest, bulk.getDestinationKind().name());
+            add(digest, bulk.getCapturedDestination() == null ? ""
+                    : Long.toString(bulk.getCapturedDestination().getId()));
+            add(digest, bulk.getCapturedDestination() == null ? ""
+                    : bulk.getCapturedDestination().getName());
         } else if (step instanceof VanillaActionStep) {
             add(digest, ((VanillaActionStep) step).getCommand());
         } else if (step instanceof ConsoleCommandStep) {

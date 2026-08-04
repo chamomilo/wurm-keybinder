@@ -53,6 +53,16 @@ public class TargetCodecTest {
         assertEquals("unresolved", TargetCodec.encode(target));
     }
 
+    @Test
+    public void roundTripsPortableInventoryFilterWithoutRuntimeItemId() {
+        TargetSpec target = TargetCodec.decode("inventory+filter water, cedarwood");
+
+        assertEquals(TargetKind.INVENTORY_FILTER, target.getKind());
+        assertEquals("water", target.getText());
+        assertEquals("inventory+filter water", TargetCodec.encode(target));
+        assertEquals("Inventory + filter: water", TargetCodec.display(target));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsToolbeltSlotOutsideRange() {
         TargetCodec.decode("@tb11");

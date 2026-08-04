@@ -6,6 +6,7 @@ import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
+import org.keybinder.wurm.model.BulkTransferStep;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindVariant;
@@ -37,7 +38,7 @@ import java.util.List;
 import java.util.Properties;
 
 public final class KeybindStore {
-    public static final int SCHEMA_VERSION = 9;
+    public static final int SCHEMA_VERSION = 10;
     private final Path file;
     private final CustomActionsImporter customActionsImporter = new CustomActionsImporter();
     private volatile boolean recoveredFromBackup;
@@ -375,6 +376,19 @@ public final class KeybindStore {
         } else if (step instanceof SmartImproveStep) {
             requireEncodedLength(TargetCodec.encode(((SmartImproveStep) step).getTarget()),
                     "improve target");
+        } else if (step instanceof BulkTransferStep) {
+            BulkTransferStep bulk = (BulkTransferStep) step;
+            if (bulk.getSource() != null) {
+                if (bulk.getSource().getStorage() != null)
+                    requireLength(bulk.getSource().getStorage().getName(),
+                            KeybindLimits.MAX_ENCODED_FIELD_LENGTH, "bulk storage name");
+                if (bulk.getSource().getItem() != null)
+                    requireLength(bulk.getSource().getItem().getName(),
+                            KeybindLimits.MAX_ENCODED_FIELD_LENGTH, "bulk item name");
+            }
+            if (bulk.getCapturedDestination() != null)
+                requireLength(bulk.getCapturedDestination().getName(),
+                        KeybindLimits.MAX_ENCODED_FIELD_LENGTH, "bulk destination name");
         } else if (!(step instanceof VanillaActionStep)
                 && !(step instanceof ConsoleCommandStep)) {
             throw new IOException("Unsupported keybind step " + step.getClass().getName());
@@ -433,6 +447,13 @@ public final class KeybindStore {
             return ((ActivateToolStep) left).getTarget().equals(((ActivateToolStep) right).getTarget());
         if (left instanceof SmartImproveStep)
             return ((SmartImproveStep) left).getTarget().equals(((SmartImproveStep) right).getTarget());
+        if (left instanceof BulkTransferStep) {
+            BulkTransferStep a = (BulkTransferStep) left, b = (BulkTransferStep) right;
+            return equal(a.getSource(), b.getSource())
+                    && a.getQuantity() == b.getQuantity()
+                    && a.getDestinationKind() == b.getDestinationKind()
+                    && equal(a.getCapturedDestination(), b.getCapturedDestination());
+        }
         if (left instanceof VanillaActionStep)
             return equal(((VanillaActionStep) left).getCommand(),
                     ((VanillaActionStep) right).getCommand());
