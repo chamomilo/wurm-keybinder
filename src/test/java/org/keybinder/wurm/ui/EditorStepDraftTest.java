@@ -13,6 +13,8 @@ import org.keybinder.wurm.model.BulkDestinationKind;
 import org.keybinder.wurm.model.BulkStorageItem;
 import org.keybinder.wurm.model.BulkTransferStep;
 import org.keybinder.wurm.model.InventoryReference;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
+import org.keybinder.wurm.model.SmartImproveStep;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -76,6 +78,16 @@ public class EditorStepDraftTest {
         assertEquals(202L, step.getSource().getItem().getId());
         assertEquals(43, step.getQuantity());
         assertEquals(303L, step.getCapturedDestination().getId());
+    }
+
+    @Test public void smartImproveSnapshotKeepsToolbeltOnlyMode() {
+        SmartImproveStep step = (SmartImproveStep) new EditorStepDraft(
+                StepKind.SMART_IMPROVE, "", "", ItemSelector.currentActive(),
+                "hover", null, null, null, "1",
+                BulkDestinationKind.PLAYER_INVENTORY, null,
+                SmartImproveSourceMode.TOOLBELT_ONLY).toStep(null);
+
+        assertEquals(SmartImproveSourceMode.TOOLBELT_ONLY, step.getSourceMode());
     }
 
     private static EditorStepDraft draft(

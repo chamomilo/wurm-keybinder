@@ -446,7 +446,10 @@ public final class KeybindStore {
         if (left instanceof ActivateToolStep)
             return ((ActivateToolStep) left).getTarget().equals(((ActivateToolStep) right).getTarget());
         if (left instanceof SmartImproveStep)
-            return ((SmartImproveStep) left).getTarget().equals(((SmartImproveStep) right).getTarget());
+            return ((SmartImproveStep) left).getTarget().equals(
+                    ((SmartImproveStep) right).getTarget())
+                    && ((SmartImproveStep) left).getSourceMode()
+                    == ((SmartImproveStep) right).getSourceMode();
         if (left instanceof BulkTransferStep) {
             BulkTransferStep a = (BulkTransferStep) left, b = (BulkTransferStep) right;
             return equal(a.getSource(), b.getSource())

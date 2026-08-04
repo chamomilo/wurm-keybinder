@@ -6,6 +6,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -39,5 +45,40 @@ public class AccountKeybindStateStoreTest {
 
         assertTrue(store.load("Chamomilo").isPresent());
         assertTrue(store.load("Chamomilo").getEnabledIds().isEmpty());
+    }
+
+    @Test
+    public void fourConcurrentSessionsDoNotOverwriteOtherAccountEntries()
+            throws Exception {
+        Path file = Files.createTempDirectory("keybinder-concurrent-account-state")
+                .resolve("keybinds.accounts");
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        CountDownLatch ready = new CountDownLatch(4);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> writes = new ArrayList<Future<?>>();
+        try {
+            for (int i = 0; i < 4; i++) {
+                final int session = i;
+                writes.add(pool.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    new AccountKeybindStateStore(file).save("Alt " + session,
+                            new HashSet<String>(Arrays.asList(
+                                    "shared", "private-" + session)));
+                    return null;
+                }));
+            }
+            ready.await();
+            start.countDown();
+            for (Future<?> write : writes) write.get();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        AccountKeybindStateStore stored = new AccountKeybindStateStore(file);
+        for (int i = 0; i < 4; i++)
+            assertEquals(new HashSet<String>(Arrays.asList(
+                            "shared", "private-" + i)),
+                    stored.load("Alt " + i).getEnabledIds());
     }
 }

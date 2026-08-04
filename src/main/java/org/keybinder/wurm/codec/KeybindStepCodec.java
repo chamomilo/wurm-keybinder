@@ -13,6 +13,7 @@ import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.KeybindLimits;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
 import org.keybinder.wurm.model.StepKind;
 import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.model.VanillaActionStep;
@@ -53,7 +54,8 @@ public final class KeybindStepCodec {
                         decoded(properties, prefix + "target", false)));
             case SMART_IMPROVE:
                 return new SmartImproveStep(TargetCodec.decode(
-                        decoded(properties, prefix + "target", false)));
+                        decoded(properties, prefix + "target", false)),
+                        improveSourceMode(properties, prefix));
             case BULK_TRANSFER:
                 return readBulk(properties, prefix, false);
             case VANILLA_ACTION:
@@ -87,7 +89,8 @@ public final class KeybindStepCodec {
                         decoded(properties, prefix + "target", true)));
             case SMART_IMPROVE:
                 return new SmartImproveStep(TargetCodec.decode(
-                        decoded(properties, prefix + "target", true)));
+                        decoded(properties, prefix + "target", true)),
+                        improveSourceMode(properties, prefix));
             case BULK_TRANSFER:
                 return readBulk(properties, prefix, true);
             case VANILLA_ACTION:
@@ -122,8 +125,11 @@ public final class KeybindStepCodec {
             encoded(properties, prefix + "target",
                     TargetCodec.encode(((ActivateToolStep) step).getTarget()), transfer);
         } else if (step instanceof SmartImproveStep) {
+            SmartImproveStep improve = (SmartImproveStep) step;
             encoded(properties, prefix + "target",
-                    TargetCodec.encode(((SmartImproveStep) step).getTarget()), transfer);
+                    TargetCodec.encode(improve.getTarget()), transfer);
+            properties.setProperty(prefix + "improveSourceMode",
+                    improve.getSourceMode().name());
         } else if (step instanceof BulkTransferStep) {
             writeBulk(properties, prefix, (BulkTransferStep) step, transfer);
         } else if (step instanceof VanillaActionStep) {
@@ -292,5 +298,16 @@ public final class KeybindStepCodec {
         if ("true".equalsIgnoreCase(value)) return true;
         if ("false".equalsIgnoreCase(value)) return false;
         throw new IOException("Invalid boolean " + key);
+    }
+
+    private static SmartImproveSourceMode improveSourceMode(
+            Properties properties, String prefix) throws IOException {
+        String value = properties.getProperty(prefix + "improveSourceMode",
+                SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY.name());
+        try {
+            return SmartImproveSourceMode.valueOf(value);
+        } catch (IllegalArgumentException failure) {
+            throw new IOException("Unsupported Smart Improve source mode " + value, failure);
+        }
     }
 }

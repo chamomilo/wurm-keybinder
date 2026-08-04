@@ -10,18 +10,21 @@ public final class ResolvedImproveResource {
     ResolvedImproveResource(ImproveResourceCandidate candidate,
                             String containerName,
                             ResourceRequirement requirement) {
-        this.candidate = candidate;
-        this.containerName = containerName;
-        this.requirement = requirement;
-        this.toolbelt = false;
-        this.builtIn = false;
+        this(candidate, containerName, requirement, false, false);
     }
 
     private ResolvedImproveResource(ImproveResourceCandidate candidate,
                                     ResourceRequirement requirement,
                                     boolean toolbelt, boolean builtIn) {
+        this(candidate, null, requirement, toolbelt, builtIn);
+    }
+
+    private ResolvedImproveResource(ImproveResourceCandidate candidate,
+                                    String containerName,
+                                    ResourceRequirement requirement,
+                                    boolean toolbelt, boolean builtIn) {
         this.candidate = candidate;
-        this.containerName = null;
+        this.containerName = containerName;
         this.requirement = requirement;
         this.toolbelt = toolbelt;
         this.builtIn = builtIn;
@@ -30,6 +33,13 @@ public final class ResolvedImproveResource {
     static ResolvedImproveResource toolbelt(ImproveResourceCandidate candidate,
                                              ResourceRequirement requirement) {
         return new ResolvedImproveResource(candidate, requirement, true, false);
+    }
+
+    static ResolvedImproveResource toolbelt(ImproveResourceCandidate candidate,
+                                             String containerName,
+                                             ResourceRequirement requirement) {
+        return new ResolvedImproveResource(candidate, containerName,
+                requirement, true, false);
     }
 
     static ResolvedImproveResource builtIn(ImproveResourceCandidate candidate,

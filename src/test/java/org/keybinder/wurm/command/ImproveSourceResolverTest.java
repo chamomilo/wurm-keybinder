@@ -8,6 +8,7 @@ import java.util.Collections;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNull;
 
 public class ImproveSourceResolverTest {
     private final ImproveSourceResolver resolver = new ImproveSourceResolver();
@@ -36,6 +37,30 @@ public class ImproveSourceResolverTest {
 
         assertEquals(3L, selected.getCandidate().getId());
         assertFalse(selected.isToolbelt());
+    }
+
+    @Test public void toolbeltOnlyModeDoesNotFallBackToInventory() {
+        ResolvedImproveResource selected = resolver.resolve(
+                Collections.singletonList(item(1L, "file")),
+                root(item(3L, "hammer")), null, hammer, false, null);
+
+        assertNull(selected);
+    }
+
+    @Test public void toolbeltOnlyModeDescendsIntoToolbeltContainer() {
+        ImproveResourceCandidate container = new ImproveResourceCandidate(
+                10L, "backpack", "backpack, leather", (byte) 0, (short) 0,
+                0f, 0f, 0f, (byte) 0,
+                Collections.singletonList(item(11L, "hammer")));
+
+        ResolvedImproveResource selected = resolver.resolve(
+                Collections.singletonList(container), null, null,
+                hammer, false, null);
+
+        assertEquals(11L, selected.getCandidate().getId());
+        assertTrue(selected.isToolbelt());
+        assertTrue(selected.isNested());
+        assertEquals("backpack, leather", selected.getContainerName());
     }
 
     private static ImproveResourceCandidate root(ImproveResourceCandidate... children) {

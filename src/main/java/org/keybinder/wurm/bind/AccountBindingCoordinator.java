@@ -25,6 +25,9 @@ public final class AccountBindingCoordinator {
     public String activate(String account, List<KeybindRecord> records) {
         if (account == null || account.trim().isEmpty()) return "";
         String requestedAccount = account.trim();
+        if (!activeAccount.isEmpty()
+                && !activeAccount.equalsIgnoreCase(requestedAccount))
+            persist(records);
         if (store == null) {
             activeAccount = requestedAccount;
             return activeAccount;

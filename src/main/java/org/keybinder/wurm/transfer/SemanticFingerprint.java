@@ -49,7 +49,9 @@ public final class SemanticFingerprint {
         } else if (step instanceof ActivateToolStep) {
             add(digest, TargetCodec.encode(((ActivateToolStep) step).getTarget()));
         } else if (step instanceof SmartImproveStep) {
-            add(digest, TargetCodec.encode(((SmartImproveStep) step).getTarget()));
+            SmartImproveStep improve = (SmartImproveStep) step;
+            add(digest, TargetCodec.encode(improve.getTarget()));
+            add(digest, improve.getSourceMode().name());
         } else if (step instanceof BulkTransferStep) {
             BulkTransferStep bulk = (BulkTransferStep) step;
             add(digest, Long.toString(bulk.getSource().getStorage().getId()));

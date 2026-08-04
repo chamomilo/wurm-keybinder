@@ -12,6 +12,7 @@ import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.ExecutionOriginGuard;
 import org.keybinder.wurm.model.SmartImproveStep;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
 
@@ -107,7 +108,7 @@ public final class SmartImproveExecutor {
         boolean inventoryMetadata = !targets.isEmpty();
         for (InventoryMetaItem target : targets)
             inventoryMetadata &= hasLocalImproveMetadata(target);
-        if (!inventoryMetadata) return prepareWorld(step.getTarget(), hud, budget);
+        if (!inventoryMetadata) return prepareWorld(step, hud, budget);
 
         int[] costs = new int[targets.size()];
         boolean[] repairs = new boolean[targets.size()];
@@ -130,6 +131,7 @@ public final class SmartImproveExecutor {
         }
 
         ImproveResourceCandidate inventory = needsSource
+                && step.getSourceMode() == SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY
                 ? inventoryCandidate(access.playerInventoryRoot(hud), excludedTargets)
                 : null;
         List<PreparedItem> result = new ArrayList<PreparedItem>(count);
@@ -145,12 +147,13 @@ public final class SmartImproveExecutor {
                 } catch (UnsupportedImproveMaterialException unsupported) {
                     throw new StepUnavailableException(unsupported.getMessage());
                 }
-                source = resolveSource(hud, inventory, requirement, excludedTargets);
+                source = resolveSource(hud, inventory, requirement, excludedTargets,
+                        step.getSourceMode());
                 if (source == null)
                     throw new StepUnavailableException(Messages.text(
                             "improve.exact_resource_missing",
                             requirement.getMissingResourceLabel(),
-                            displayName(target)));
+                            displayName(target), sourceModeLabel(step.getSourceMode())));
             }
             result.add(new PreparedItem(target.getId(), displayName(target),
                     repairs[i], source, false));
@@ -159,9 +162,10 @@ public final class SmartImproveExecutor {
         return new PreparedBatch(result, queueCost);
     }
 
-    private PreparedBatch prepareWorld(TargetSpec requested, HeadsUpDisplay hud,
+    private PreparedBatch prepareWorld(SmartImproveStep step, HeadsUpDisplay hud,
                                        int budget)
             throws ReflectiveOperationException {
+        TargetSpec requested = step.getTarget();
         GroundItemCellRenderable target = selectedWorldTarget(requested, hud);
         if (target == null)
             throw new StepUnavailableException(
@@ -191,13 +195,16 @@ public final class SmartImproveExecutor {
             }
             Set<Long> excluded = new HashSet<Long>();
             excluded.add(target.getId());
-            ImproveResourceCandidate inventory = inventoryCandidate(
-                    access.playerInventoryRoot(hud), excluded);
-            source = resolveSource(hud, inventory, requirement, excluded);
+            ImproveResourceCandidate inventory = step.getSourceMode()
+                    == SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY
+                    ? inventoryCandidate(access.playerInventoryRoot(hud), excluded) : null;
+            source = resolveSource(hud, inventory, requirement, excluded,
+                    step.getSourceMode());
             if (source == null)
                 throw new StepUnavailableException(Messages.text(
                         "improve.exact_resource_missing",
-                        requirement.getMissingResourceLabel(), targetName));
+                        requirement.getMissingResourceLabel(), targetName,
+                        sourceModeLabel(step.getSourceMode())));
         }
         List<PreparedItem> result = new ArrayList<PreparedItem>(1);
         result.add(new PreparedItem(target.getId(), targetName,
@@ -231,10 +238,17 @@ public final class SmartImproveExecutor {
                 .contains("(glowing)"));
     }
 
+    static String sourceModeLabel(SmartImproveSourceMode sourceMode) {
+        return Messages.text(sourceMode == SmartImproveSourceMode.TOOLBELT_ONLY
+                ? "improve.source_mode.toolbelt_only"
+                : "improve.source_mode.toolbelt_inventory");
+    }
+
     private ResolvedImproveResource resolveSource(HeadsUpDisplay hud,
                                                    ImproveResourceCandidate inventory,
                                                    ResourceRequirement requirement,
-                                                   Set<Long> excludedTargets) {
+                                                   Set<Long> excludedTargets,
+                                                   SmartImproveSourceMode sourceMode) {
         List<ImproveResourceCandidate> toolbelt =
                 toolbeltCandidates(hud, excludedTargets);
         ImproveResourceCandidate builtIn = null;
@@ -246,7 +260,9 @@ public final class SmartImproveExecutor {
         // Candidate rejection details remain silent normally, but become visible
         // when the existing Debug logging setting is enabled. This makes server-
         // specific inventory names diagnosable without adding normal Event spam.
-        return resources.resolve(toolbelt, inventory, builtIn, requirement, log::debug);
+        return resources.resolve(toolbelt, inventory, builtIn, requirement,
+                sourceMode == SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY,
+                log::debug);
     }
 
     private static List<ImproveResourceCandidate> toolbeltCandidates(
@@ -257,7 +273,7 @@ public final class SmartImproveExecutor {
         for (int slot = 0; slot < 10; slot++) {
             ImproveResourceCandidate value = candidate(
                     hud.getToolBelt().getItemInSlot(slot), excludedTargets,
-                    visited, false);
+                    visited, true);
             if (value != null) result.add(value);
         }
         return result;
@@ -320,7 +336,10 @@ public final class SmartImproveExecutor {
         ImproveResourceCandidate candidate = selection.getCandidate();
         String name = candidate.getDisplayName().isEmpty()
                 ? candidate.getBaseName() : candidate.getDisplayName();
-        if (selection.isToolbelt())
+        if (selection.isToolbelt() && selection.isNested())
+            log.info(Messages.text("improve.using_from_toolbelt_container", name,
+                    selection.getContainerName(), itemName));
+        else if (selection.isToolbelt())
             log.info(Messages.text("improve.using_toolbelt", name, itemName));
         else if (selection.isBuiltIn())
             log.info(Messages.text("improve.using_built_in", name, itemName));

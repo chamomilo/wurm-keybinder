@@ -19,6 +19,7 @@ import org.keybinder.wurm.model.KeybindLimits;
 import org.keybinder.wurm.model.KeybindNamePrefixes;
 import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.SmartImproveStep;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
 import org.keybinder.wurm.model.StepKind;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
@@ -1269,6 +1270,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private final VerticalSeparator sourceSeparator = new VerticalSeparator();
         private final WurmLabel sourceGap = horizontalSpacer(SOURCE_MIN_WIDTH);
         private SelectableSourceDropDown source;
+        private WurmDropDown smartImproveSource;
+        private SmartImproveSourceMode smartImproveSourceMode =
+                SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
         private ItemSelector selectedSource;
         private int lastSourceValue;
         private boolean hasConcreteSource;
@@ -1305,6 +1309,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             selectedSource = step instanceof ActionStep
                     ? ((ActionStep) step).getSource() : ItemSelector.currentActive();
             createSource();
+            if (step instanceof SmartImproveStep)
+                smartImproveSourceMode = ((SmartImproveStep) step).getSourceMode();
+            createSmartImproveSource();
             if (step instanceof ConsoleCommandStep)
                 command.setText(((ConsoleCommandStep) step).getCommand());
             else command.setText("");
@@ -1517,6 +1524,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             lastSourceValue = selected;
         }
 
+        private void createSmartImproveSource() {
+            smartImproveSource = new WurmDropDown("keybinder.improve.source",
+                    smartImproveSourceMode == SmartImproveSourceMode.TOOLBELT_ONLY ? 0 : 1,
+                    new String[]{
+                            Messages.text("editor.improve.source.toolbelt_only"),
+                            Messages.text("editor.improve.source.toolbelt_inventory")
+                    });
+        }
+
         private void rebuildPanel() {
             panel.removeAllComponents();
             panel.addComponent(controls);
@@ -1553,7 +1569,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 panel.addComponent(usesActionSource() ? source : sourceGap);
             } else {
                 panel.addComponent(sourceSeparator);
-                panel.addComponent(sourceGap);
+                panel.addComponent(kind() == StepKind.SMART_IMPROVE
+                        ? smartImproveSource : sourceGap);
             }
             panel.addComponent(targetSeparator);
             panel.addComponent(target);
@@ -1695,7 +1712,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 capture.setEnabled(true);
                 actionName.setSize(columns[0], actionName.height);
                 sourceSeparator.setSize(SEPARATOR_WIDTH, sourceSeparator.height);
-                sourceGap.setSize(columns[1], sourceGap.height);
+                if (kind() == StepKind.SMART_IMPROVE)
+                    smartImproveSource.setSize(columns[1], smartImproveSource.height);
+                else sourceGap.setSize(columns[1], sourceGap.height);
                 targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
                 target.setSize(columns[2], target.height);
                 updateControlStates();
@@ -1738,8 +1757,16 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     command.getText(), selectedSource, selectedTarget,
                     vanillaCategory(), vanillaEntry(), selectedBulkSource,
                     bulkQuantity.getText(), bulkDestinationKind,
-                    capturedBulkDestination);
+                    capturedBulkDestination, selectedSmartImproveSourceMode());
             return draft.toStep(actionId -> resolveActionName(actionId));
+        }
+
+        private SmartImproveSourceMode selectedSmartImproveSourceMode() {
+            if (kind() != StepKind.SMART_IMPROVE || smartImproveSource == null)
+                return SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
+            return smartImproveSource.getValue() == 0
+                    ? SmartImproveSourceMode.TOOLBELT_ONLY
+                    : SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
         }
 
         private StepKind kind() {
@@ -1770,6 +1797,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if (pendingBulkDestinationRow == this) pendingBulkDestinationRow = null;
             selectedTarget = baseTargetOptions()[0];
             selectedSource = ItemSelector.currentActive();
+            smartImproveSourceMode = SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
             selectedBulkSource = null;
             rememberedActionName = "";
             bulkDestinationKind = BulkDestinationKind.PLAYER_INVENTORY;
@@ -1779,6 +1807,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             createVanillaAction(null);
             createTarget();
             createSource();
+            createSmartImproveSource();
             refreshBulkSourceLabel();
             createBulkDestination();
             updateActionName();

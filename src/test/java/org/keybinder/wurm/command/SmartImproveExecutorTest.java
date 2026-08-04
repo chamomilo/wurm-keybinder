@@ -3,6 +3,7 @@ package org.keybinder.wurm.command;
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import org.junit.Test;
 import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
@@ -56,6 +57,22 @@ public class SmartImproveExecutorTest {
                         + "\"backpack\" in inventory to improve \"rare pickaxe\"",
                 Messages.text("improve.using_from_inventory_container",
                         "large rat pelt", "backpack", "rare pickaxe"));
+    }
+
+    @Test
+    public void missingResourceMessageNamesTheSelectedSourceMode() {
+        String toolbeltOnly = SmartImproveExecutor.sourceModeLabel(
+                SmartImproveSourceMode.TOOLBELT_ONLY);
+        String fallback = SmartImproveExecutor.sourceModeLabel(
+                SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY);
+
+        assertEquals("Take tools only from toolbelt", toolbeltOnly);
+        assertEquals("First toolbelt, then inventory", fallback);
+        assertEquals("Required WATER for \"rare carving knife (glowing), steel\" "
+                        + "was not found using Smart Improve source mode "
+                        + "\"Take tools only from toolbelt\". No Improve action was sent.",
+                Messages.text("improve.exact_resource_missing", "WATER",
+                        "rare carving knife (glowing), steel", toolbeltOnly));
     }
 
     @Test

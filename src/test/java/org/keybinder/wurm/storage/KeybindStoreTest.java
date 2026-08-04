@@ -12,6 +12,7 @@ import org.keybinder.wurm.model.TargetSpec;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.model.ItemSelector;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -89,7 +90,8 @@ public class KeybindStoreTest {
         KeybindStore store = new KeybindStore(dir.resolve("records.properties"));
         List<KeybindStep> steps = Arrays.<KeybindStep>asList(
                 new ActivateToolStep(TargetSpec.toolbeltSlot(2)),
-                new SmartImproveStep(TargetSpec.simple(TargetKind.HOVER)),
+                new SmartImproveStep(TargetSpec.simple(TargetKind.HOVER),
+                        SmartImproveSourceMode.TOOLBELT_ONLY),
                 new VanillaActionStep("MAIN_MENU"),
                 new ConsoleCommandStep("toggle inventory"),
                 new ActionStep((short) 192, TargetSpec.simple(TargetKind.SELECTED)));
@@ -103,6 +105,8 @@ public class KeybindStoreTest {
         assertEquals(5, loaded.getKeybindSteps().size());
         assertEquals(2, ((ActivateToolStep) loaded.getKeybindSteps().get(0))
                 .getTarget().getSlot());
+        assertEquals(SmartImproveSourceMode.TOOLBELT_ONLY,
+                ((SmartImproveStep) loaded.getKeybindSteps().get(1)).getSourceMode());
         assertEquals("toggle inventory",
                 ((ConsoleCommandStep) loaded.getKeybindSteps().get(3)).getCommand());
         assertEquals("MAIN_MENU",

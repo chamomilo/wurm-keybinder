@@ -1230,13 +1230,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 EVENTS.warning(Messages.text("event.improve_installed"));
             if (INSTANCE.skipIntro) {
                 window.showKeybinds();
-                ACCESS.ensureComponentVisible(newHud, window);
+                showTagInsteadOfWindow();
             }
             else {
                 window.showIntro();
                 ACCESS.ensureComponentVisible(newHud, window);
+                ACCESS.setComponentVisible(newHud, tagWindow, false);
             }
-            ACCESS.setComponentVisible(newHud, tagWindow, false);
             if (registry != null) {
                 WurmConsole console = ACCESS.console(newHud);
                 applyAccountBindingsIfReady(newHud);
@@ -1320,6 +1320,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static void onConnectionEnded() {
         try {
+            if (registry != null) registry.persistAccountBindings();
             ACTION_QUEUE.clear();
             WORLD_IMPROVE.clear();
             BULK_TRANSFERS.clear("connection ended");
@@ -1771,8 +1772,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             try {
                 if (hud != null && window != null) {
                     window.showKeybinds();
-                    ACCESS.ensureComponentVisible(hud, window);
                     if (pendingLanguage != null) applyLanguage(pendingLanguage);
+                    showTagInsteadOfWindow();
                 }
             } catch (Exception e) {
                 EVENTS.error(Messages.text("error.open_keybinder"), e);
@@ -1780,6 +1781,16 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         });
     }
     @Override public void importDisableAndRestart() {
+        deferUi(() -> {
+            try {
+                if (hud != null && window != null) {
+                    window.showKeybinds();
+                    showTagInsteadOfWindow();
+                }
+            } catch (Exception e) {
+                EVENTS.error(Messages.text("error.open_keybinder"), e);
+            }
+        });
         requestImport();
     }
     @Override public boolean isSkipIntro() { return skipIntro; }
@@ -2208,8 +2219,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     hideSafely(conflictToClose);
                     hideSafely(tileToClose);
                     hideSafely(selectionToClose);
-                    ACCESS.setComponentVisible(hud, window, false);
-                    ACCESS.setComponentVisible(hud, tagWindow, true);
+                    showTagInsteadOfWindow();
                 }
             } catch (Exception e) {
                 EVENTS.error(Messages.text("error.replace_with_tag"), e);
@@ -2229,5 +2239,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 EVENTS.error(Messages.text("error.open_from_tag"), e);
             }
         });
+    }
+
+    private static void showTagInsteadOfWindow() throws ReflectiveOperationException {
+        if (hud == null) return;
+        if (window != null) ACCESS.setComponentVisible(hud, window, false);
+        if (tagWindow != null) ACCESS.setComponentVisible(hud, tagWindow, true);
     }
 }

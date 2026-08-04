@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -25,6 +26,7 @@ import java.util.Set;
  */
 public final class AccountKeybindStateStore {
     public static final int SCHEMA_VERSION = 1;
+    private static final Object JVM_WRITE_LOCK = new Object();
 
     public static final class State {
         private final boolean present;
@@ -62,9 +64,18 @@ public final class AccountKeybindStateStore {
     public synchronized void save(String account, Set<String> enabledIds)
             throws IOException {
         String key = normalizeAccount(account);
-        Map<String, Set<String>> all = readRecovering();
-        all.put(key, new HashSet<String>(enabledIds));
-        write(all);
+        synchronized (JVM_WRITE_LOCK) {
+            Path parent = file.toAbsolutePath().getParent();
+            if (parent != null) Files.createDirectories(parent);
+            Path lockFile = file.resolveSibling(file.getFileName() + ".lock");
+            try (FileChannel lockChannel = FileChannel.open(lockFile,
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                 FileLock ignored = lockChannel.lock()) {
+                Map<String, Set<String>> all = readRecovering();
+                all.put(key, new HashSet<String>(enabledIds));
+                write(all);
+            }
+        }
     }
 
     private Map<String, Set<String>> readRecovering() throws IOException {

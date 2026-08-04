@@ -61,4 +61,22 @@ public class ActionQueueOccupancyTrackerTest {
 
         assertEquals(1, tracker.occupied(true));
     }
+
+    @Test
+    public void fourSessionsKeepActionQueueOccupancyIndependent() {
+        ActionQueueOccupancyTracker[] sessions = {
+                new ActionQueueOccupancyTracker(),
+                new ActionQueueOccupancyTracker(),
+                new ActionQueueOccupancyTracker(),
+                new ActionQueueOccupancyTracker()
+        };
+        for (int i = 0; i < sessions.length; i++) sessions[i].actionsSent(i + 1);
+
+        sessions[2].clear();
+
+        assertEquals(1, sessions[0].occupied(false));
+        assertEquals(2, sessions[1].occupied(false));
+        assertEquals(0, sessions[2].occupied(false));
+        assertEquals(4, sessions[3].occupied(false));
+    }
 }

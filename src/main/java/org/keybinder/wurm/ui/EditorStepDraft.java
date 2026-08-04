@@ -10,6 +10,7 @@ import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
 import org.keybinder.wurm.model.StepKind;
 import org.keybinder.wurm.model.BulkDestinationKind;
 import org.keybinder.wurm.model.BulkStorageItem;
@@ -42,6 +43,7 @@ public final class EditorStepDraft {
     private final String bulkQuantity;
     private final BulkDestinationKind bulkDestinationKind;
     private final InventoryReference bulkCapturedDestination;
+    private final SmartImproveSourceMode smartImproveSourceMode;
 
     public EditorStepDraft(
             StepKind kind,
@@ -52,7 +54,8 @@ public final class EditorStepDraft {
             VanillaKeybindCatalog.Category vanillaCategory,
             VanillaKeybindCatalog.Entry vanillaEntry) {
         this(kind, actionId, command, source, target, vanillaCategory, vanillaEntry,
-                null, "1", BulkDestinationKind.PLAYER_INVENTORY, null);
+                null, "1", BulkDestinationKind.PLAYER_INVENTORY, null,
+                SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY);
     }
 
     public EditorStepDraft(
@@ -67,6 +70,24 @@ public final class EditorStepDraft {
             String bulkQuantity,
             BulkDestinationKind bulkDestinationKind,
             InventoryReference bulkCapturedDestination) {
+        this(kind, actionId, command, source, target, vanillaCategory, vanillaEntry,
+                bulkSource, bulkQuantity, bulkDestinationKind, bulkCapturedDestination,
+                SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY);
+    }
+
+    public EditorStepDraft(
+            StepKind kind,
+            String actionId,
+            String command,
+            ItemSelector source,
+            String target,
+            VanillaKeybindCatalog.Category vanillaCategory,
+            VanillaKeybindCatalog.Entry vanillaEntry,
+            BulkStorageItem bulkSource,
+            String bulkQuantity,
+            BulkDestinationKind bulkDestinationKind,
+            InventoryReference bulkCapturedDestination,
+            SmartImproveSourceMode smartImproveSourceMode) {
         this.kind = kind;
         this.actionId = actionId == null ? "" : actionId;
         this.command = command == null ? "" : command;
@@ -78,6 +99,9 @@ public final class EditorStepDraft {
         this.bulkQuantity = bulkQuantity == null ? "" : bulkQuantity;
         this.bulkDestinationKind = bulkDestinationKind;
         this.bulkCapturedDestination = bulkCapturedDestination;
+        this.smartImproveSourceMode = smartImproveSourceMode == null
+                ? SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY
+                : smartImproveSourceMode;
     }
 
     public KeybindStep toStep(ActionNameLookup names) {
@@ -86,7 +110,7 @@ public final class EditorStepDraft {
         if (kind == StepKind.ACTIVATE_TOOL)
             return new ActivateToolStep(TargetCodec.decode(target));
         if (kind == StepKind.SMART_IMPROVE)
-            return new SmartImproveStep(TargetCodec.decode(target));
+            return new SmartImproveStep(TargetCodec.decode(target), smartImproveSourceMode);
         if (kind == StepKind.BULK_TRANSFER) {
             final int quantity;
             try {

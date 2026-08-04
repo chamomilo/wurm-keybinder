@@ -36,7 +36,8 @@ public final class KeybindDefinitionCopier {
         if (step instanceof ActivateToolStep)
             return new ActivateToolStep(TargetSpec.copyOf(((ActivateToolStep) step).getTarget()));
         if (step instanceof SmartImproveStep)
-            return new SmartImproveStep(TargetSpec.copyOf(((SmartImproveStep) step).getTarget()));
+            return new SmartImproveStep(TargetSpec.copyOf(((SmartImproveStep) step).getTarget()),
+                    ((SmartImproveStep) step).getSourceMode());
         if (step instanceof BulkTransferStep) {
             BulkTransferStep bulk = (BulkTransferStep) step;
             return new BulkTransferStep(BulkStorageItem.copyOf(bulk.getSource()),

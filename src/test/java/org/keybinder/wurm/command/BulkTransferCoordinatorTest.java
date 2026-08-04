@@ -235,6 +235,25 @@ public class BulkTransferCoordinatorTest {
         assertTrue(coordinator.hasPending());
     }
 
+    @Test public void fourSessionsKeepBulkQueuesIndependent() {
+        List<BulkTransferCoordinator> sessions = new ArrayList<BulkTransferCoordinator>();
+        for (int i = 0; i < 4; i++) {
+            BulkTransferCoordinator session = new BulkTransferCoordinator(
+                    new EventLogger(Logger.getAnonymousLogger()), () -> 1000L);
+            session.begin(step(202L + i, i + 1), 303L + i,
+                    (destination, item) -> { });
+            sessions.add(session);
+        }
+
+        assertTrue(sessions.get(0).intercept("Removing items", FORM,
+                (fields, id) -> { }));
+
+        assertFalse(sessions.get(0).hasPending());
+        assertTrue(sessions.get(1).hasPending());
+        assertTrue(sessions.get(2).hasPending());
+        assertTrue(sessions.get(3).hasPending());
+    }
+
     private static BulkTransferStep step() {
         return step(202L);
     }

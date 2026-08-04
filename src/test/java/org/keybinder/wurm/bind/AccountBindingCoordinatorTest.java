@@ -13,6 +13,7 @@ import java.util.logging.Logger;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 
 public class AccountBindingCoordinatorTest {
     @Test public void restoresOnlyTheAccountLocalEnabledSet() throws Exception {
@@ -47,6 +48,48 @@ public class AccountBindingCoordinatorTest {
         coordinator.activate("Second Alt", Arrays.asList(first, second));
         assertFalse(first.isEnabled());
         assertTrue(second.isEnabled());
+    }
+
+    @Test public void switchingAccountsPersistsTheDepartingAccountsLatestPicks()
+            throws Exception {
+        AccountKeybindStateStore store = new AccountKeybindStateStore(
+                Files.createTempDirectory("account-departure").resolve("accounts.properties"));
+        KeybindRecord first = record("first");
+        KeybindRecord second = record("second");
+        store.save("First Alt", Collections.singleton("first"));
+        store.save("Second Alt", Collections.singleton("second"));
+        AccountBindingCoordinator coordinator = new AccountBindingCoordinator(store,
+                new EventLogger(Logger.getAnonymousLogger()));
+
+        coordinator.activate("First Alt", Arrays.asList(first, second));
+        first.setEnabled(false);
+        second.setEnabled(true);
+        coordinator.activate("Second Alt", Arrays.asList(first, second));
+
+        assertEquals(Collections.singleton("second"),
+                store.load("First Alt").getEnabledIds());
+    }
+
+    @Test public void simultaneousSessionsKeepIndependentInMemorySelections()
+            throws Exception {
+        AccountKeybindStateStore store = new AccountKeybindStateStore(
+                Files.createTempDirectory("account-sessions").resolve("accounts.properties"));
+        store.save("First Alt", Collections.singleton("first"));
+        store.save("Second Alt", Collections.singleton("second"));
+        AccountBindingCoordinator firstSession = new AccountBindingCoordinator(store,
+                new EventLogger(Logger.getAnonymousLogger()));
+        AccountBindingCoordinator secondSession = new AccountBindingCoordinator(store,
+                new EventLogger(Logger.getAnonymousLogger()));
+        KeybindRecord firstA = record("first"), secondA = record("second");
+        KeybindRecord firstB = record("first"), secondB = record("second");
+
+        firstSession.activate("First Alt", Arrays.asList(firstA, secondA));
+        secondSession.activate("Second Alt", Arrays.asList(firstB, secondB));
+
+        assertTrue(firstA.isEnabled());
+        assertFalse(secondA.isEnabled());
+        assertFalse(firstB.isEnabled());
+        assertTrue(secondB.isEnabled());
     }
 
     private static KeybindRecord record(String id) {

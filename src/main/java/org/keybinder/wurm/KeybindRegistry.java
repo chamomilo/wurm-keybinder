@@ -193,11 +193,32 @@ public final class KeybindRegistry implements ValuePackTarget {
     public synchronized boolean restoreAccountBindings(
             String account, WurmConsole console, int limit) {
         if (account == null || account.trim().isEmpty() || console == null) return false;
+        int removed = 0;
+        ManagedBindTransaction reset = new ManagedBindTransaction(binds, console);
+        for (KeybindRecord record : records) {
+            if (record.getKey().trim().isEmpty()) continue;
+            String command = commandFor(record);
+            try {
+                BindSnapshot live = findLive(console, record.getKey());
+                if (live != null && live.getCommand().equalsIgnoreCase(command)
+                        && reset.removeOwned(record.getKey(), command))
+                    removed++;
+            } catch (Exception failure) {
+                reset.rollback(failure);
+                log.error(Messages.text("registry.restore_failed",
+                        record.getName(), account), failure);
+                return false;
+            }
+        }
+
         String activeAccount = accountBindings.activate(account, records);
-        if (activeAccount.isEmpty()) return false;
+        if (activeAccount.isEmpty()) {
+            reset.rollback(new IllegalStateException(
+                    "Account activation profile was not available"));
+            return false;
+        }
 
         int restored = 0;
-        int removed = 0;
         int conflicts = 0;
         for (KeybindRecord record : records) {
             String command = commandFor(record);
@@ -226,10 +247,6 @@ public final class KeybindRegistry implements ValuePackTarget {
                         log.warning(Messages.text("registry.restore_conflict",
                                 record.getName(), record.getKey(), live.getCommand()));
                     }
-                } else if (live != null
-                        && live.getCommand().equalsIgnoreCase(command)
-                        && removeLive(console, record.getKey(), command)) {
-                    removed++;
                 }
             } catch (Exception e) {
                 record.setEnabled(false);
@@ -245,6 +262,10 @@ public final class KeybindRegistry implements ValuePackTarget {
             log.info(Messages.text("registry.restore_summary",
                     activeAccount, restored, removed, conflicts));
         return true;
+    }
+
+    public synchronized void persistAccountBindings() {
+        accountBindings.persist(records);
     }
 
     public synchronized KeybindRecord createDraft() throws IOException {

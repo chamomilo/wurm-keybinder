@@ -27,6 +27,7 @@ import org.keybinder.wurm.model.BulkDestinationKind;
 import org.keybinder.wurm.model.BulkStorageItem;
 import org.keybinder.wurm.model.BulkTransferStep;
 import org.keybinder.wurm.model.InventoryReference;
+import org.keybinder.wurm.model.SmartImproveSourceMode;
 
 public class KeybindTransferStoreTest {
     @Rule public final TemporaryFolder temporary = new TemporaryFolder();
@@ -41,7 +42,8 @@ public class KeybindTransferStoreTest {
                 action(30005, ItemSelector.exactObject(123L, "picareta rara"),
                         TargetSpec.exactObject(456L, "árvore")),
                 new ActivateToolStep(TargetSpec.toolbeltSlot(2)),
-                new SmartImproveStep(TargetSpec.simple(TargetKind.SELECTED)),
+                new SmartImproveStep(TargetSpec.simple(TargetKind.SELECTED),
+                        SmartImproveSourceMode.TOOLBELT_ONLY),
                 new VanillaActionStep("CLIMB"),
                 new ConsoleCommandStep("say olá", true));
         KeybindVariant a = new KeybindVariant("variant-a", "Padrão", first);
@@ -70,6 +72,9 @@ public class KeybindTransferStoreTest {
         assertNotEquals(record.getId(), imported.getId());
         assertNotEquals(record.getVariants().get(0).getId(), imported.getVariants().get(0).getId());
         assertEquals("", imported.getOriginalCommand());
+        assertEquals(SmartImproveSourceMode.TOOLBELT_ONLY,
+                ((SmartImproveStep) imported.getVariants().get(0).getSteps().get(7))
+                        .getSourceMode());
     }
 
     @Test public void fingerprintIsDeterministicAndSensitiveToSource() {
