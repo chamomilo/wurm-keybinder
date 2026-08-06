@@ -32,7 +32,12 @@ public class KeybinderHookEntryPointContractTest {
         assertCallback("onServerInformation", void.class, String.class);
         assertCallback("alignViewAfterEmbark", void.class, PlayerObj.class, float.class);
         assertCallback("rememberSelectedServer", void.class, Object.class);
+        assertCallback("observeCapturedAction", void.class, PlayerAction.class);
+        assertCallback("withCapturedTarget", Object.class,
+                String.class, Object.class, Method.class, Object[].class);
         assertCallback("observeWorldImproveEvent", void.class, String.class, String.class);
+        assertCallback("observeWorldImproveAction", void.class,
+                long[].class, PlayerAction.class);
         assertCallback("observeWorldImproveSelection", void.class, PickableUnit.class);
         assertCallback("observeActionSent", void.class, long[].class, PlayerAction.class);
         assertCallback("observeSingleActionSent", void.class);
@@ -45,8 +50,15 @@ public class KeybinderHookEntryPointContractTest {
         assertCallback("afterPushTargetRecreated", void.class,
                 SelectBar.class, PickableUnit.class);
         assertCallback("onHudReady", void.class, HeadsUpDisplay.class);
+        assertCallback("onHudTick", void.class, HeadsUpDisplay.class);
         assertCallback("captureInventoryTarget", void.class,
                 Object.class, int.class, int.class);
+        assertCallback("interceptToolbeltSelection", Object.class,
+                Object.class, Method.class, Object[].class);
+        assertCallback("interceptEquipmentSelection", Object.class,
+                Object.class, Method.class, Object[].class);
+        assertCallback("interceptBulkTransferBml", boolean.class,
+                HeadsUpDisplay.class, String.class, String.class);
     }
 
     private static void assertCallback(String name, Class<?> returnType,

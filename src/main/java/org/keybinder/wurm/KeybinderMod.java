@@ -22,8 +22,6 @@ import com.wurmonline.client.renderer.gui.KeybinderTagWindow;
 import com.wurmonline.client.renderer.gui.SelectBar;
 import com.wurmonline.client.renderer.gui.WurmComponent;
 import com.wurmonline.shared.constants.PlayerAction;
-import javassist.ClassPool;
-import javassist.CtClass;
 import org.keybinder.wurm.bind.VanillaBindService;
 import org.keybinder.wurm.bind.MultiKeyController;
 import org.keybinder.wurm.bind.SelectorSessionController;
@@ -41,11 +39,11 @@ import org.keybinder.wurm.command.BulkTransferCoordinator;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.CreationSkillRegistry;
-import org.keybinder.wurm.integration.ActionSourceOverride;
 import org.keybinder.wurm.integration.DeferredUiQueue;
 import org.keybinder.wurm.integration.EmbarkHeadingController;
 import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.integration.FailOpenHookInstaller;
+import org.keybinder.wurm.integration.KeybinderClientHooks;
 import org.keybinder.wurm.integration.HudIntegration;
 import org.keybinder.wurm.integration.CurrentServerTracker;
 import org.keybinder.wurm.integration.HudSessionController;
@@ -90,7 +88,6 @@ import org.keybinder.wurm.transfer.KeybindTransferWorkflow;
 import org.keybinder.wurm.ui.KeybinderUiController;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.ui.EditorWorkflow;
-import org.gotti.wurmunlimited.modloader.classhooks.HookManager;
 import org.gotti.wurmunlimited.modloader.interfaces.Configurable;
 import org.gotti.wurmunlimited.modloader.interfaces.Initable;
 import org.gotti.wurmunlimited.modloader.interfaces.PreInitable;
@@ -260,27 +257,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     @Override
     public void preInit() {
-        ClassPool pool = HookManager.getInstance().getClassPool();
-        HOOKS.install("action name cache", () -> hookActionNameCache(pool));
-        HOOKS.install("per-action source override", () -> hookActionSource(pool));
-        HOOKS.install("action menu paths", () -> hookActionMenuPaths(pool));
-        HOOKS.install("console commands", () -> hookConsole(pool));
-        HOOKS.install("multi-purpose long press", () -> hookLongPress(pool));
-        HOOKS.install("mouse wheel keybinds", () -> hookMouseWheel(pool));
-        HOOKS.install("connection lifecycle", () -> hookConnectionLifecycle(pool));
-        HOOKS.install("embark heading", () -> hookEmbarkHeading(pool));
-        HOOKS.install("HUD lifecycle", () -> hookHud(pool));
-        HOOKS.install("action queue occupancy", () -> hookActionQueue(pool));
-        HOOKS.install("one-shot action capture", () -> hookActionCapture(pool));
-        HOOKS.install("world Improve Examine metadata", () -> hookWorldImprove(pool));
-        HOOKS.install("creation skill catalog", () -> hookCreationSkillCatalog(pool));
-        HOOKS.install("toolbelt target selection", this::hookToolbeltSelection);
-        HOOKS.install("equipment target selection", this::hookEquipmentSelection);
-        HOOKS.install("world target selection", () -> hookWorldSelection(pool));
-        HOOKS.install("inventory target selection", this::hookInventorySelection);
-        HOOKS.install("bulk transfer quantity response", this::hookBulkTransferBml);
-        HOOKS.install("push selection retention", () -> hookPushSelection(pool));
-        HOOKS.install("server identity", () -> hookSelectedServer(pool));
+        new KeybinderClientHooks(HOOKS, LOGGER).install();
     }
 
     @Override
@@ -356,50 +333,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    private void hookActionNameCache(ClassPool pool) throws Exception {
-        CtClass type = pool.getCtClass("com.wurmonline.shared.constants.PlayerAction");
-        type.getMethod("getName", "()Ljava/lang/String;").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.rememberActionName(this.id, $_);");
-    }
-
-    private void hookActionMenuPaths(ClassPool pool) throws Exception {
-        CtClass abstractButton = pool.getCtClass(
-                "com.wurmonline.client.renderer.gui.WurmPopup$WPopupAbstractButton");
-        abstractButton.getDeclaredMethod("mouseMoved").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.rememberPopupSubmenu("
-                        + "this.this$0, this.getSubmenu(), this.getLabel());");
-        CtClass button = pool.getCtClass(
-                "com.wurmonline.client.renderer.gui.WurmPopup$WPopupActionButton");
-        button.getDeclaredMethod("handleLeftClick").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.rememberActionMenuPath("
-                        + "this.this$0, this.action);");
-    }
-
-    private void hookConsole(ClassPool pool) throws Exception {
-        CtClass console = pool.getCtClass("com.wurmonline.client.console.WurmConsole");
-        console.getMethod("handleDevInput", "(Ljava/lang/String;[Ljava/lang/String;)Z").insertBefore(
-                "if (org.keybinder.wurm.KeybinderMod.handleCommand($1,$2)) return true;");
-    }
-
-    private void hookLongPress(ClassPool pool) throws Exception {
-        CtClass console = pool.getCtClass("com.wurmonline.client.console.WurmConsole");
-        console.getMethod("toggleKey", "(IZ)V").insertBefore(
-                "if (org.keybinder.wurm.KeybinderMod.handleKeyToggle(this,$1,$2)) return;");
-        CtClass eventHandler = pool.getCtClass("com.wurmonline.client.WurmEventHandler");
-        eventHandler.getDeclaredMethod("keyPressed",
-                new CtClass[]{CtClass.intType, CtClass.charType}).insertBefore(
-                "org.keybinder.wurm.KeybinderMod.observeKeyPressed($1);");
-        eventHandler.getDeclaredMethod("keyReleased",
-                new CtClass[]{CtClass.intType, CtClass.charType}).insertBefore(
-                "org.keybinder.wurm.KeybinderMod.observeKeyReleased($1);");
-    }
-
-    private void hookMouseWheel(ClassPool pool) throws Exception {
-        CtClass handler = pool.getCtClass("com.wurmonline.client.WurmEventHandler");
-        handler.getMethod("mouseWheeled", "(III)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.handleMouseWheel($1,$2,$3);");
-    }
-
     public static void handleMouseWheel(final int x, final int y, final int delta) {
         try {
             if (SELECTOR_SESSION.otherPointerAction()) {
@@ -453,54 +386,15 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    private void hookHud(ClassPool pool) {
-        HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.HeadsUpDisplay", "init", "(II)V",
-                () -> (proxy, method, args) -> {
-                    Object result = method.invoke(proxy, args);
-                    onHudReady((HeadsUpDisplay) proxy);
-                    return result;
-                });
-        HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.HeadsUpDisplay", "gameTick", "()V",
-                () -> (proxy, method, args) -> {
-                    Object result = method.invoke(proxy, args);
-                    applyAccountBindingsIfReady((HeadsUpDisplay) proxy);
-                    ensureCreationSkillCatalog((HeadsUpDisplay) proxy);
-                    drainUiQueue();
-                    return result;
-                });
-    }
-
-    private void hookConnectionLifecycle(ClassPool pool) throws Exception {
-        CtClass connection = pool.getCtClass(
-                "com.wurmonline.client.comm.SimpleServerConnectionClass");
-        connection.getMethod("disconnect", "(Ljava/lang/String;)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.onConnectionEnded();");
-        connection.getMethod("disconnectAndConnectTo", "(Ljava/lang/String;I)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.onServerTransfer($1, $2);");
-        CtClass world = pool.getCtClass("com.wurmonline.client.game.World");
-        world.getMethod("setServerInformation", "(IZLjava/lang/String;)V").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.onServerInformation($3);");
-    }
-
-    private void hookActionSource(ClassPool pool) throws Exception {
-        CtClass hudClass = pool.getCtClass(
-                "com.wurmonline.client.renderer.gui.HeadsUpDisplay");
-        hudClass.getMethod("getSourceItemId", "()J").insertAfter(
-                "{ $_ = org.keybinder.wurm.integration.ActionSourceOverride.overrideOr($_); }");
-        ActionSourceOverride.markHookAvailable();
-    }
-
-    private void hookEmbarkHeading(ClassPool pool) throws Exception {
-        CtClass player = pool.getCtClass("com.wurmonline.client.game.PlayerObj");
-        player.getMethod("setController",
-                "(Lcom/wurmonline/client/renderer/cell/CreatureCellRenderable;FFFFFFFB)V")
-                .insertAfter(
-                        "org.keybinder.wurm.KeybinderMod.alignViewAfterEmbark(this, $8);");
-    }
-
     public static void alignViewAfterEmbark(PlayerObj player, float vehicleRotation) {
         EmbarkHeadingController controller = embarkHeading;
         if (controller != null) controller.align(player, vehicleRotation);
+    }
+
+    public static void onHudTick(HeadsUpDisplay currentHud) {
+        applyAccountBindingsIfReady(currentHud);
+        ensureCreationSkillCatalog(currentHud);
+        drainUiQueue();
     }
 
     public static void deferUi(Runnable operation) {
@@ -774,20 +668,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    private void hookSelectedServer(ClassPool pool) {
-        try {
-            CtClass browser = pool.getCtClass("com.wurmonline.client.startup.ServerBrowserFX");
-            String signature = "(Ljavafx/scene/control/TableView;)V";
-            browser.getMethod("ConnectTo", signature).insertBefore(
-                    "org.keybinder.wurm.KeybinderMod.rememberSelectedServer($1);");
-            browser.getMethod("ConnectWithPassword",
-                    "(Ljavafx/scene/control/TableView;Ljava/lang/String;Ljava/lang/String;)V")
-                    .insertBefore("org.keybinder.wurm.KeybinderMod.rememberSelectedServer($1);");
-        } catch (Throwable e) {
-            LOGGER.log(Level.WARNING, "Full server-name capture is unavailable", e);
-        }
-    }
-
     public static void rememberSelectedServer(Object tableView) {
         try {
             Object selection = tableView.getClass().getMethod("getSelectionModel").invoke(tableView);
@@ -801,38 +681,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         } catch (ReflectiveOperationException e) {
             LOGGER.log(Level.FINE, "Unable to remember selected Steam server", e);
         }
-    }
-
-    private void hookActionCapture(ClassPool pool) {
-        HookManager.getInstance().registerHook("com.wurmonline.client.comm.SimpleServerConnectionClass",
-                "sendAction", "(J[JLcom/wurmonline/shared/constants/PlayerAction;)V",
-                () -> (proxy, method, args) -> {
-                    PlayerAction action = (PlayerAction) args[2];
-                    observeCapturedAction(action);
-                    observeWorldImproveAction((long[]) args[1], action);
-                    return method.invoke(proxy, args);
-                });
-        HookManager.getInstance().registerHook("com.wurmonline.client.game.World",
-                "sendHoveredAction", "(Lcom/wurmonline/shared/constants/PlayerAction;)V",
-                () -> (proxy, method, args) -> withTarget("hover", proxy, method, args));
-        HookManager.getInstance().registerHook("com.wurmonline.client.game.World",
-                "sendLocalAction", "(Lcom/wurmonline/shared/constants/PlayerAction;)V",
-                () -> (proxy, method, args) -> withTarget("tile", proxy, method, args));
-    }
-
-    private void hookWorldImprove(ClassPool pool) throws Exception {
-        CtClass chat = pool.getCtClass(
-                "com.wurmonline.client.renderer.gui.ChatPanelComponent");
-        chat.getMethod("addText",
-                "(Ljava/lang/String;Ljava/lang/String;FFFZ)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.observeWorldImproveEvent($1, $2);");
-
-        CtClass selectBar = pool.getCtClass(
-                "com.wurmonline.client.renderer.gui.SelectBar");
-        selectBar.getDeclaredMethod("setSelected").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.observeWorldImproveSelection($1);");
-        selectBar.getDeclaredMethod("clearSelectedItem").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.observeWorldImproveSelection(null);");
     }
 
     public static void observeWorldImproveAction(long[] targets, PlayerAction action) {
@@ -876,21 +724,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    private void hookActionQueue(ClassPool pool) throws Exception {
-        CtClass connection =
-                pool.getCtClass("com.wurmonline.client.comm.SimpleServerConnectionClass");
-        connection.getMethod("sendAction",
-                "(J[JLcom/wurmonline/shared/constants/PlayerAction;)V").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.observeActionSent($2, $3);");
-        connection.getMethod("sendSingleAction",
-                "(JJLcom/wurmonline/shared/constants/PlayerAction;)V").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.observeSingleActionSent();");
-        CtClass hudClass =
-                pool.getCtClass("com.wurmonline.client.renderer.gui.HeadsUpDisplay");
-        hudClass.getMethod("setAction", "(Ljava/lang/String;F)V").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.observeActionState($1, $2);");
-    }
-
     public static void observeActionSent(long[] targets, PlayerAction action) {
         if (targets == null || targets.length == 0) return;
         int count = action != null && action.isAtomic()
@@ -906,97 +739,53 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         ACTION_QUEUE.actionState(actionText, durationSeconds);
     }
 
-    private void hookToolbeltSelection() {
-        HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.ToolBeltComponent",
-                "leftPressed", "(III)V", () -> (proxy, method, args) -> {
-                    if (SELECTION.getMode() == SelectionController.Mode.TOOLBELT) {
-                        java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
-                                "getSlotNumberAt", int.class, int.class, boolean.class);
-                        slotMethod.setAccessible(true);
-                        int slot = (Integer) slotMethod.invoke(proxy, args[0], args[1], true);
-                        if (SELECTION.acceptToolbelt(slot)) {
-                            deferUi(() -> finishSlotSelection(true));
-                            if (window != null) window.refresh();
-                            return null;
-                        }
-                    } else if (SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT) {
-                        java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
-                                "getSlotNumberAt", int.class, int.class, boolean.class);
-                        slotMethod.setAccessible(true);
-                        int slot = (Integer) slotMethod.invoke(proxy, args[0], args[1], true);
-                        if (captureExactToolbeltSlot(slot)) return null;
-                    }
-                    return method.invoke(proxy, args);
-                });
+    public static Object interceptToolbeltSelection(Object proxy,
+                                                    java.lang.reflect.Method method,
+                                                    Object[] args) throws Throwable {
+        if (SELECTION.getMode() == SelectionController.Mode.TOOLBELT) {
+            java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
+                    "getSlotNumberAt", int.class, int.class, boolean.class);
+            slotMethod.setAccessible(true);
+            int slot = (Integer) slotMethod.invoke(proxy, args[0], args[1], true);
+            if (SELECTION.acceptToolbelt(slot)) {
+                deferUi(() -> finishSlotSelection(true));
+                if (window != null) window.refresh();
+                return null;
+            }
+        } else if (SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT) {
+            java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
+                    "getSlotNumberAt", int.class, int.class, boolean.class);
+            slotMethod.setAccessible(true);
+            int slot = (Integer) slotMethod.invoke(proxy, args[0], args[1], true);
+            if (captureExactToolbeltSlot(slot)) return null;
+        }
+        return method.invoke(proxy, args);
     }
 
-    private void hookEquipmentSelection() {
-        HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.PaperDollInventory",
-                "leftPressed", "(III)V", () -> (proxy, method, args) -> {
-                    if (SELECTION.getMode() == SelectionController.Mode.EQUIPMENT) {
-                        java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
-                                "getSlotNumberAt", int.class, int.class);
-                        slotMethod.setAccessible(true);
-                        byte slot = (Byte) slotMethod.invoke(proxy, args[0], args[1]);
-                        if (SELECTION.acceptEquipment(slot)) {
-                            deferUi(() -> finishSlotSelection(false));
-                            if (window != null) window.refresh();
-                            return null;
-                        }
-                    } else if (SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT) {
-                        java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
-                                "getSlotNumberAt", int.class, int.class);
-                        slotMethod.setAccessible(true);
-                        byte slot = (Byte) slotMethod.invoke(proxy, args[0], args[1]);
-                        if (captureExactEquipmentSlot(slot)) return null;
-                    }
-                    return method.invoke(proxy, args);
-                });
+    public static Object interceptEquipmentSelection(Object proxy,
+                                                     java.lang.reflect.Method method,
+                                                     Object[] args) throws Throwable {
+        if (SELECTION.getMode() == SelectionController.Mode.EQUIPMENT) {
+            java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
+                    "getSlotNumberAt", int.class, int.class);
+            slotMethod.setAccessible(true);
+            byte slot = (Byte) slotMethod.invoke(proxy, args[0], args[1]);
+            if (SELECTION.acceptEquipment(slot)) {
+                deferUi(() -> finishSlotSelection(false));
+                if (window != null) window.refresh();
+                return null;
+            }
+        } else if (SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT) {
+            java.lang.reflect.Method slotMethod = proxy.getClass().getDeclaredMethod(
+                    "getSlotNumberAt", int.class, int.class);
+            slotMethod.setAccessible(true);
+            byte slot = (Byte) slotMethod.invoke(proxy, args[0], args[1]);
+            if (captureExactEquipmentSlot(slot)) return null;
+        }
+        return method.invoke(proxy, args);
     }
 
-    private void hookWorldSelection(ClassPool pool) throws Exception {
-        /*
-         * WurmEventHandler is already modified by the wheel integration above.
-         * Keep these callbacks as Javassist insertions instead of registering a
-         * second proxy hook for the same client class.
-         */
-        CtClass eventHandler = pool.getCtClass("com.wurmonline.client.WurmEventHandler");
-        eventHandler.getMethod("mousePressed", "(IIII)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.observeMousePressed($1, $2, $3);");
-        eventHandler.getMethod("mouseDragged", "(II)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.observeMouseDragged();");
-        eventHandler.getMethod("mouseReleased", "(III)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.observeMouseReleased(this, $1, $2, $3);");
-    }
-
-    private void hookInventorySelection() {
-        /*
-         * WurmTreeList can already be loaded by the native inventory GUI.
-         * A HookManager proxy remains installable in that state, while direct
-         * CtClass modification would fail and must not affect the other zones.
-         */
-        HookManager.getInstance().registerHook(
-                "com.wurmonline.client.renderer.gui.WurmTreeList$TreeListPanel",
-                "leftPressed", "(III)V", () -> (proxy, method, args) -> {
-                    if (SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
-                            || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
-                            || SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE
-                            || SELECTION.getMode() == SelectionController.Mode.INVENTORY_FILTER
-                            || SELECTION.getMode() == SelectionController.Mode.BULK_SOURCE
-                            || SELECTION.getMode() == SelectionController.Mode.BULK_DESTINATION)
-                        captureInventoryTarget(proxy, (Integer) args[0], (Integer) args[1]);
-                    return method.invoke(proxy, args);
-                });
-    }
-
-    private void hookCreationSkillCatalog(ClassPool pool) throws Exception {
-        CtClass listener = pool.getCtClass(
-                "com.wurmonline.client.comm.ServerConnectionListenerClass");
-        listener.getDeclaredMethod("addItemToCreationList").insertAfter(
-                "org.keybinder.wurm.integration.CreationSkillRegistry.observe($1);");
-    }
-
-    private static void observeCapturedAction(PlayerAction action) {
+    public static void observeCapturedAction(PlayerAction action) {
         try {
             if (action != null) rememberActionName(action.getId(), action.getName());
             ACTION_CAPTURE.observe(action);
@@ -1007,34 +796,18 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    private void hookBulkTransferBml() {
-        HookManager.getInstance().registerHook(
-                "com.wurmonline.client.renderer.gui.HeadsUpDisplay",
-                "showBml",
-                "(SLjava/lang/String;IIFFZZFFFLjava/lang/String;)V",
-                () -> (proxy, method, args) -> {
-                    try {
-                        final HeadsUpDisplay currentHud = (HeadsUpDisplay) proxy;
-                        boolean answered = BULK_TRANSFERS.intercept(
-                                (String) args[1], (String) args[11],
-                                (fields, buttonId) -> currentHud.getWorld()
-                                        .getServerConnection()
-                                        .sendBmlResponse(fields, buttonId));
-                        if (answered) return null;
-                    } catch (Throwable failure) {
-                        LOGGER.log(Level.WARNING,
-                                "Bulk-transfer BML hook failed open", failure);
-                    }
-                    return method.invoke(proxy, args);
-                });
-    }
-
-    private void hookPushSelection(ClassPool pool) throws Exception {
-        CtClass selectBar =
-                pool.getCtClass("com.wurmonline.client.renderer.gui.SelectBar");
-        selectBar.getMethod("setNewSelectedIfKeepId",
-                "(Lcom/wurmonline/client/renderer/PickableUnit;)V").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.afterPushTargetRecreated(this, $1);");
+    public static boolean interceptBulkTransferBml(final HeadsUpDisplay currentHud,
+                                                   String bml,
+                                                   String title) {
+        try {
+            return BULK_TRANSFERS.intercept(bml, title,
+                    (fields, buttonId) -> currentHud.getWorld()
+                            .getServerConnection()
+                            .sendBmlResponse(fields, buttonId));
+        } catch (Throwable failure) {
+            LOGGER.log(Level.WARNING, "Bulk-transfer BML hook failed open", failure);
+            return false;
+        }
     }
 
     public static void observeMousePressed(int mouseX, int mouseY, int button) {
@@ -1178,7 +951,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    private static Object withTarget(String target, Object proxy, java.lang.reflect.Method method, Object[] args)
+    public static Object withCapturedTarget(String target, Object proxy,
+                                            java.lang.reflect.Method method, Object[] args)
             throws Throwable {
         ACTION_CAPTURE.setTargetContext(target);
         try { return method.invoke(proxy, args); }
