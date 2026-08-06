@@ -10,6 +10,7 @@ import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.BulkTransferStep;
@@ -41,7 +42,7 @@ public final class PortableKeybindDefinition {
         this.intendedKey = intendedKey == null ? "" : intendedKey;
         this.variants = Collections.unmodifiableList(new ArrayList<Variant>(variants));
         this.activeVariantIndex = activeVariantIndex;
-        this.hudMulti = hudMulti && variants.size() > 1;
+        this.hudMulti = hudMulti;
     }
 
     public static PortableKeybindDefinition fromRecord(KeybindRecord record) {
@@ -86,6 +87,9 @@ public final class PortableKeybindDefinition {
                         == TargetKind.EXACT_OBJECT) return true;
                 else if (step instanceof SmartImproveStep
                         && ((SmartImproveStep) step).getTarget().getKind()
+                        == TargetKind.EXACT_OBJECT) return true;
+                else if (step instanceof ArcheologyIdentifyStep
+                        && ((ArcheologyIdentifyStep) step).getTarget().getKind()
                         == TargetKind.EXACT_OBJECT) return true;
                 else if (step instanceof BulkTransferStep) return true;
             }

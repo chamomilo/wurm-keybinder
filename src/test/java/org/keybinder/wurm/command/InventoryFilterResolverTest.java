@@ -61,6 +61,15 @@ public class InventoryFilterResolverTest {
                 Collections.<InventoryMetaItem>emptyList(), root).getId());
     }
 
+    @Test public void materialStateAndRarityUseTheSamePortableTypeRule()
+            throws Exception {
+        InventoryMetaItem root = item(1L, "inventory");
+        root.getChildren().add(item(2L, "fantastic log (glowing), cedarwood"));
+
+        assertEquals(2L, resolver.resolve("rare oakenwood log (searing hot)",
+                Collections.<InventoryMetaItem>emptyList(), root).getId());
+    }
+
     private static InventoryMetaItem item(long id, String name) throws Exception {
         Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
         unsafeField.setAccessible(true);

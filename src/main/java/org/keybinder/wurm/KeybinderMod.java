@@ -26,6 +26,7 @@ import javassist.ClassPool;
 import javassist.CtClass;
 import org.keybinder.wurm.bind.VanillaBindService;
 import org.keybinder.wurm.bind.MultiKeyController;
+import org.keybinder.wurm.bind.SelectorSessionController;
 import org.keybinder.wurm.bind.WheelInputHandler;
 import org.keybinder.wurm.bind.BindSnapshot;
 import org.keybinder.wurm.bind.AccountActivationGate;
@@ -39,16 +40,18 @@ import org.keybinder.wurm.command.WorldImproveTracker;
 import org.keybinder.wurm.command.BulkTransferCoordinator;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.integration.ClientAccess;
+import org.keybinder.wurm.integration.CreationSkillRegistry;
 import org.keybinder.wurm.integration.ActionSourceOverride;
 import org.keybinder.wurm.integration.DeferredUiQueue;
 import org.keybinder.wurm.integration.EmbarkHeadingController;
 import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.integration.FailOpenHookInstaller;
 import org.keybinder.wurm.integration.HudIntegration;
-import org.keybinder.wurm.integration.HudSessionDisposer;
+import org.keybinder.wurm.integration.CurrentServerTracker;
 import org.keybinder.wurm.integration.HudSessionController;
-import org.keybinder.wurm.integration.TransferFileChooser;
+import org.keybinder.wurm.integration.HudSessionDisposer;
 import org.keybinder.wurm.integration.ServerNameResolver;
+import org.keybinder.wurm.integration.TransferFileChooser;
 import org.keybinder.wurm.integration.BulkStorageSourceResolver;
 import org.keybinder.wurm.integration.BulkInventoryDestinationPolicy;
 import org.keybinder.wurm.i18n.Language;
@@ -111,7 +114,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.7.1";
+    public static final String VERSION = "0.7.2";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -144,6 +147,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static final ImprovedImproveMigrationService LEGACY_IMPROVE =
             new ImprovedImproveMigrationService();
     private static final ServerNameResolver SERVER_NAMES = new ServerNameResolver();
+    private static final CurrentServerTracker CURRENT_SERVER = new CurrentServerTracker();
     private static EmbarkHeadingController embarkHeading;
     private static final ModPropertiesStore MOD_PROPERTIES = new ModPropertiesStore();
     private static ActionExecutor EXECUTOR;
@@ -180,6 +184,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static final TransferFileChooser TRANSFER_CHOOSER = new TransferFileChooser(
             Paths.get("mods", "keybinder", "transfer"));
     private static final MultiKeyController MULTI_KEY = new MultiKeyController();
+    private static final SelectorSessionController SELECTOR_SESSION =
+            new SelectorSessionController();
+    private static final ThreadLocal<Integer> SUPPRESSED_SELECTOR_KEY =
+            new ThreadLocal<Integer>();
     private static final long LONG_PRESS_NANOS = 200_000_000L;
     private static volatile boolean toolbeltOpenedForSelection;
     private static volatile boolean equipmentOpenedForSelection;
@@ -190,6 +198,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static volatile long lastWheelFailureAt;
     private static volatile String lastWheelFailure = "";
     private static volatile long lastSharedSyncPoll;
+    private static volatile long lastCreationCatalogRequest;
+    private static volatile int creationCatalogRequestAttempts;
     private static volatile String selectedFullServerName = "";
     private static KeybindRegistry registry;
     private static EditorWorkflow editorWorkflow;
@@ -263,6 +273,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         HOOKS.install("action queue occupancy", () -> hookActionQueue(pool));
         HOOKS.install("one-shot action capture", () -> hookActionCapture(pool));
         HOOKS.install("world Improve Examine metadata", () -> hookWorldImprove(pool));
+        HOOKS.install("creation skill catalog", () -> hookCreationSkillCatalog(pool));
         HOOKS.install("toolbelt target selection", this::hookToolbeltSelection);
         HOOKS.install("equipment target selection", this::hookEquipmentSelection);
         HOOKS.install("world target selection", () -> hookWorldSelection(pool));
@@ -374,6 +385,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         CtClass console = pool.getCtClass("com.wurmonline.client.console.WurmConsole");
         console.getMethod("toggleKey", "(IZ)V").insertBefore(
                 "if (org.keybinder.wurm.KeybinderMod.handleKeyToggle(this,$1,$2)) return;");
+        CtClass eventHandler = pool.getCtClass("com.wurmonline.client.WurmEventHandler");
+        eventHandler.getDeclaredMethod("keyPressed",
+                new CtClass[]{CtClass.intType, CtClass.charType}).insertBefore(
+                "org.keybinder.wurm.KeybinderMod.observeKeyPressed($1);");
+        eventHandler.getDeclaredMethod("keyReleased",
+                new CtClass[]{CtClass.intType, CtClass.charType}).insertBefore(
+                "org.keybinder.wurm.KeybinderMod.observeKeyReleased($1);");
     }
 
     private void hookMouseWheel(ClassPool pool) throws Exception {
@@ -384,6 +402,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static void handleMouseWheel(final int x, final int y, final int delta) {
         try {
+            if (SELECTOR_SESSION.otherPointerAction()) {
+                closeMultiSelector();
+                return;
+            }
             final HeadsUpDisplay currentHud = hud;
             WheelInputHandler.handle(new WheelInputHandler.Environment() {
                 @Override public boolean isOverHudComponent(int px, int py) {
@@ -409,8 +431,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     KeybindRecord record = registry == null
                             ? null : registry.findEnabledByChord(chord);
                     if (record == null) return false;
-                    if (record.isMultiPurpose() && record.isHudMulti())
-                        openMultiSelector(record, true);
+                    if (record.isHudMulti())
+                        openMultiSelector(record, true, -1);
                     else executeManaged(record, currentHud);
                     return true;
                 }
@@ -442,6 +464,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 () -> (proxy, method, args) -> {
                     Object result = method.invoke(proxy, args);
                     applyAccountBindingsIfReady((HeadsUpDisplay) proxy);
+                    ensureCreationSkillCatalog((HeadsUpDisplay) proxy);
                     drainUiQueue();
                     return result;
                 });
@@ -453,7 +476,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         connection.getMethod("disconnect", "(Ljava/lang/String;)V").insertBefore(
                 "org.keybinder.wurm.KeybinderMod.onConnectionEnded();");
         connection.getMethod("disconnectAndConnectTo", "(Ljava/lang/String;I)V").insertBefore(
-                "org.keybinder.wurm.KeybinderMod.onConnectionEnded();");
+                "org.keybinder.wurm.KeybinderMod.onServerTransfer($1, $2);");
+        CtClass world = pool.getCtClass("com.wurmonline.client.game.World");
+        world.getMethod("setServerInformation", "(IZLjava/lang/String;)V").insertAfter(
+                "org.keybinder.wurm.KeybinderMod.onServerInformation($3);");
     }
 
     private void hookActionSource(ClassPool pool) throws Exception {
@@ -490,6 +516,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static boolean handleKeyToggle(WurmConsole console, int key, boolean pressed) {
         try {
+            if (pressed) {
+                Integer suppressed = SUPPRESSED_SELECTOR_KEY.get();
+                SUPPRESSED_SELECTOR_KEY.remove();
+                if (suppressed != null && suppressed == key) return true;
+            }
             if (!pressed) {
                 String heldId = MULTI_KEY.getRecordId();
                 MultiKeyController.Event release = MULTI_KEY.release(key);
@@ -507,14 +538,14 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 return false;
             String id = command.substring("keybinder_run ".length()).trim();
             KeybindRecord record = registry == null ? null : registry.find(id);
-            if (record == null || !record.isEnabled() || !record.isMultiPurpose()) return false;
+            if (record == null || !record.isEnabled() || !record.isSelectorKeybind()) return false;
             if (pressed) {
                 MultiKeyController.Event event = MULTI_KEY.press(id, key,
                         record.isHudMulti() ? MultiKeyController.Mode.HUD
                                 : MultiKeyController.Mode.ORDINARY,
                         System.nanoTime());
                 if (event == MultiKeyController.Event.OPEN_HUD_SELECTOR)
-                    openMultiSelector(record, true);
+                    openMultiSelector(record, true, key);
                 return true;
             }
             return true;
@@ -535,10 +566,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             clearLongPress();
             return;
         }
-        openMultiSelector(record, false);
+        openMultiSelector(record, false, MULTI_KEY.getKey());
     }
 
-    private static void openMultiSelector(KeybindRecord record, boolean hudSelection) {
+    private static void openMultiSelector(KeybindRecord record, boolean hudSelection,
+                                          int triggerKey) {
+        final long sessionToken = SELECTOR_SESSION.open(triggerKey);
         final int originalMouseX = hud == null ? 0
                 : hud.getWorld().getClient().getXMouse();
         final int originalMouseY = hud == null ? 0
@@ -559,6 +592,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 + ", worldPoint=" + worldPoint
                 + ", overrideCaptured=" + (multiSelectorHoverSnapshot != null));
         deferUi(() -> {
+            if (!SELECTOR_SESSION.isCurrent(sessionToken)) return;
             try {
                 hideSafely(multiSelectorWindow);
                 multiSelectorWindow = new KeybinderMultiSelectorWindow(
@@ -566,9 +600,31 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 new HudIntegration(ACCESS).add(hud, multiSelectorWindow);
             } catch (Exception e) {
                 EVENTS.error(Messages.text("error.multi_selector"), e);
-                clearLongPress();
+                closeMultiSelector();
             }
         });
+    }
+
+    public static void observeKeyPressed(int key) {
+        try {
+            SUPPRESSED_SELECTOR_KEY.remove();
+            SelectorSessionController.KeyDecision decision = SELECTOR_SESSION.keyPressed(key);
+            if (decision == SelectorSessionController.KeyDecision.NONE) return;
+            if (decision == SelectorSessionController.KeyDecision.DISMISS_AND_SUPPRESS_TRIGGER)
+                SUPPRESSED_SELECTOR_KEY.set(key);
+            closeMultiSelector();
+        } catch (Throwable failure) {
+            SUPPRESSED_SELECTOR_KEY.remove();
+            LOGGER.log(Level.FINE, "Unable to dismiss multi selector for key press", failure);
+        }
+    }
+
+    public static void observeKeyReleased(int key) {
+        try {
+            SELECTOR_SESSION.triggerReleased(key);
+        } catch (Throwable failure) {
+            LOGGER.log(Level.FINE, "Unable to arm multi selector cancellation", failure);
+        }
     }
 
     private static void executeManaged(KeybindRecord record) throws ReflectiveOperationException {
@@ -583,6 +639,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static void executeManaged(KeybindRecord record, HeadsUpDisplay currentHud,
                                        ExecutionHoverOverride.Snapshot hoverSnapshot)
             throws ReflectiveOperationException {
+        String account = currentPlayerName(currentHud);
+        if (!ACCOUNT_ACTIVATION.isApplied(account)) {
+            LOGGER.fine("Ignored managed keybind " + record.getId()
+                    + " while the player activation profile is not ready");
+            return;
+        }
         final int queueLimit = LIMITS.readLimit(currentHud);
         try {
             KEYBIND_EXECUTOR.execute(record, currentHud, queueLimit,
@@ -669,6 +731,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     public static void closeMultiSelector() {
+        SELECTOR_SESSION.close();
         clearLongPress();
         multiSelectorHoverSnapshot = null;
         KeybinderMultiSelectorWindow selector = multiSelectorWindow;
@@ -806,10 +869,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             LOGGER.log(Level.FINE, "Unable to observe bulk-transfer rejection", failure);
         }
         try {
-            if (ACCESS == null || hud == null) return;
-            PickableUnit selected = ACCESS.selected(hud.getSelectBar());
-            WORLD_IMPROVE.event(selected == null ? Long.MIN_VALUE : selected.getId(),
-                    context, message);
+            WORLD_IMPROVE.event(context, message);
         } catch (Throwable failure) {
             WORLD_IMPROVE.clear();
             LOGGER.log(Level.FINE, "Unable to capture world Improve Event metadata", failure);
@@ -929,6 +989,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 });
     }
 
+    private void hookCreationSkillCatalog(ClassPool pool) throws Exception {
+        CtClass listener = pool.getCtClass(
+                "com.wurmonline.client.comm.ServerConnectionListenerClass");
+        listener.getDeclaredMethod("addItemToCreationList").insertAfter(
+                "org.keybinder.wurm.integration.CreationSkillRegistry.observe($1);");
+    }
+
     private static void observeCapturedAction(PlayerAction action) {
         try {
             if (action != null) rememberActionName(action.getId(), action.getName());
@@ -972,6 +1039,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static void observeMousePressed(int mouseX, int mouseY, int button) {
         try {
+            KeybinderMultiSelectorWindow selector = multiSelectorWindow;
+            String variantId = selector == null ? null : selector.variantAt(mouseX, mouseY);
+            if (SELECTOR_SESSION.pointerPressed(button, variantId)) closeMultiSelector();
             if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
                     || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
                     || SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE)
@@ -995,6 +1065,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static void observeMouseReleased(Object eventHandler, int mouseX, int mouseY, int button) {
         try {
+            KeybinderMultiSelectorWindow selector = multiSelectorWindow;
+            String variantId = selector == null ? null : selector.variantAt(mouseX, mouseY);
+            if (SELECTOR_SESSION.pointerReleased(button, variantId)) closeMultiSelector();
             if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
                     || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
                     || SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE)
@@ -1206,6 +1279,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 INSTANCE.activatePendingLanguageForHudReplacement();
             ACCESS.setup();
             hud = newHud;
+            creationCatalogRequestAttempts = 0;
+            lastCreationCatalogRequest = 0L;
+            requestCreationSkillCatalog(newHud);
             ACCOUNT_ACTIVATION.clear();
             embarkHeading.initializeClientAccess(INSTANCE.centerViewAfterEmbark);
             refreshCreationContext();
@@ -1319,10 +1395,55 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     public static void onConnectionEnded() {
+        CURRENT_SERVER.connectionChanging();
+        clearConnectionState();
+    }
+
+    private static void requestCreationSkillCatalog(HeadsUpDisplay currentHud) {
+        if (currentHud == null || creationCatalogRequestAttempts >= 3) return;
+        try {
+            creationCatalogRequestAttempts++;
+            lastCreationCatalogRequest = System.currentTimeMillis();
+            currentHud.getWorld().getServerConnection()
+                    .sendRequestFullCreateItemList();
+            LOGGER.info("[Keybinder] [Smart Improve diagnostic] requested the "
+                    + "server creation-skill catalog; attempt="
+                    + creationCatalogRequestAttempts);
+        } catch (Throwable failure) {
+            LOGGER.log(Level.WARNING, "[Keybinder] [Smart Improve diagnostic] "
+                    + "unable to request the server creation-skill catalog", failure);
+        }
+    }
+
+    private static void ensureCreationSkillCatalog(HeadsUpDisplay currentHud) {
+        if (CreationSkillRegistry.size() > 0 || creationCatalogRequestAttempts >= 3)
+            return;
+        long now = System.currentTimeMillis();
+        if (now - lastCreationCatalogRequest >= 3000L)
+            requestCreationSkillCatalog(currentHud);
+    }
+
+    public static void onServerTransfer(String host, int port) {
+        CURRENT_SERVER.connectionChanging();
+        clearConnectionState();
+        LOGGER.fine("Server transfer started: " + host + ":" + port);
+    }
+
+    public static void onServerInformation(String serverName) {
+        CURRENT_SERVER.serverInformation(serverName);
+        refreshCreationContext();
+        LOGGER.info("Current server updated to "
+                + (registry == null ? cleanServerName(serverName) : registry.getCurrentServer()));
+    }
+
+    private static void clearConnectionState() {
         try {
             if (registry != null) registry.persistAccountBindings();
             ACTION_QUEUE.clear();
             WORLD_IMPROVE.clear();
+            CreationSkillRegistry.clear();
+            creationCatalogRequestAttempts = 0;
+            lastCreationCatalogRequest = 0L;
             BULK_TRANSFERS.clear("connection ended");
             ACCOUNT_ACTIVATION.clear();
         } catch (Throwable failure) {
@@ -1342,7 +1463,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 } catch (RuntimeException ignored) {
                     // ServerConnection is not available during early HUD init.
                 }
-                shortServer = hud.getWorld().getServerName();
+                shortServer = CURRENT_SERVER.currentOrWorld(hud.getWorld().getServerName());
                 server = resolveFullServerName(shortServer);
             }
         } catch (RuntimeException e) {
@@ -1426,6 +1547,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         String shard = shortName.trim().toLowerCase(Locale.ENGLISH);
         return full.equals(shard) || full.endsWith(" - " + shard)
                 || full.endsWith("-" + shard);
+    }
+
+    private static String cleanServerName(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static KeybinderMod INSTANCE;
@@ -1566,6 +1691,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
         if (editorWorkflow != null) editorWorkflow.setEnabled(id, enabled);
     }
+
     @Override public void setKeybindsEnabled(List<String> ids, boolean enabled) {
         if (!applyAccountBindingsIfReady(hud)) {
             EVENTS.warning(Messages.text("registry.account_not_ready"));

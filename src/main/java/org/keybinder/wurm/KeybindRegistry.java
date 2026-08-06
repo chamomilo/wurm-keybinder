@@ -1022,6 +1022,8 @@ public final class KeybindRegistry implements ValuePackTarget {
         switch (kinds.iterator().next()) {
             case ACTIVATE_TOOL: return Messages.text("event.type.activate");
             case SMART_IMPROVE: return Messages.text("event.type.improve");
+            case ARCHEOLOGY_IDENTIFY:
+                return Messages.text("event.type.archeology_identify");
             case VANILLA_ACTION: return Messages.text("event.type.vanilla");
             case CONSOLE_COMMAND: return Messages.text("event.type.console");
             default: return Messages.text("event.type.custom");

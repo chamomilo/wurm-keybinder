@@ -26,11 +26,11 @@ public final class NearbyTypeTarget {
         String value = target.substring(PREFIX.length()).trim().toLowerCase(Locale.ENGLISH);
         if (value.isEmpty())
             throw new IllegalArgumentException(Messages.text("validation.nearby_type"));
-        return value;
+        return normalizeType(value);
     }
 
     public static boolean matches(String target, String hoverName) {
-        return type(target).equals(normalizeType(hoverName));
+        return ObjectTypeNormalizer.matchesType(type(target), hoverName);
     }
 
     public static String normalizeType(String hoverName) {

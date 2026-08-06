@@ -158,6 +158,11 @@ public class ImproveMaterialCompatibilityTableTest {
         assertFalse(marble.match(item(2, "rock shards", "rock shards",
                 ItemMaterials.MATERIAL_STONE, (short) 610, (byte) 0)).isAccepted());
 
+        assertTrue(stone.match(item(3, "rock shards", "rock shards",
+                ItemMaterials.MATERIAL_STONE, (short) 610, (byte) 0)).isAccepted());
+        assertFalse(stone.match(item(4, "rift stone shard", "rift stone shard",
+                ItemMaterials.MATERIAL_STONE, (short) 610, (byte) 0)).isAccepted());
+
         assertEquals(Short.valueOf((short) 610), rule((short) 610,
                 ItemMaterials.MATERIAL_SLATE, "slate slab").getExactImageId());
         assertEquals(Short.valueOf((short) 1449), rule((short) 1449,
@@ -516,7 +521,10 @@ public class ImproveMaterialCompatibilityTableTest {
                 "needle");
         ImproveResourceCandidate lump = item(4, "lump", "lump (glowing), steel",
                 ItemMaterials.MATERIAL_STEEL, (short) 672, (byte) 5);
-        ImproveResourceCandidate backpack = backpack(3, lump);
+        ImproveResourceCandidate backpack = new ImproveResourceCandidate(
+                3, "backpack", "backpack, leather", (byte) 0, (short) 0,
+                0f, 0f, 0f, (byte) 0,
+                java.util.Collections.singletonList(lump));
         ImproveResourceCandidate inventory = container(2, "inventory", backpack);
 
         ResolvedImproveResource selected = resolver.resolve(inventory, steel, null);
@@ -524,6 +532,41 @@ public class ImproveMaterialCompatibilityTableTest {
         assertSame(lump, selected.getCandidate());
         assertTrue(selected.isNested());
         assertEquals("backpack", selected.getContainerName());
+    }
+
+    @Test
+    public void nearestRealContainerIsReportedInsteadOfBodyTreeNode()
+            throws Exception {
+        ResourceRequirement wood = rule((short) 741,
+                ItemMaterials.MATERIAL_WOOD_BIRCH, "huge tub");
+        ImproveResourceCandidate mallet = item(4, "mallet",
+                "mallet, birchwood", ItemMaterials.MATERIAL_WOOD_BIRCH,
+                (short) 741, (byte) 0);
+        ImproveResourceCandidate backpack = backpack(3, mallet);
+        ImproveResourceCandidate body = container(2, "body", backpack);
+
+        ResolvedImproveResource selected = resolver.resolve(
+                inventory(body), wood, null);
+
+        assertSame(mallet, selected.getCandidate());
+        assertEquals("backpack", selected.getContainerName());
+    }
+
+    @Test
+    public void bodyAndInventoryTreeNodesAreNotReportedAsContainers()
+            throws Exception {
+        ResourceRequirement stone = rule((short) 610,
+                ItemMaterials.MATERIAL_STONE, "forge");
+        ImproveResourceCandidate shards = item(4, "rock shards", "rock shards",
+                ItemMaterials.MATERIAL_STONE, (short) 610, (byte) 0);
+        ImproveResourceCandidate inventoryNode = container(3, "inventory", shards);
+        ImproveResourceCandidate body = container(2, "body", inventoryNode);
+
+        ResolvedImproveResource selected = resolver.resolve(
+                inventory(body), stone, null);
+
+        assertSame(shards, selected.getCandidate());
+        assertFalse(selected.isNested());
     }
 
     @Test

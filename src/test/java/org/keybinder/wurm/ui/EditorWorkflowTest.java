@@ -59,6 +59,20 @@ public class EditorWorkflowTest {
         assertTrue(fixture.environment.refreshed);
     }
 
+    @Test public void singleVariantHudModeIsSavedAsAnObservedSelector() throws Exception {
+        Fixture fixture = new Fixture();
+        KeybindRecord draft = fixture.registry.createDraft();
+
+        assertTrue(fixture.workflow.saveVariants(draft.getId(), "Open journal", "R",
+                variants(), draft.getActiveVariantId(), true, "User", "Server"));
+
+        KeybindRecord saved = fixture.registry.find(draft.getId());
+        assertFalse(saved.isMultiPurpose());
+        assertTrue(saved.isHudMulti());
+        assertTrue(saved.isSelectorKeybind());
+        assertEquals("(HUD) Open journal", saved.getName());
+    }
+
     private static List<KeybindVariant> variants() {
         return Collections.singletonList(new KeybindVariant(null, "",
                 Collections.singletonList(new ConsoleCommandStep("say hello"))));

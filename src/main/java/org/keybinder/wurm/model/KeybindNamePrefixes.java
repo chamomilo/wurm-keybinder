@@ -15,7 +15,7 @@ public final class KeybindNamePrefixes {
         String base = baseName(name);
         if (base.isEmpty()) return "";
         boolean multi = variantCount > 1;
-        String prefix = (hudMulti && multi ? HUD : "") + (multi ? MULTI : "");
+        String prefix = (hudMulti ? HUD : "") + (multi ? MULTI : "");
         int available = Math.max(0, KeybindLimits.MAX_RECORD_NAME_LENGTH - prefix.length());
         if (base.length() > available) base = base.substring(0, available).trim();
         return prefix + base;

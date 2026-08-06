@@ -9,7 +9,10 @@ final class WorldImproveEventParser {
     private static final Pattern DAMAGE = Pattern.compile(
             "(?i)(?:^|,\\s*)dam(?:age)?\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)");
     private static final Pattern QUALITY = Pattern.compile(
-            "(?i)(?:^|[,.]\\s*)ql\\s*:\\s*[0-9]+(?:\\.[0-9]+)?");
+            "(?i)(?:^|[,.]\\s*)ql\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)");
+    private static final Pattern RARITY_RUNE = Pattern.compile(
+            "(?i)increase the chance of increasing rarity when improved\\s*"
+                    + "\\(([0-9]+(?:\\.[0-9]+)?)%\\)");
 
     /** A server item Examine description carries both quality and damage. */
     static boolean isExamineDescription(String message) {
@@ -21,6 +24,12 @@ final class WorldImproveEventParser {
         if (message == null || message.trim().isEmpty()) return Parsed.EMPTY;
         String value = message.toLowerCase(Locale.ENGLISH);
         Boolean damaged = null;
+        Float quality = null;
+        Matcher qualityMatcher = QUALITY.matcher(value);
+        if (qualityMatcher.find()) {
+            try { quality = Float.parseFloat(qualityMatcher.group(1)); }
+            catch (NumberFormatException ignored) { /* leave unknown */ }
+        }
         Matcher damage = DAMAGE.matcher(value);
         if (damage.find()) {
             try { damaged = Float.parseFloat(damage.group(1)) > 0f; }
@@ -33,7 +42,27 @@ final class WorldImproveEventParser {
         }
 
         RequirementFamily requirement = requirement(value);
-        return new Parsed(requirement, damaged);
+        Byte rarity = rarity(value);
+        Float rarityRuneModifier = rarityRuneModifier(value);
+        return new Parsed(requirement, damaged, quality, rarity,
+                rarityRuneModifier);
+    }
+
+    private static Byte rarity(String value) {
+        if (value.contains("this is a fantastic example of the item"))
+            return Byte.valueOf((byte) 3);
+        if (value.contains("this is a supreme example of the item"))
+            return Byte.valueOf((byte) 2);
+        if (value.contains("this is a very rare and interesting version of the item"))
+            return Byte.valueOf((byte) 1);
+        return null;
+    }
+
+    private static Float rarityRuneModifier(String value) {
+        Matcher matcher = RARITY_RUNE.matcher(value);
+        if (!matcher.find()) return null;
+        try { return Float.valueOf(Float.parseFloat(matcher.group(1)) / 100.0f); }
+        catch (NumberFormatException ignored) { return null; }
     }
 
     private static RequirementFamily requirement(String value) {
@@ -100,17 +129,27 @@ final class WorldImproveEventParser {
     }
 
     static final class Parsed {
-        static final Parsed EMPTY = new Parsed(null, null);
+        static final Parsed EMPTY = new Parsed(null, null, null, null, null);
         private final RequirementFamily requirement;
         private final Boolean damaged;
+        private final Float quality;
+        private final Byte rarity;
+        private final Float rarityRuneModifier;
 
-        Parsed(RequirementFamily requirement, Boolean damaged) {
+        Parsed(RequirementFamily requirement, Boolean damaged, Float quality,
+               Byte rarity, Float rarityRuneModifier) {
             this.requirement = requirement;
             this.damaged = damaged;
+            this.quality = quality;
+            this.rarity = rarity;
+            this.rarityRuneModifier = rarityRuneModifier;
         }
 
         RequirementFamily getRequirement() { return requirement; }
         Boolean getDamaged() { return damaged; }
+        Float getQuality() { return quality; }
+        Byte getRarity() { return rarity; }
+        Float getRarityRuneModifier() { return rarityRuneModifier; }
     }
 
     private WorldImproveEventParser() {}

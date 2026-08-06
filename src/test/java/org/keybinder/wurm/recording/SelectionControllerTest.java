@@ -60,6 +60,23 @@ public class SelectionControllerTest {
         assertFalse(selected.contains("123456"));
     }
 
+    @Test public void allFilterSelectionModesCaptureTheSameCanonicalType() {
+        SelectionController controller =
+                new SelectionController(new EventLogger(Logger.getAnonymousLogger()));
+
+        controller.requestNearbyType();
+        assertTrue(controller.acceptNearbyType("rare oakenwood log (glowing)"));
+        assertEquals("nearby log", controller.consumeSelectedTarget());
+
+        controller.requestHoverType();
+        assertTrue(controller.acceptHoverType("supreme log (searing hot), cedarwood"));
+        assertEquals("hover-type log", controller.consumeSelectedTarget());
+
+        controller.requestInventoryFilter();
+        assertTrue(controller.acceptInventoryFilter("fantastic steel log (boiling)"));
+        assertEquals("inventory+filter log", controller.consumeSelectedTarget());
+    }
+
     @Test public void bulkDestinationStoresExactInventoryIdentity() {
         SelectionController controller =
                 new SelectionController(new EventLogger(Logger.getAnonymousLogger()));

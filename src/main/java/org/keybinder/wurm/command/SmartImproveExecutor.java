@@ -1,7 +1,10 @@
 package org.keybinder.wurm.command;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
+import com.wurmonline.client.game.SkillLogic;
+import com.wurmonline.client.game.SkillLogicSet;
 import com.wurmonline.client.renderer.PickableUnit;
+import com.wurmonline.client.renderer.SubPickableUnit;
 import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
@@ -10,7 +13,9 @@ import com.wurmonline.shared.util.MaterialUtilities;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.integration.ClientAccess;
+import org.keybinder.wurm.integration.CreationSkillRegistry;
 import org.keybinder.wurm.integration.ExecutionOriginGuard;
+import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.SmartImproveSourceMode;
 import org.keybinder.wurm.model.TargetKind;
@@ -42,6 +47,10 @@ public final class SmartImproveExecutor {
     private final ImproveSourceResolver resources = new ImproveSourceResolver();
     private final ImproveMaterialCompatibilityTable table =
             new ImproveMaterialCompatibilityTable();
+    private final ImproveSuccessChanceEstimator chanceEstimator =
+            new ImproveSuccessChanceEstimator();
+    private final ImproveRarityChanceEstimator rarityChanceEstimator =
+            new ImproveRarityChanceEstimator();
     private final ThreadLocal<Map<SmartImproveStep, PreparedBatch>> prepared =
             new ThreadLocal<Map<SmartImproveStep, PreparedBatch>>() {
                 @Override protected Map<SmartImproveStep, PreparedBatch> initialValue() {
@@ -89,8 +98,13 @@ public final class SmartImproveExecutor {
                     hud.sendAction(PlayerAction.REPAIR, item.targetId);
                     if (item.world) world.repaired(item.targetId);
                 }
+                if (item.unavailableReason != null) {
+                    log.info(item.unavailableReason);
+                    continue;
+                }
                 if (item.resource == null) continue;
-                logSelection(item.resource, item.targetName);
+                logSelection(item.resource, item.targetName, item.targetQuality,
+                        item.successChance, item.rarityChance, item.rarityLabel);
                 hud.getWorld().getServerConnection().sendAction(
                         item.resource.getCandidate().getId(),
                         new long[]{item.targetId}, PlayerAction.IMPROVE);
@@ -135,6 +149,7 @@ public final class SmartImproveExecutor {
                 ? inventoryCandidate(access.playerInventoryRoot(hud), excludedTargets)
                 : null;
         List<PreparedItem> result = new ArrayList<PreparedItem>(count);
+        ImproveSkillCatalog skillCatalog = improveSkillCatalog(hud);
         int queueCost = 0;
         for (int i = 0; i < count; i++) {
             InventoryMetaItem target = targets.get(i);
@@ -155,8 +170,17 @@ public final class SmartImproveExecutor {
                             requirement.getMissingResourceLabel(),
                             displayName(target), sourceModeLabel(step.getSourceMode())));
             }
+            Integer successChance = source == null ? null
+                    : estimateSuccessChance(hud, skillCatalog, target, source);
+            ImproveRarityChanceEstimator.Range rarityChance =
+                    estimateRarityChance(successChance, target.getRarity(),
+                            examinedRarityRuneModifier(target.getId()), source);
+            String unavailableReason = improvements[i] ? null : Messages.text(
+                    "improve.target_too_cold", displayName(target));
             result.add(new PreparedItem(target.getId(), displayName(target),
-                    repairs[i], source, false));
+                    (double) target.getQuality(), repairs[i], source, successChance,
+                    rarityChance, rarityLabel(target.getRarity()),
+                    unavailableReason, false));
             queueCost += costs[i];
         }
         return new PreparedBatch(result, queueCost);
@@ -166,15 +190,18 @@ public final class SmartImproveExecutor {
                                        int budget)
             throws ReflectiveOperationException {
         TargetSpec requested = step.getTarget();
-        GroundItemCellRenderable target = selectedWorldTarget(requested, hud);
-        if (target == null)
-            throw new StepUnavailableException(
-                    Messages.text("improve.world_target_required"));
-
-        WorldImproveTracker.Snapshot state = world.snapshot(target.getId());
+        WorldImproveTracker.Snapshot state = world.currentSnapshot();
         if (state == null)
             throw new StepUnavailableException(
                     Messages.text("improve.world_examine_required"));
+        PickableUnit target = examinedWorldTarget(
+                requested, hud, state.getTargetId());
+        if (target == null) {
+            logWorldResolutionFailure(requested, hud, state.getTargetId());
+            throw new StepUnavailableException(
+                    Messages.text("improve.world_target_required"));
+        }
+        logWorldResolutionSuccess(requested, hud, state.getTargetId(), target);
 
         byte material = access.materialId(target);
         String targetType = access.objectType(target);
@@ -207,28 +234,157 @@ public final class SmartImproveExecutor {
                         sourceModeLabel(step.getSourceMode())));
         }
         List<PreparedItem> result = new ArrayList<PreparedItem>(1);
-        result.add(new PreparedItem(target.getId(), targetName,
-                state.isDamaged(), source, true));
+        Integer successChance = source == null || state.getQuality() == null ? null
+                : estimateSuccessChance(hud, improveSkillCatalog(hud), targetType,
+                state.getExamineText(), state.getQuality(), source);
+        ImproveRarityChanceEstimator.Range rarityChance = estimateRarityChance(
+                successChance, state.getRarity(), state.getRarityRuneModifier(),
+                source);
+        String unavailableReason = improve ? null : Messages.text(
+                "improve.target_too_cold", targetName);
+        result.add(new PreparedItem(state.getTargetId(), targetName,
+                state.getQuality() == null ? null
+                        : state.getQuality().doubleValue(),
+                state.isDamaged(), source, successChance,
+                rarityChance, rarityLabel(state.getRarity()),
+                unavailableReason, true));
         return new PreparedBatch(result, cost);
     }
 
-    private GroundItemCellRenderable selectedWorldTarget(TargetSpec requested,
-                                                         HeadsUpDisplay hud)
+    private PickableUnit examinedWorldTarget(TargetSpec requested,
+                                             HeadsUpDisplay hud,
+                                             long examinedId)
             throws ReflectiveOperationException {
         PickableUnit selected = access.selected(hud.getSelectBar());
-        if (!(selected instanceof GroundItemCellRenderable)) return null;
-        long selectedId = selected.getId();
+        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+        PickableUnit resolved = worldObject(examinedId, selected, hovered, hud);
+        if (resolved == null) return null;
         if (requested.getKind() == TargetKind.SELECTED) {
-            return (GroundItemCellRenderable) selected;
+            return selected != null && selected.getId() == examinedId ? resolved : null;
         }
         if (requested.getKind() == TargetKind.EXACT_OBJECT) {
-            return requested.getObjectId() == selectedId
-                    ? (GroundItemCellRenderable) selected : null;
+            return requested.getObjectId() == examinedId ? resolved : null;
         }
         if (requested.getKind() != TargetKind.HOVER) return null;
-        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
-        return hovered != null && hovered.getId() == selectedId
-                ? (GroundItemCellRenderable) selected : null;
+        ExecutionHoverOverride.Snapshot override = ExecutionHoverOverride.current();
+        if (override != null && (override.getWorldObjectId() == examinedId
+                || override.getWorldObjectId() == resolved.getId())) return resolved;
+        com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
+        long[] commandTargets = hud.getCommandTargetsFrom(
+                client.getXMouse(), client.getYMouse());
+        if (containsId(commandTargets, examinedId)) return resolved;
+        GroundItemCellRenderable hoveredGround = unwrapGround(hovered);
+        if (hovered != null && (hovered.getId() == examinedId
+                || sameGround(hoveredGround, unwrapGround(resolved)))) return resolved;
+        // Hitched vehicles can remain the exact SelectBar object while their
+        // composite 3D pick target no longer reports the vehicle ID.
+        GroundItemCellRenderable selectedGround = unwrapGround(selected);
+        return selected != null && (selected.getId() == examinedId
+                || sameGround(selectedGround, unwrapGround(resolved))) ? resolved : null;
+    }
+
+    private PickableUnit worldObject(long id, PickableUnit selected,
+                                     PickableUnit hovered, HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        PickableUnit exact = exactWorldObject(id, selected, hovered);
+        if (exact != null) return exact;
+        GroundItemCellRenderable selectedGround = unwrapGround(selected);
+        if (selectedGround != null && (selected.getId() == id
+                || selectedGround.getId() == id)) return selectedGround;
+        GroundItemCellRenderable hoveredGround = unwrapGround(hovered);
+        if (hoveredGround != null && (hovered.getId() == id
+                || hoveredGround.getId() == id)) return hoveredGround;
+        com.wurmonline.client.comm.ServerConnectionListenerClass listener =
+                hud.getWorld().getServerConnection().getServerConnectionListener();
+        GroundItemCellRenderable ground = access.groundItems(listener).get(id);
+        if (ground != null) return ground;
+        return listener.getCreatures().get(id);
+    }
+
+    static PickableUnit exactWorldObject(long id, PickableUnit selected,
+                                         PickableUnit hovered) {
+        if (selected != null && selected.getId() == id) return selected;
+        return hovered != null && hovered.getId() == id ? hovered : null;
+    }
+
+    static GroundItemCellRenderable unwrapGround(PickableUnit unit) {
+        PickableUnit current = unit;
+        int depth = 0;
+        while (current instanceof SubPickableUnit && depth++ < 8)
+            current = ((SubPickableUnit) current).getParent();
+        return current instanceof GroundItemCellRenderable
+                ? (GroundItemCellRenderable) current : null;
+    }
+
+    private static boolean sameGround(GroundItemCellRenderable left,
+                                      GroundItemCellRenderable right) {
+        return left != null && right != null
+                && (left == right || left.getId() == right.getId());
+    }
+
+    private void logWorldResolutionFailure(TargetSpec requested,
+                                           HeadsUpDisplay hud,
+                                           long examinedId) {
+        try {
+            PickableUnit selected = access.selected(hud.getSelectBar());
+            PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+            com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
+            long[] targets = hud.getCommandTargetsFrom(
+                    client.getXMouse(), client.getYMouse());
+            com.wurmonline.client.comm.ServerConnectionListenerClass listener =
+                    hud.getWorld().getServerConnection().getServerConnectionListener();
+            GroundItemCellRenderable stored = access.groundItems(listener).get(examinedId);
+            PickableUnit creature = listener.getCreatures().get(examinedId);
+            log.diagnostic("Smart Improve world target rejected: requested="
+                    + requested.getKind() + ", examinedId=" + examinedId
+                    + ", selected=" + describePickable(selected)
+                    + ", hovered=" + describePickable(hovered)
+                    + ", commandTargets=" + java.util.Arrays.toString(targets)
+                    + ", groundItemsExact=" + (stored != null)
+                    + ", creaturesExact=" + (creature != null));
+        } catch (Throwable failure) {
+            log.diagnostic("Smart Improve world target diagnostic failed: "
+                    + failure.getClass().getName() + ": " + failure.getMessage());
+        }
+    }
+
+    private void logWorldResolutionSuccess(TargetSpec requested,
+                                           HeadsUpDisplay hud,
+                                           long examinedId,
+                                           PickableUnit resolved) {
+        try {
+            PickableUnit selected = access.selected(hud.getSelectBar());
+            PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+            com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
+            long[] targets = hud.getCommandTargetsFrom(
+                    client.getXMouse(), client.getYMouse());
+            ExecutionHoverOverride.Snapshot override = ExecutionHoverOverride.current();
+            log.diagnostic("Smart Improve world target resolved: requested="
+                    + requested.getKind() + ", examinedId=" + examinedId
+                    + ", resolved=" + describePickable(resolved)
+                    + ", selected=" + describePickable(selected)
+                    + ", hovered=" + describePickable(hovered)
+                    + ", commandTargets=" + java.util.Arrays.toString(targets)
+                    + ", overrideId=" + (override == null ? "none"
+                    : String.valueOf(override.getWorldObjectId())));
+        } catch (Throwable failure) {
+            log.diagnostic("Smart Improve world target success diagnostic failed: "
+                    + failure.getClass().getName() + ": " + failure.getMessage());
+        }
+    }
+
+    private static String describePickable(PickableUnit unit) {
+        if (unit == null) return "null";
+        GroundItemCellRenderable ground = unwrapGround(unit);
+        return unit.getClass().getName() + "{id=" + unit.getId()
+                + ", name=\"" + unit.getHoverName() + "\", groundId="
+                + (ground == null ? "none" : String.valueOf(ground.getId())) + "}";
+    }
+
+    static boolean containsId(long[] ids, long expected) {
+        if (ids == null) return false;
+        for (long id : ids) if (id == expected) return true;
+        return false;
     }
 
     static boolean worldTemperatureReady(byte material, String displayName) {
@@ -260,9 +416,26 @@ public final class SmartImproveExecutor {
         // Candidate rejection details remain silent normally, but become visible
         // when the existing Debug logging setting is enabled. This makes server-
         // specific inventory names diagnosable without adding normal Event spam.
-        return resources.resolve(toolbelt, inventory, builtIn, requirement,
+        ResolvedImproveResource resolved = resources.resolve(
+                toolbelt, inventory, builtIn, requirement,
                 sourceMode == SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY,
                 log::debug);
+        if (resolved == null) {
+            log.diagnostic("Smart Improve resource not found: requirement="
+                    + requirement + ", sourceMode=" + sourceMode);
+        } else {
+            ImproveResourceCandidate chosen = resolved.getCandidate();
+            log.diagnostic("Smart Improve resource selected: requirement="
+                    + requirement + ", id=" + chosen.getId()
+                    + ", baseName=\"" + chosen.getBaseName()
+                    + "\", displayName=\"" + chosen.getDisplayName()
+                    + "\", image=" + chosen.getImageId()
+                    + ", material=" + (chosen.getMaterialId() & 0xff)
+                    + ", temperature=" + chosen.getTemperature()
+                    + ", quality=" + chosen.getQuality()
+                    + ", damage=" + chosen.getDamage());
+        }
+        return resolved;
     }
 
     private static List<ImproveResourceCandidate> toolbeltCandidates(
@@ -329,25 +502,174 @@ public final class SmartImproveExecutor {
             }
         return new ImproveResourceCandidate(item.getId(), item.getBaseName(),
                 item.getDisplayName(), item.getMaterialId(), item.getType(),
-                item.getR(), item.getG(), item.getB(), item.getTemperature(), children);
+                item.getR(), item.getG(), item.getB(), item.getTemperature(),
+                item.getQuality(), item.getDamage(), item.getRarity(), children);
     }
 
-    private void logSelection(ResolvedImproveResource selection, String itemName) {
+    private void logSelection(ResolvedImproveResource selection, String itemName,
+                              Double targetQuality, Integer successChance,
+                              ImproveRarityChanceEstimator.Range rarityChance,
+                              String rarityLabel) {
         ImproveResourceCandidate candidate = selection.getCandidate();
         String name = candidate.getDisplayName().isEmpty()
                 ? candidate.getBaseName() : candidate.getDisplayName();
+        String message;
         if (selection.isToolbelt() && selection.isNested())
-            log.info(Messages.text("improve.using_from_toolbelt_container", name,
-                    selection.getContainerName(), itemName));
+            message = Messages.text("improve.using_from_toolbelt_container", name,
+                    selection.getContainerName(), itemName);
         else if (selection.isToolbelt())
-            log.info(Messages.text("improve.using_toolbelt", name, itemName));
+            message = Messages.text("improve.using_toolbelt", name, itemName);
         else if (selection.isBuiltIn())
-            log.info(Messages.text("improve.using_built_in", name, itemName));
+            message = Messages.text("improve.using_built_in", name, itemName);
+        else if (selection.isNested()
+                && "backpack".equals(selection.getContainerName()))
+            message = Messages.text("improve.using_backpack", name, itemName);
         else if (selection.isNested())
-            log.info(Messages.text("improve.using_from_inventory_container", name,
-                    selection.getContainerName(), itemName));
+            message = Messages.text("improve.using_from_inventory_container", name,
+                    selection.getContainerName(), itemName);
         else
-            log.info(Messages.text("improve.using_inventory", name, itemName));
+            message = Messages.text("improve.using_inventory", name, itemName);
+        log.info(withEstimatedChances(withTargetQuality(message, targetQuality),
+                successChance, rarityChance, rarityLabel));
+    }
+
+    static String withTargetQuality(String message, Double quality) {
+        if (quality == null || quality.isNaN() || quality.isInfinite())
+            return message;
+        return message + " QL " + String.format(java.util.Locale.ROOT,
+                "%.2f", quality);
+    }
+
+    static String withEstimatedChances(String message, Integer improveChance,
+                                       ImproveRarityChanceEstimator.Range rarityChance,
+                                       String rarityLabel) {
+        if (improveChance == null) return message;
+        StringBuilder result = new StringBuilder(message)
+                .append(" (improve chance ~").append(improveChance).append('%');
+        if (rarityChance != null && rarityLabel != null) {
+            result.append(", improve to ").append(rarityLabel)
+                    .append(" chance after drumroll ")
+                    .append(formatPercent(rarityChance.getMaximum()))
+                    .append('%');
+        }
+        return result.append(')').toString();
+    }
+
+    private static String formatPercent(double value) {
+        return String.format(java.util.Locale.ROOT, "%.2f", value);
+    }
+
+    private ImproveRarityChanceEstimator.Range estimateRarityChance(
+            Integer improveChance, byte targetRarity, float rarityRuneModifier,
+            ResolvedImproveResource source) {
+        if (improveChance == null || source == null || targetRarity >= 3)
+            return null;
+        RequirementKind kind = source.getRequirement().getFamily().getKind();
+        boolean mayBeConsumed = kind == RequirementKind.CONSUMABLE
+                || kind == RequirementKind.WATER;
+        return rarityChanceEstimator.estimate(targetRarity,
+                rarityRuneModifier, rarityRuneModifier,
+                source.getCandidate().getRarity(), mayBeConsumed);
+    }
+
+    private float examinedRarityRuneModifier(long targetId) {
+        WorldImproveTracker.Snapshot examined = world.currentSnapshot();
+        return examined != null && examined.getTargetId() == targetId
+                ? examined.getRarityRuneModifier() : 0.0f;
+    }
+
+    private static String rarityLabel(byte targetRarity) {
+        if (targetRarity <= 0) return "rare";
+        if (targetRarity == 1) return "supreme";
+        if (targetRarity == 2) return "fantastic";
+        return null;
+    }
+
+    private ImproveSkillCatalog improveSkillCatalog(HeadsUpDisplay hud) {
+        List<org.keybinder.wurm.catalog.CreationSkillEntry> entries =
+                CreationSkillRegistry.snapshot();
+        try {
+            entries.addAll(access.creationSkills(hud));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            log.diagnostic("Smart Improve creation-window catalog unavailable: "
+                    + unavailable.getClass().getName() + ": " + unavailable.getMessage());
+        }
+        log.diagnostic("Smart Improve creation-skill catalog contains "
+                + entries.size() + " captured/window rows");
+        return new ImproveSkillCatalog(entries);
+    }
+
+    private Integer estimateSuccessChance(HeadsUpDisplay hud,
+                                          ImproveSkillCatalog catalog,
+                                          InventoryMetaItem target,
+                                          ResolvedImproveResource source) {
+        return estimateSuccessChance(hud, catalog, access.objectType(target),
+                null, target.getQuality(), source);
+    }
+
+    private Integer estimateSuccessChance(HeadsUpDisplay hud,
+                                          ImproveSkillCatalog catalog,
+                                          String targetType,
+                                          String examineText,
+                                          double targetQuality,
+                                          ResolvedImproveResource source) {
+        try {
+            String skillName = catalog.skillFor(targetType, examineText);
+            if (skillName == null) {
+                log.diagnostic("Smart Improve chance unavailable: no creation skill for \""
+                        + targetType + "\" in " + catalog.size() + " recipe rows");
+                return null;
+            }
+            SkillLogic skill = SkillLogicSet.getSkill(skillName);
+            if (skill == null) {
+                log.diagnostic("Smart Improve chance unavailable: player skill \""
+                        + skillName + "\" is not loaded");
+                return null;
+            }
+            SkillLogic parent = hud.getWorld().getPlayer().getSkillSet()
+                    .getParentSkill(skill.getId());
+            double parentValue = parent == null || parent.getId() == skill.getId()
+                    ? 0.0 : parent.getValue();
+            ImproveResourceCandidate candidate = source.getCandidate();
+            double actionBonus = improveActionBonus(hud);
+            // Rarity and affinity affect gains after the roll, not its sign.
+            // InventoryMetaItem exposes no structured source-rune effects, so
+            // the displayed result remains an explicitly approximate value.
+            int chance;
+            if (source.isBuiltIn())
+                chance = chanceEstimator.estimateWithoutToolQuality(
+                        skill.getValue(), parentValue, targetQuality,
+                        hud.getWorld().isServerEpic(), actionBonus);
+            else
+                chance = chanceEstimator.estimate(skill.getValue(), parentValue,
+                        targetQuality, candidate.getQuality(),
+                        candidate.getDamage(), hud.getWorld().isServerEpic(),
+                        actionBonus);
+            log.diagnostic("Smart Improve chance calculated: targetType=\""
+                    + targetType + "\", skill=\"" + skillName + "\"="
+                    + skill.getValue() + ", parent=" + parentValue
+                    + ", targetQL=" + targetQuality + ", sourceQL="
+                    + candidate.getQuality() + ", sourceDamage="
+                    + candidate.getDamage() + ", actionBonus=" + actionBonus
+                    + ", chance=" + chance + "%");
+            return chance;
+        } catch (RuntimeException | LinkageError unavailable) {
+            log.diagnostic("Smart Improve chance unavailable: "
+                    + unavailable.getClass().getName() + ": " + unavailable.getMessage());
+            return null;
+        }
+    }
+
+    private static double improveActionBonus(HeadsUpDisplay hud) {
+        com.wurmonline.client.game.PlayerObj player = hud.getWorld().getPlayer();
+        double bonus = "PRIEST".equals(String.valueOf(
+                player.getReligiousDedication())) ? -20.0 : 0.0;
+        if (!"VYNORA".equals(String.valueOf(player.getReligion()))) return bonus;
+        SkillLogic faith = SkillLogicSet.getSkill("Faith");
+        SkillLogic favor = SkillLogicSet.getSkill("Favor");
+        return faith != null && favor != null
+                && faith.getValue() >= 80.0f && favor.getValue() >= 40.0f
+                ? bonus + 10.0 : bonus;
     }
 
     private static void addTarget(Map<Long, InventoryMetaItem> result,
@@ -392,16 +714,31 @@ public final class SmartImproveExecutor {
     private static final class PreparedItem {
         private final long targetId;
         private final String targetName;
+        private final Double targetQuality;
         private final boolean repair;
         private final ResolvedImproveResource resource;
+        private final Integer successChance;
+        private final ImproveRarityChanceEstimator.Range rarityChance;
+        private final String rarityLabel;
+        private final String unavailableReason;
         private final boolean world;
 
-        private PreparedItem(long targetId, String targetName, boolean repair,
-                             ResolvedImproveResource resource, boolean world) {
+        private PreparedItem(long targetId, String targetName,
+                             Double targetQuality, boolean repair,
+                             ResolvedImproveResource resource,
+                             Integer successChance,
+                             ImproveRarityChanceEstimator.Range rarityChance,
+                             String rarityLabel, String unavailableReason,
+                             boolean world) {
             this.targetId = targetId;
             this.targetName = targetName;
+            this.targetQuality = targetQuality;
             this.repair = repair;
             this.resource = resource;
+            this.successChance = successChance;
+            this.rarityChance = rarityChance;
+            this.rarityLabel = rarityLabel;
+            this.unavailableReason = unavailableReason;
             this.world = world;
         }
     }

@@ -56,10 +56,6 @@ public final class InventoryFilterResolver {
     private static boolean matches(String wanted, InventoryMetaItem item) {
         String base = item.getBaseName();
         if (base == null || base.trim().isEmpty()) base = item.getDisplayName();
-        try {
-            return wanted.equals(ObjectTypeNormalizer.normalizeType(base));
-        } catch (RuntimeException invalidMetadata) {
-            return false;
-        }
+        return ObjectTypeNormalizer.matchesType(wanted, base);
     }
 }

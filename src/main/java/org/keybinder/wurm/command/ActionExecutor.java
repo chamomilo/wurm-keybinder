@@ -284,12 +284,11 @@ public final class ActionExecutor {
 
     private boolean matchesNearbyType(TargetSpec target, CellRenderable candidate) {
         try {
-            return target.getText().equals(NearbyTypeTarget.normalizeType(access.objectType(candidate)));
+            return ObjectTypeNormalizer.matchesType(
+                    target.getText(), access.objectType(candidate));
         } catch (ReflectiveOperationException | RuntimeException e) {
-            try {
-                return target.getText().equals(
-                        NearbyTypeTarget.normalizeType(candidate.getHoverName()));
-            } catch (RuntimeException unresolved) { return false; }
+            return ObjectTypeNormalizer.matchesType(
+                    target.getText(), candidate.getHoverName());
         }
     }
 
@@ -319,7 +318,8 @@ public final class ActionExecutor {
                 // Preserve the candidate as unresolved for the user-facing mismatch.
             }
             if (!normalized.isEmpty() && !found.contains(normalized)) found.add(normalized);
-            if (step.getTarget().getText().equals(normalized)) matches.add(id);
+            if (ObjectTypeNormalizer.matchesType(
+                    step.getTarget().getText(), normalized)) matches.add(id);
         }
         if (matches.isEmpty() && shouldReportHoverTypeMismatch(
                 candidates.size(), found.size())) {

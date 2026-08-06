@@ -271,8 +271,7 @@ public final class EditorWorkflow {
             this.activeVariantId = activeVariantId;
             this.extractedVariantId = extractedVariantId;
             this.kind = kind;
-            this.hudMulti = hudMulti && variants.size()
-                    > (kind == SaveKind.EXTRACT ? 2 : 1);
+            this.hudMulti = hudMulti;
             this.createdByUser = createdByUser == null ? "" : createdByUser;
             this.createdOnServer = createdOnServer == null ? "" : createdOnServer;
         }

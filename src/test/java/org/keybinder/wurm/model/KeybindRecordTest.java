@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class KeybindRecordTest {
@@ -26,5 +27,16 @@ public class KeybindRecordTest {
         assertEquals("Work-Second", KeybindNamePrefixes.baseName(execution.getDisplayName()));
         assertTrue(execution.isHudMulti());
         assertTrue(execution.isValuePack());
+    }
+
+    @Test public void oneVariantCanBeAnObservedHudKeybind() {
+        KeybindRecord record = new KeybindRecord("record", "Open journal", "R",
+                Collections.<KeybindStep>emptyList());
+
+        record.setHudMulti(true);
+
+        assertFalse(record.isMultiPurpose());
+        assertTrue(record.isHudMulti());
+        assertTrue(record.isSelectorKeybind());
     }
 }

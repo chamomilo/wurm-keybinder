@@ -13,6 +13,7 @@ public enum RequirementFamily {
     MALLET(RequirementKind.TOOL),
     CARVING_KNIFE(RequirementKind.TOOL),
     STONE_CHISEL(RequirementKind.TOOL),
+    METAL_BRUSH(RequirementKind.TOOL),
     NEEDLE(RequirementKind.TOOL),
     AWL(RequirementKind.TOOL),
     LEATHER_KNIFE(RequirementKind.TOOL),

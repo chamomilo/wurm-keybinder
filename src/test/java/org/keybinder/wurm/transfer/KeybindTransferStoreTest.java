@@ -85,6 +85,25 @@ public class KeybindTransferStoreTest {
         assertNotEquals(SemanticFingerprint.of(first), SemanticFingerprint.of(changed));
     }
 
+    @Test public void roundTripsSingleVariantHudMode() throws Exception {
+        KeybindRecord record = new KeybindRecord("single", "Open journal", "R",
+                Collections.<KeybindStep>singletonList(
+                        action(568, ItemSelector.emptyHand(),
+                                TargetSpec.exactObject(456L, "journal"))));
+        record.setHudMulti(true);
+        Path file = temporary.newFile("single-hud.keybinder").toPath();
+
+        new KeybindTransferStore().write(file, Collections.singletonList(record),
+                "user", "server", "0.7.1");
+        PortableKeybindDefinition loaded = new KeybindTransferStore().read(file).get(0);
+        KeybindRecord imported = loaded.toRecord("user", "server");
+
+        assertTrue(loaded.isHudMulti());
+        assertFalse(imported.isMultiPurpose());
+        assertTrue(imported.isHudMulti());
+        assertTrue(imported.isSelectorKeybind());
+    }
+
     @Test public void rejectsMalformedBase64AndUnknownVersion() throws Exception {
         Path malformed = temporary.newFile("bad.keybinder").toPath();
         Files.write(malformed, Arrays.asList("format=keybinder-transfer", "version=1",

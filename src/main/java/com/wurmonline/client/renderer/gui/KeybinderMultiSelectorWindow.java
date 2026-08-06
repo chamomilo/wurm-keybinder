@@ -12,7 +12,7 @@ import org.lwjgl.opengl.Display;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Small HUD selector shown after holding a multi-purpose keybind. */
+/** Small selector for ordinary multi-purpose and immediate HUD keybinds. */
 public final class KeybinderMultiSelectorWindow extends WWindow implements ButtonListener {
     private static final int WINDOW_HORIZONTAL_CHROME = 6;
     private static final int WINDOW_VERTICAL_CHROME = 25;
@@ -105,6 +105,13 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
 
     public boolean selectsRecord(String id) {
         return id != null && id.equals(recordId);
+    }
+
+    /** Returns the exact selectable variant under the pointer, if any. */
+    public String variantAt(int mouseX, int mouseY) {
+        for (Map.Entry<WButton, String> entry : variants.entrySet())
+            if (entry.getKey().contains(mouseX, mouseY)) return entry.getValue();
+        return null;
     }
 
     /** Restores the world/inventory hover displaced by the selector's pointer warp. */

@@ -4,6 +4,8 @@ import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifySourceMode;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.BulkDestinationKind;
 import org.keybinder.wurm.model.BulkStorageItem;
@@ -56,6 +58,10 @@ public final class KeybindStepCodec {
                 return new SmartImproveStep(TargetCodec.decode(
                         decoded(properties, prefix + "target", false)),
                         improveSourceMode(properties, prefix));
+            case ARCHEOLOGY_IDENTIFY:
+                return new ArcheologyIdentifyStep(TargetCodec.decode(
+                        decoded(properties, prefix + "target", false)),
+                        archeologySourceMode(properties, prefix));
             case BULK_TRANSFER:
                 return readBulk(properties, prefix, false);
             case VANILLA_ACTION:
@@ -91,6 +97,10 @@ public final class KeybindStepCodec {
                 return new SmartImproveStep(TargetCodec.decode(
                         decoded(properties, prefix + "target", true)),
                         improveSourceMode(properties, prefix));
+            case ARCHEOLOGY_IDENTIFY:
+                return new ArcheologyIdentifyStep(TargetCodec.decode(
+                        decoded(properties, prefix + "target", true)),
+                        archeologySourceMode(properties, prefix));
             case BULK_TRANSFER:
                 return readBulk(properties, prefix, true);
             case VANILLA_ACTION:
@@ -130,6 +140,12 @@ public final class KeybindStepCodec {
                     TargetCodec.encode(improve.getTarget()), transfer);
             properties.setProperty(prefix + "improveSourceMode",
                     improve.getSourceMode().name());
+        } else if (step instanceof ArcheologyIdentifyStep) {
+            ArcheologyIdentifyStep identify = (ArcheologyIdentifyStep) step;
+            encoded(properties, prefix + "target",
+                    TargetCodec.encode(identify.getTarget()), transfer);
+            properties.setProperty(prefix + "archeologySourceMode",
+                    identify.getSourceMode().name());
         } else if (step instanceof BulkTransferStep) {
             writeBulk(properties, prefix, (BulkTransferStep) step, transfer);
         } else if (step instanceof VanillaActionStep) {
@@ -308,6 +324,18 @@ public final class KeybindStepCodec {
             return SmartImproveSourceMode.valueOf(value);
         } catch (IllegalArgumentException failure) {
             throw new IOException("Unsupported Smart Improve source mode " + value, failure);
+        }
+    }
+
+    private static ArcheologyIdentifySourceMode archeologySourceMode(
+            Properties properties, String prefix) throws IOException {
+        String value = properties.getProperty(prefix + "archeologySourceMode",
+                ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY.name());
+        try {
+            return ArcheologyIdentifySourceMode.valueOf(value);
+        } catch (IllegalArgumentException failure) {
+            throw new IOException("Unsupported Archeology Identify source mode "
+                    + value, failure);
         }
     }
 }

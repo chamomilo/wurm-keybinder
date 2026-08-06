@@ -20,7 +20,17 @@ public class ObjectTypeNormalizerTest {
                 {"an angry black wolf", "black wolf"},
                 {"old oak tree stump", "tree stump"},
                 {"pinewood felled tree", "felled tree"},
+                {"felled tree", "felled tree"},
+                {"rare oak tree", "tree"},
+                {"fantastic cedar tree (glowing)", "tree"},
+                {"supreme oakenwood log (glowing)", "log"},
+                {"rare log (searing hot), cedarwood", "log"},
                 {"salty water", "water"},
+                {"boiling water", "water"},
+                {"rare water (glowing), cedarwood", "water"},
+                {"rare iron pickaxe (glowing)", "pickaxe"},
+                {"a supreme steel pickaxe (searing hot)", "pickaxe"},
+                {"rare\u00a0iron\u202fpickaxe", "pickaxe"},
                 {"  THE   LARGE   RAT PELT  ", "large rat pelt"}
         });
     }

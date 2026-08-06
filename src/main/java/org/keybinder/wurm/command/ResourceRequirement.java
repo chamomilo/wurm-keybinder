@@ -118,7 +118,8 @@ public final class ResourceRequirement {
 
     private boolean requiresCanonicalBaseName() {
         return family == RequirementFamily.LEATHER
-                || family == RequirementFamily.PELT;
+                || family == RequirementFamily.PELT
+                || family == RequirementFamily.SHARD;
     }
 
     private static boolean semanticBaseNameMatches(String value,

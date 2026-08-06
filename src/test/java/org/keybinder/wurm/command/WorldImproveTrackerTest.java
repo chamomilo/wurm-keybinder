@@ -58,6 +58,9 @@ public class WorldImproveTrackerTest {
         assertEquals(44L, state.getTargetId());
         assertEquals(RequirementFamily.HAMMER, state.getRequirement());
         assertTrue(state.isDamaged());
+        assertEquals(80.0f, state.getQuality(), 0.0f);
+        assertEquals("A forge. Ql: 80.0, Dam: 12.50. It has some dents that must "
+                        + "be flattened by a hammer.", state.getExamineText());
 
         tracker.repaired(44L);
         assertFalse(tracker.snapshot(44L).isDamaged());
@@ -65,7 +68,7 @@ public class WorldImproveTrackerTest {
         assertTrue(tracker.snapshot(44L).isDamaged());
     }
 
-    @Test public void selectionChangeImmediatelyDropsStateWithoutTimeout() {
+    @Test public void alternateSelectBarRepresentationDoesNotDropExaminedVehicle() {
         WorldImproveTracker tracker = new WorldImproveTracker();
         tracker.examineSent(10L);
         tracker.event(10L, ":Event", "You must use a file to improve it. "
@@ -74,15 +77,17 @@ public class WorldImproveTrackerTest {
                 tracker.snapshot(10L).getRequirement());
 
         tracker.selectionChanged(11L);
-        assertNull(tracker.snapshot(10L));
-        tracker.event(11L, ":Event", "You must use a mallet to improve it.");
+        assertEquals(RequirementFamily.FILE,
+                tracker.snapshot(10L).getRequirement());
         assertNull(tracker.snapshot(11L));
     }
 
-    @Test public void unrelatedTabsAndMismatchedExamineTargetsAreIgnored() {
+    @Test public void unrelatedTabsAreIgnoredAndExamineIdOwnsMetadata() {
         WorldImproveTracker tracker = new WorldImproveTracker();
         tracker.examineSent(20L);
         tracker.event(21L, ":Event", "You must use a hammer.");
+        assertEquals(RequirementFamily.HAMMER,
+                tracker.snapshot(20L).getRequirement());
         assertNull(tracker.snapshot(21L));
 
         tracker.examineSent(21L);
@@ -138,6 +143,7 @@ public class WorldImproveTrackerTest {
         WorldImproveTracker.Snapshot state = tracker.snapshot(33L);
         assertEquals(RequirementFamily.WATER, state.getRequirement());
         assertFalse(state.isDamaged());
+        assertNull(state.getQuality());
     }
 
     @Test public void targetToolNameInSuccessTextIsNotARequirement() {
@@ -147,6 +153,22 @@ public class WorldImproveTrackerTest {
                 "You improve the leather knife a little.").getRequirement());
         assertNull(WorldImproveEventParser.parse(
                 "You improve the clay shaper a little.").getRequirement());
+    }
+
+    @Test public void capturesTargetRarityAndEveryRarityRuneModifier() {
+        WorldImproveTracker tracker = new WorldImproveTracker();
+        tracker.examineSent(45L);
+        tracker.event(45L, ":Event", "A forge. This is a very rare and "
+                + "interesting version of the item. It could be improved with "
+                + "rock shards. Ql: 90.05, Dam: 0.0.");
+        tracker.event(45L, ":Event", "A rune has been attached, so it will "
+                + "increase the chance of increasing rarity when improved (5%).");
+        tracker.event(45L, ":Event", "Another rune will increase the chance "
+                + "of increasing rarity when improved (10%).");
+
+        WorldImproveTracker.Snapshot state = tracker.snapshot(45L);
+        assertEquals(1, state.getRarity());
+        assertEquals(0.15f, state.getRarityRuneModifier(), 0.0001f);
     }
 
     private static void assertObject(long id, String ignoredName, String phrase,

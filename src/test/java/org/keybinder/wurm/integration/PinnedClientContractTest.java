@@ -24,6 +24,11 @@ public class PinnedClientContractTest {
                 "getName", "()Ljava/lang/String;");
         assertMethod(pool, "com.wurmonline.client.comm.SimpleServerConnectionClass",
                 "sendAction", "(J[JLcom/wurmonline/shared/constants/PlayerAction;)V");
+        CtClass eventHandler = pool.getCtClass("com.wurmonline.client.WurmEventHandler");
+        assertNotNull(eventHandler.getDeclaredMethod("keyPressed",
+                new CtClass[]{CtClass.intType, CtClass.charType}));
+        assertNotNull(eventHandler.getDeclaredMethod("keyReleased",
+                new CtClass[]{CtClass.intType, CtClass.charType}));
     }
 
     @Test public void requiredSelectionHelpersRemainAvailable() throws Exception {

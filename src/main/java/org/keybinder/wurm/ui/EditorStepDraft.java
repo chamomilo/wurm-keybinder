@@ -6,6 +6,8 @@ import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifySourceMode;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.KeybindStep;
@@ -44,6 +46,7 @@ public final class EditorStepDraft {
     private final BulkDestinationKind bulkDestinationKind;
     private final InventoryReference bulkCapturedDestination;
     private final SmartImproveSourceMode smartImproveSourceMode;
+    private final ArcheologyIdentifySourceMode archeologyIdentifySourceMode;
 
     public EditorStepDraft(
             StepKind kind,
@@ -88,6 +91,26 @@ public final class EditorStepDraft {
             BulkDestinationKind bulkDestinationKind,
             InventoryReference bulkCapturedDestination,
             SmartImproveSourceMode smartImproveSourceMode) {
+        this(kind, actionId, command, source, target, vanillaCategory, vanillaEntry,
+                bulkSource, bulkQuantity, bulkDestinationKind, bulkCapturedDestination,
+                smartImproveSourceMode,
+                ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY);
+    }
+
+    public EditorStepDraft(
+            StepKind kind,
+            String actionId,
+            String command,
+            ItemSelector source,
+            String target,
+            VanillaKeybindCatalog.Category vanillaCategory,
+            VanillaKeybindCatalog.Entry vanillaEntry,
+            BulkStorageItem bulkSource,
+            String bulkQuantity,
+            BulkDestinationKind bulkDestinationKind,
+            InventoryReference bulkCapturedDestination,
+            SmartImproveSourceMode smartImproveSourceMode,
+            ArcheologyIdentifySourceMode archeologyIdentifySourceMode) {
         this.kind = kind;
         this.actionId = actionId == null ? "" : actionId;
         this.command = command == null ? "" : command;
@@ -102,6 +125,9 @@ public final class EditorStepDraft {
         this.smartImproveSourceMode = smartImproveSourceMode == null
                 ? SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY
                 : smartImproveSourceMode;
+        this.archeologyIdentifySourceMode = archeologyIdentifySourceMode == null
+                ? ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY
+                : archeologyIdentifySourceMode;
     }
 
     public KeybindStep toStep(ActionNameLookup names) {
@@ -111,6 +137,9 @@ public final class EditorStepDraft {
             return new ActivateToolStep(TargetCodec.decode(target));
         if (kind == StepKind.SMART_IMPROVE)
             return new SmartImproveStep(TargetCodec.decode(target), smartImproveSourceMode);
+        if (kind == StepKind.ARCHEOLOGY_IDENTIFY)
+            return new ArcheologyIdentifyStep(TargetCodec.decode(target),
+                    archeologyIdentifySourceMode);
         if (kind == StepKind.BULK_TRANSFER) {
             final int quantity;
             try {

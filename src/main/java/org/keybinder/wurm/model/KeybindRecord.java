@@ -94,8 +94,10 @@ public final class KeybindRecord {
     }
     public List<KeybindVariant> getVariants() { return Collections.unmodifiableList(variants); }
     public boolean isMultiPurpose() { return variants.size() > 1; }
-    public boolean isHudMulti() { return isMultiPurpose() && hudMulti; }
-    public void setHudMulti(boolean value) { hudMulti = value && isMultiPurpose(); }
+    public boolean isHudMulti() { return hudMulti; }
+    public void setHudMulti(boolean value) { hudMulti = value; }
+    /** True when the key is observed by the selector hook instead of run directly. */
+    public boolean isSelectorKeybind() { return isMultiPurpose() || isHudMulti(); }
     public String getActiveVariantId() { return activeVariantId; }
     public KeybindVariant getActiveVariant() {
         KeybindVariant found = findVariant(activeVariantId);

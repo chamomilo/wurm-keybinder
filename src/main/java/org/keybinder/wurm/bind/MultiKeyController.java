@@ -48,6 +48,8 @@ public final class MultiKeyController {
 
     public synchronized String getRecordId() { return recordId; }
 
+    public synchronized int getKey() { return key; }
+
     public synchronized void clear() { clearInternal(); }
 
     private void clearInternal() {

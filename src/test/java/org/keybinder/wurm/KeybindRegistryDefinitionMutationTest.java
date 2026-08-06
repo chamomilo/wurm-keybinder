@@ -84,8 +84,9 @@ public class KeybindRegistryDefinitionMutationTest {
         assertEquals("first", parent.getVariants().get(0).getId());
         assertEquals("first", parent.getActiveVariantId());
         assertFalse(parent.isMultiPurpose());
-        assertFalse(parent.isHudMulti());
-        assertEquals("Metal work", parent.getName());
+        assertTrue(parent.isHudMulti());
+        assertTrue(parent.isSelectorKeybind());
+        assertEquals("(HUD) Metal work", parent.getName());
         assertEquals("F4", parent.getOriginalKey());
         assertEquals("Smelt extracted from Metal work", extracted.getName());
         assertEquals(source.getKey(), extracted.getKey());

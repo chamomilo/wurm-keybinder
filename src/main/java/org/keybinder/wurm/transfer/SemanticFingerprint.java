@@ -6,6 +6,7 @@ import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
@@ -52,6 +53,10 @@ public final class SemanticFingerprint {
             SmartImproveStep improve = (SmartImproveStep) step;
             add(digest, TargetCodec.encode(improve.getTarget()));
             add(digest, improve.getSourceMode().name());
+        } else if (step instanceof ArcheologyIdentifyStep) {
+            ArcheologyIdentifyStep identify = (ArcheologyIdentifyStep) step;
+            add(digest, TargetCodec.encode(identify.getTarget()));
+            add(digest, identify.getSourceMode().name());
         } else if (step instanceof BulkTransferStep) {
             BulkTransferStep bulk = (BulkTransferStep) step;
             add(digest, Long.toString(bulk.getSource().getStorage().getId()));

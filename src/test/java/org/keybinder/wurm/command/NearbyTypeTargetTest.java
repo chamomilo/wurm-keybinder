@@ -25,6 +25,26 @@ public class NearbyTypeTargetTest {
     }
 
     @Test
+    public void treeFilterMatchesEveryTreeSpeciesAndDecoration() {
+        String target = NearbyTypeTarget.encode("rare oak tree");
+        assertEquals("nearby tree", target);
+        assertTrue(NearbyTypeTarget.matches(target, "fantastic cedar tree"));
+        assertTrue(NearbyTypeTarget.matches(target, "old maple tree (glowing)"));
+        assertFalse(NearbyTypeTarget.matches(target, "tree stump"));
+        assertFalse(NearbyTypeTarget.matches(target, "felled tree"));
+    }
+
+    @Test
+    public void logAndWaterFiltersIgnoreMaterialStateAndRarity() {
+        assertTrue(NearbyTypeTarget.matches(
+                "nearby rare oakenwood log (glowing)",
+                "supreme log (searing hot), cedarwood"));
+        assertTrue(NearbyTypeTarget.matches(
+                "nearby salty water", "fantastic boiling water"));
+        assertFalse(NearbyTypeTarget.matches("nearby water", "water skin"));
+    }
+
+    @Test
     public void removesKnownMaterialFromOtherObjectTypes() {
         assertEquals("nearby large anvil", NearbyTypeTarget.encode("iron large anvil"));
         assertTrue(NearbyTypeTarget.matches("nearby large anvil", "steel large anvil"));

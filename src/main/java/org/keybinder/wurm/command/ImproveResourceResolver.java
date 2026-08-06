@@ -24,9 +24,8 @@ public final class ImproveResourceResolver {
             if (child != null) direct.add(new Node(child, null));
         for (ImproveResourceCandidate child : inventoryRoot.getChildren()) {
             if (child == null || !isBackpack(child)) continue;
-            String backpackName = display(child);
             for (ImproveResourceCandidate content : child.getChildren())
-                if (content != null) direct.add(new Node(content, backpackName));
+                if (content != null) direct.add(new Node(content, "backpack"));
         }
 
         for (Node node : direct) {
@@ -40,8 +39,8 @@ public final class ImproveResourceResolver {
 
         ArrayDeque<Node> pending = new ArrayDeque<Node>();
         for (Node node : direct) {
-            String childContainer = node.containerName == null
-                    ? display(node.candidate) : node.containerName;
+            String childContainer = childContainer(node.candidate,
+                    node.containerName);
             for (ImproveResourceCandidate child : node.candidate.getChildren())
                 if (child != null) pending.addLast(new Node(child, childContainer));
         }
@@ -54,12 +53,24 @@ public final class ImproveResourceResolver {
             if (match.isAccepted())
                 return new ResolvedImproveResource(candidate, node.containerName,
                         requirement);
-            String childContainer = node.containerName == null
-                    ? display(candidate) : node.containerName;
+            // Report the nearest containing item. The Wurm inventory tree may
+            // insert structural ancestors such as "body" above a backpack.
+            String childContainer = childContainer(candidate,
+                    node.containerName);
             for (ImproveResourceCandidate child : candidate.getChildren())
                 if (child != null) pending.addLast(new Node(child, childContainer));
         }
         return null;
+    }
+
+    private static String childContainer(ImproveResourceCandidate candidate,
+                                         String inheritedContainer) {
+        if (candidate == null) return inheritedContainer;
+        String baseName = candidate.getBaseName();
+        if ("inventory".equals(baseName) || "body".equals(baseName))
+            return inheritedContainer;
+        if (isBackpack(candidate)) return "backpack";
+        return display(candidate);
     }
 
     private static String display(ImproveResourceCandidate candidate) {

@@ -63,6 +63,16 @@ public class TargetCodecTest {
         assertEquals("Inventory + filter: water", TargetCodec.display(target));
     }
 
+    @Test
+    public void everyFilteredTargetStoresTheSameCanonicalItemType() {
+        assertEquals("log", TargetCodec.decode(
+                "nearby rare oakenwood log (glowing)").getText());
+        assertEquals("log", TargetCodec.decode(
+                "hover-type supreme log (searing hot), cedarwood").getText());
+        assertEquals("log", TargetCodec.decode(
+                "inventory+filter fantastic steel log (boiling)").getText());
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsToolbeltSlotOutsideRange() {
         TargetCodec.decode("@tb11");

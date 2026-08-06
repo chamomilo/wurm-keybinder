@@ -8,6 +8,9 @@ import com.wurmonline.client.renderer.ObjectData;
 import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.cell.CreatureCellRenderable;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
+import com.wurmonline.client.renderer.gui.CreationListItem;
+import com.wurmonline.client.renderer.gui.CreationListWindow;
+import com.wurmonline.client.renderer.gui.KeybinderCreationListBridge;
 import com.wurmonline.client.renderer.gui.KeybinderInventorySelectionBridge;
 import com.wurmonline.client.renderer.gui.PaperDollInventory;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
@@ -18,9 +21,13 @@ import org.gotti.wurmunlimited.modloader.ReflectionUtil;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.keybinder.wurm.catalog.CreationSkillEntry;
 import org.keybinder.wurm.model.InventoryReference;
 
 @SuppressWarnings("unchecked")
@@ -45,6 +52,7 @@ public final class ClientAccess {
     private Method removeActiveToolItem;
     private Field inventoryWindows;
     private Field objectDataName;
+    private Field creationItems;
 
     public void setup() throws ReflectiveOperationException {
         // Core HUD access is resolved strictly. Optional gameplay capabilities are
@@ -78,6 +86,11 @@ public final class ClientAccess {
                 com.wurmonline.client.game.inventory.InventoryMetaWindowManager.class,
                 "inventoryWindows");
         objectDataName = optionalDeclaredField(ObjectData.class, "name");
+        creationItems = optionalDeclaredField(CreationListWindow.class,
+                "createItemList");
+        if (creationItems != null
+                && !List.class.isAssignableFrom(creationItems.getType()))
+            creationItems = null;
     }
 
     public InventoryMetaItem bodyItem(PaperDollInventory paperDoll) throws ReflectiveOperationException {
@@ -170,6 +183,40 @@ public final class ClientAccess {
                 .getPlayerInventory().getRootItem();
         return managerRoot != null ? managerRoot
                 : KeybinderInventorySelectionBridge.playerInventoryRoot(hud);
+    }
+
+    /** Defensive snapshot of item-to-skill rows sent by the current server. */
+    public List<CreationSkillEntry> creationSkills(HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        List<CreationSkillEntry> result = new ArrayList<CreationSkillEntry>();
+        if (hud == null || hud.getCreationListWindow() == null) return result;
+        List<CreationListItem> live = ReflectionUtil.getPrivateField(
+                hud.getCreationListWindow(),
+                required(creationItems, "creation skill catalog"));
+        return snapshotCreationSkills(live);
+    }
+
+    static List<CreationSkillEntry> snapshotCreationSkills(
+            List<CreationListItem> roots) {
+        List<CreationSkillEntry> result = new ArrayList<CreationSkillEntry>();
+        if (roots == null) return result;
+        ArrayDeque<CreationListItem> pending = new ArrayDeque<CreationListItem>();
+        for (CreationListItem root : new ArrayList<CreationListItem>(roots))
+            if (root != null) pending.addLast(root);
+        Set<CreationListItem> visited = java.util.Collections.newSetFromMap(
+                new IdentityHashMap<CreationListItem, Boolean>());
+        while (!pending.isEmpty()) {
+            CreationListItem item = pending.removeFirst();
+            if (item == null || !visited.add(item)) continue;
+            result.add(new CreationSkillEntry(
+                    KeybinderCreationListBridge.itemName(item), item.getSkill()));
+            List<CreationListItem> children = item.getChilds();
+            if (children != null)
+                for (CreationListItem child :
+                        new ArrayList<CreationListItem>(children))
+                    if (child != null) pending.addLast(child);
+        }
+        return result;
     }
 
     private static InventoryMetaItem findInventoryItem(InventoryMetaItem root, long id) {

@@ -26,4 +26,16 @@ public class AccountActivationGateTest {
         gate.clear();
         assertTrue(gate.shouldApply("alt", 5101L));
     }
+
+    @Test public void executionRemainsBlockedUntilProfileIsAppliedAgain() {
+        AccountActivationGate gate = new AccountActivationGate();
+
+        assertFalse(gate.isApplied("Alt"));
+        gate.applied("Alt");
+        assertTrue(gate.isApplied("alt"));
+
+        gate.clear();
+        assertFalse(gate.isApplied("ALT"));
+        assertTrue(gate.shouldApply("Alt", 100L));
+    }
 }

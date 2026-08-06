@@ -5,6 +5,7 @@ import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.BulkTransferStep;
 import org.keybinder.wurm.model.KeybindStep;
@@ -376,6 +377,10 @@ public final class KeybindStore {
         } else if (step instanceof SmartImproveStep) {
             requireEncodedLength(TargetCodec.encode(((SmartImproveStep) step).getTarget()),
                     "improve target");
+        } else if (step instanceof ArcheologyIdentifyStep) {
+            requireEncodedLength(TargetCodec.encode(
+                    ((ArcheologyIdentifyStep) step).getTarget()),
+                    "archeology identify target");
         } else if (step instanceof BulkTransferStep) {
             BulkTransferStep bulk = (BulkTransferStep) step;
             if (bulk.getSource() != null) {
@@ -450,6 +455,11 @@ public final class KeybindStore {
                     ((SmartImproveStep) right).getTarget())
                     && ((SmartImproveStep) left).getSourceMode()
                     == ((SmartImproveStep) right).getSourceMode();
+        if (left instanceof ArcheologyIdentifyStep)
+            return ((ArcheologyIdentifyStep) left).getTarget().equals(
+                    ((ArcheologyIdentifyStep) right).getTarget())
+                    && ((ArcheologyIdentifyStep) left).getSourceMode()
+                    == ((ArcheologyIdentifyStep) right).getSourceMode();
         if (left instanceof BulkTransferStep) {
             BulkTransferStep a = (BulkTransferStep) left, b = (BulkTransferStep) right;
             return equal(a.getSource(), b.getSource())

@@ -26,6 +26,16 @@ public class ActionSourcePolicyTest {
     }
 
     @Test
+    public void openInventoryContainerUsesOnlyItsTarget() {
+        short openInventoryContainer = 568;
+        assertFalse(ActionSourcePolicy.acceptsSelectableTool(openInventoryContainer));
+        ActionStep open = new ActionStep(openInventoryContainer,
+                ItemSelector.currentActive(), TargetSpec.exactObject(456L, "journal"),
+                "Open");
+        assertEquals(ItemSelectorKind.EMPTY_HAND, open.getSource().getKind());
+    }
+
+    @Test
     public void drinkUsesOnlyItsTargetAndNeverCarriesATool() {
         short drink = 183;
         assertFalse(ActionSourcePolicy.acceptsSelectableTool(drink));

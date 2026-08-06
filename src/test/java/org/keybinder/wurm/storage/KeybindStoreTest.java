@@ -178,6 +178,24 @@ public class KeybindStoreTest {
     }
 
     @Test
+    public void singleVariantHudModeRoundTripsWithoutBeingDowngraded() throws Exception {
+        Path file = Files.createTempDirectory("keybinder-single-hud")
+                .resolve("keybinds.properties");
+        KeybindStore store = new KeybindStore(file);
+        KeybindRecord record = new KeybindRecord("single-hud", "Open journal", "R",
+                Collections.<KeybindStep>singletonList(new ActionStep((short) 568,
+                        TargetSpec.exactObject(456L, "journal"), "Open")));
+        record.setHudMulti(true);
+
+        store.save(Collections.singletonList(record));
+        KeybindRecord loaded = store.load().get(0);
+
+        assertFalse(loaded.isMultiPurpose());
+        assertTrue(loaded.isHudMulti());
+        assertTrue(loaded.isSelectorKeybind());
+    }
+
+    @Test
     public void schemaEightDefaultsValuePackProvenanceToFalse() throws Exception {
         Path file = Files.createTempDirectory("keybinder-v8-provenance")
                 .resolve("keybinds.properties");

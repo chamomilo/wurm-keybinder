@@ -13,7 +13,7 @@ public class KeybindNamePrefixesTest {
                 KeybindNamePrefixes.apply("Multi Forge", 2, true));
         assertEquals("(Multi) Forge",
                 KeybindNamePrefixes.apply("HUD Multi Forge", 3, false));
-        assertEquals("Forge", KeybindNamePrefixes.apply("HUD Multi Forge", 1, true));
+        assertEquals("(HUD) Forge", KeybindNamePrefixes.apply("HUD Multi Forge", 1, true));
         assertEquals("Forge", KeybindNamePrefixes.baseName("(HUD) (Multi) Forge"));
     }
 

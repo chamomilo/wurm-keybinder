@@ -1,6 +1,11 @@
 package org.keybinder.wurm.command;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
+import com.wurmonline.client.renderer.SubPickableUnit;
+import com.wurmonline.client.renderer.CreatureData;
+import com.wurmonline.client.renderer.ObjectData;
+import com.wurmonline.client.renderer.cell.CreatureCellRenderable;
+import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import org.junit.Test;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.SmartImproveSourceMode;
@@ -13,6 +18,7 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertSame;
 
 public class SmartImproveExecutorTest {
     @Test
@@ -54,9 +60,43 @@ public class SmartImproveExecutorTest {
     @Test
     public void nestedInventorySelectionNamesItsContainer() {
         assertEquals("Smart Improve: using large rat pelt from "
-                        + "\"backpack\" in inventory to improve \"rare pickaxe\"",
+                        + "\"satchel, cotton\" to improve \"rare pickaxe\"",
                 Messages.text("improve.using_from_inventory_container",
-                        "large rat pelt", "backpack", "rare pickaxe"));
+                        "large rat pelt", "satchel, cotton", "rare pickaxe"));
+        assertEquals("Smart Improve: using large rat pelt from backpack "
+                        + "to improve \"rare pickaxe\"",
+                Messages.text("improve.using_backpack",
+                        "large rat pelt", "rare pickaxe"));
+    }
+
+    @Test
+    public void appendsEstimatedChanceOnlyWhenItWasCalculated() {
+        String message = "Smart Improve: using hammer";
+
+        assertEquals("Smart Improve: using hammer (improve chance ~73%)",
+                SmartImproveExecutor.withEstimatedChances(
+                        message, 73, null, null));
+        assertEquals(message,
+                SmartImproveExecutor.withEstimatedChances(
+                        message, null, null, null));
+    }
+
+    @Test
+    public void appendsTargetQualityBeforeEstimatedChance() {
+        String message = SmartImproveExecutor.withTargetQuality(
+                "Smart Improve: using rock shards from inventory to improve \"forge\"",
+                90.047d);
+
+        ImproveRarityChanceEstimator.Range rarity =
+                new ImproveRarityChanceEstimator().estimate(
+                        (byte) 0, 0.0, 0.0, (byte) 0, true);
+        assertEquals("Smart Improve: using rock shards from inventory to improve "
+                        + "\"forge\" QL 90.05 (improve chance ~63%, "
+                        + "improve to rare chance after drumroll 10.40%)",
+                SmartImproveExecutor.withEstimatedChances(
+                        message, 63, rarity, "rare"));
+        assertEquals("unchanged",
+                SmartImproveExecutor.withTargetQuality("unchanged", null));
     }
 
     @Test
@@ -120,6 +160,11 @@ public class SmartImproveExecutorTest {
         set(woodenRake, "materialId", (byte) 14);
         set(woodenRake, "temperatureState", (byte) 0);
         assertTrue(SmartImproveInventoryPolicy.isTargetTemperatureReady(woodenRake));
+        assertEquals("Smart Improve: cannot improve \"rake, steel\" because "
+                        + "the metal target is not glowing hot. "
+                        + "No Improve action was sent.",
+                Messages.text("improve.target_too_cold",
+                        steelRake.getDisplayName()));
     }
 
     @Test
@@ -130,6 +175,48 @@ public class SmartImproveExecutorTest {
                 (byte) 9, "rare lamp (glowing), steel"));
         assertTrue(SmartImproveExecutor.worldTemperatureReady(
                 (byte) 14, "wagon, birchwood"));
+    }
+
+    @Test
+    public void examinedWagonCanBeFoundAmongCompositeHoverTargets() {
+        assertTrue(SmartImproveExecutor.containsId(
+                new long[]{9001L, 104L, 9002L}, 104L));
+        assertFalse(SmartImproveExecutor.containsId(
+                new long[]{9001L, 9002L}, 104L));
+        assertFalse(SmartImproveExecutor.containsId(null, 104L));
+    }
+
+    @Test
+    public void compositeVehiclePickIsUnwrappedToItsGroundItem() throws Exception {
+        sun.misc.Unsafe unsafe = unsafe();
+        GroundItemCellRenderable wagon = (GroundItemCellRenderable)
+                unsafe.allocateInstance(GroundItemCellRenderable.class);
+        SubPickableUnit wagonPart = (SubPickableUnit)
+                unsafe.allocateInstance(SubPickableUnit.class);
+        Field parent = SubPickableUnit.class.getDeclaredField(
+                "parentCellRenderable");
+        parent.setAccessible(true);
+        parent.set(wagonPart, wagon);
+
+        assertSame(wagon, SmartImproveExecutor.unwrapGround(wagonPart));
+    }
+
+    @Test
+    public void hitchedVehicleCreatureRepresentationIsAcceptedByExactId()
+            throws Exception {
+        sun.misc.Unsafe unsafe = unsafe();
+        CreatureData data = (CreatureData) unsafe.allocateInstance(CreatureData.class);
+        Field id = ObjectData.class.getDeclaredField("id");
+        id.setAccessible(true);
+        id.setLong(data, 1556254593508610L);
+        CreatureCellRenderable wagon = (CreatureCellRenderable)
+                unsafe.allocateInstance(CreatureCellRenderable.class);
+        Field creature = CreatureCellRenderable.class.getDeclaredField("creature");
+        creature.setAccessible(true);
+        creature.set(wagon, data);
+
+        assertSame(wagon, SmartImproveExecutor.exactWorldObject(
+                1556254593508610L, wagon, null));
     }
 
     @Test
@@ -168,13 +255,27 @@ public class SmartImproveExecutorTest {
                 .get(0).getChildren().get(0).getId());
         assertEquals(1, snapshot.getChildren().get(1).getChildren().size());
         assertEquals(5L, snapshot.getChildren().get(1).getChildren().get(0).getId());
+        assertEquals(0.0f, snapshot.getQuality(), 0.0f);
+    }
+
+    @Test
+    public void inventorySnapshotKeepsToolQualityAndDamageForChanceEstimate()
+            throws Exception {
+        InventoryMetaItem tool = item(7, 73.5f, (short) 672, "steel lump");
+        set(tool, "damage", 12.25f);
+        set(tool, "rarity", (byte) 1);
+
+        ImproveResourceCandidate snapshot = SmartImproveExecutor.inventoryCandidate(
+                tool, Collections.<Long>emptySet());
+
+        assertEquals(73.5f, snapshot.getQuality(), 0.0f);
+        assertEquals(12.25f, snapshot.getDamage(), 0.0f);
+        assertEquals(1, snapshot.getRarity());
     }
 
     private static InventoryMetaItem item(long id, float quality, short type,
                                           String name) throws Exception {
-        Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
-        unsafeField.setAccessible(true);
-        sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+        sun.misc.Unsafe unsafe = unsafe();
         InventoryMetaItem item = (InventoryMetaItem) unsafe.allocateInstance(
                 InventoryMetaItem.class);
         set(item, "id", id);
@@ -184,6 +285,12 @@ public class SmartImproveExecutorTest {
         set(item, "displayName", name);
         set(item, "children", new java.util.ArrayList<InventoryMetaItem>());
         return item;
+    }
+
+    private static sun.misc.Unsafe unsafe() throws Exception {
+        Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        return (sun.misc.Unsafe) unsafeField.get(null);
     }
 
     private static void set(InventoryMetaItem item, String fieldName,

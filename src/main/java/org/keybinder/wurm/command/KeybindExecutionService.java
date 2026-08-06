@@ -9,6 +9,7 @@ import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActionSourcePolicy;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
@@ -30,6 +31,7 @@ import java.util.function.IntSupplier;
 public final class KeybindExecutionService {
     private final ActionExecutor actions;
     private final SmartImproveExecutor improve;
+    private final ArcheologyIdentifyExecutor archeologyIdentify;
     private final ClientAccess access;
     private final EventLogger log;
     private final BulkTransferExecutor bulk;
@@ -49,6 +51,7 @@ public final class KeybindExecutionService {
                                    BulkTransferCoordinator bulkCoordinator) {
         this.actions = actions;
         this.improve = new SmartImproveExecutor(access, log, worldImprove);
+        this.archeologyIdentify = new ArcheologyIdentifyExecutor(access, log);
         this.access = access;
         this.log = log;
         this.bulk = new BulkTransferExecutor(access, log, bulkCoordinator);
@@ -108,6 +111,7 @@ public final class KeybindExecutionService {
     private synchronized void finishExecution(String recordId) {
         if (activeRecordId == null || !activeRecordId.equals(recordId)) return;
         improve.clearPrepared();
+        archeologyIdentify.clearPrepared();
         bulk.clearPrepared();
         activeRecordId = null;
     }
@@ -179,7 +183,8 @@ public final class KeybindExecutionService {
         int nonImproveCost = 0;
         for (int index = 0; index < steps.size(); index++) {
             KeybindStep step = steps.get(index);
-            if (step instanceof SmartImproveStep) {
+            if (step instanceof SmartImproveStep
+                    || step instanceof ArcheologyIdentifyStep) {
                 entries.add(null);
                 continue;
             }
@@ -197,21 +202,28 @@ public final class KeybindExecutionService {
         entries = new ArrayList<ExecutionPlan.Entry>(nonImprovePlan.getEntries());
         nonImproveCost = nonImprovePlan.getQueueCost();
         int remaining = Math.max(0, freeQueueSlots - nonImproveCost);
-        int improveCost = 0;
+        int adaptiveCost = 0;
         for (int index = 0; index < steps.size(); index++) {
             KeybindStep step = steps.get(index);
-            if (!(step instanceof SmartImproveStep)) continue;
             try {
-                int cost = improve.prepareWithinBudget((SmartImproveStep) step, hud,
-                        remaining, queueLimit, occupiedQueueSlots);
+                int cost;
+                if (step instanceof SmartImproveStep) {
+                    cost = improve.prepareWithinBudget((SmartImproveStep) step, hud,
+                            remaining, queueLimit, occupiedQueueSlots);
+                } else if (step instanceof ArcheologyIdentifyStep) {
+                    cost = archeologyIdentify.prepareWithinBudget(
+                            (ArcheologyIdentifyStep) step, hud, remaining);
+                } else {
+                    continue;
+                }
                 entries.set(index, new ExecutionPlan.Entry(index, step, cost, null));
                 remaining = Math.max(0, remaining - cost);
-                improveCost += cost;
+                adaptiveCost += cost;
             } catch (Exception failure) {
                 entries.set(index, new ExecutionPlan.Entry(index, step, 0, failure));
             }
         }
-        return new ExecutionPlan(entries, nonImproveCost + improveCost);
+        return new ExecutionPlan(entries, nonImproveCost + adaptiveCost);
     }
 
     /**
@@ -265,6 +277,8 @@ public final class KeybindExecutionService {
             return actions.runtimeQueueCost((ActionStep) step, hud);
         if (step instanceof SmartImproveStep)
             return improve.runtimeCost((SmartImproveStep) step, hud);
+        if (step instanceof ArcheologyIdentifyStep)
+            return archeologyIdentify.runtimeCost((ArcheologyIdentifyStep) step, hud);
         if (step instanceof BulkTransferStep)
             return bulk.prepare((BulkTransferStep) step, hud);
         if (step instanceof ActivateToolStep) {
@@ -283,6 +297,8 @@ public final class KeybindExecutionService {
             activate((ActivateToolStep) step, hud);
         } else if (step instanceof SmartImproveStep) {
             improve.execute((SmartImproveStep) step, hud);
+        } else if (step instanceof ArcheologyIdentifyStep) {
+            archeologyIdentify.execute((ArcheologyIdentifyStep) step, hud);
         } else if (step instanceof BulkTransferStep) {
             bulk.execute((BulkTransferStep) step, hud);
         } else if (step instanceof VanillaActionStep) {
@@ -380,6 +396,9 @@ public final class KeybindExecutionService {
         if (step instanceof SmartImproveStep)
             return Messages.text("event.describe_improve",
                     TargetCodec.display(((SmartImproveStep) step).getTarget()));
+        if (step instanceof ArcheologyIdentifyStep)
+            return Messages.text("event.describe_archeology_identify",
+                    TargetCodec.display(((ArcheologyIdentifyStep) step).getTarget()));
         if (step instanceof BulkTransferStep) {
             BulkTransferStep transfer = (BulkTransferStep) step;
             String item = transfer.getSource() == null || transfer.getSource().getItem() == null

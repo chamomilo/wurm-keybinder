@@ -11,6 +11,8 @@ import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActionSourcePolicy;
 import org.keybinder.wurm.model.ActionTargetPolicy;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifySourceMode;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
@@ -73,7 +75,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private static final VanillaKeybindCatalog VANILLA_CATALOG = new VanillaKeybindCatalog();
     private static final VanillaCatalogStepFactory VANILLA_STEPS =
             new VanillaCatalogStepFactory();
-    private static final int VANILLA_TYPE_OFFSET = 5;
+    private static final int VANILLA_TYPE_OFFSET = 6;
     private static final String[] ACTIVATE_TARGET_OPTIONS = {
             "hand", "hover", "toolbelt", "equipment", "exact object"
     };
@@ -94,9 +96,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         String[] options = new String[VANILLA_TYPE_OFFSET + categories.size()];
         options[0] = Messages.text("editor.step_type.activate");
         options[1] = Messages.text("editor.step_type.improve");
-        options[2] = Messages.text("editor.step_type.console");
-        options[3] = Messages.text("editor.step_type.custom");
-        options[4] = Messages.text("editor.step_type.bulk_transfer");
+        options[2] = Messages.text("editor.step_type.archeology_identify");
+        options[3] = Messages.text("editor.step_type.console");
+        options[4] = Messages.text("editor.step_type.custom");
+        options[5] = Messages.text("editor.step_type.bulk_transfer");
         for (int i = 0; i < categories.size(); i++)
             options[VANILLA_TYPE_OFFSET + i] =
                     Messages.text("editor.step_type.vanilla", categories.get(i).getDisplayName());
@@ -641,9 +644,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     }
 
     private void updateHudMultiState() {
-        boolean available = zones.size() > 1;
-        hudMulti.enabled = available;
-        if (!available) hudMulti.checked = false;
+        hudMulti.enabled = !zones.isEmpty();
         lastHudMultiChecked = hudMulti.checked;
         normalizeNamePrefix();
     }
@@ -1273,6 +1274,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private WurmDropDown smartImproveSource;
         private SmartImproveSourceMode smartImproveSourceMode =
                 SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
+        private WurmDropDown archeologyIdentifySource;
+        private ArcheologyIdentifySourceMode archeologyIdentifySourceMode =
+                ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY;
         private ItemSelector selectedSource;
         private int lastSourceValue;
         private boolean hasConcreteSource;
@@ -1294,7 +1298,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     ? ((VanillaActionStep) step).getCommand() : null;
             int initialType = EditorStepType.initialIndex(step);
             if (initialType < 0) initialType = selectedVanillaCommand != null
-                    ? vanillaTypeFor(selectedVanillaCommand) : 3;
+                    ? vanillaTypeFor(selectedVanillaCommand) : 4;
             type = new WurmDropDown("keybinder.step.type", initialType, stepTypeOptions());
             lastTypeValue = initialType;
             controls.componentWidthOffset = 1;
@@ -1312,6 +1316,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if (step instanceof SmartImproveStep)
                 smartImproveSourceMode = ((SmartImproveStep) step).getSourceMode();
             createSmartImproveSource();
+            if (step instanceof ArcheologyIdentifyStep)
+                archeologyIdentifySourceMode =
+                        ((ArcheologyIdentifyStep) step).getSourceMode();
+            createArcheologyIdentifySource();
             if (step instanceof ConsoleCommandStep)
                 command.setText(((ConsoleCommandStep) step).getCommand());
             else command.setText("");
@@ -1339,6 +1347,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     ? TargetCodec.encode(((ActivateToolStep) step).getTarget())
                     : step instanceof SmartImproveStep
                     ? TargetCodec.encode(((SmartImproveStep) step).getTarget())
+                    : step instanceof ArcheologyIdentifyStep
+                    ? TargetCodec.encode(((ArcheologyIdentifyStep) step).getTarget())
                     : "hover";
             createTarget();
             panel.componentWidthOffset = COLUMN_GAP;
@@ -1533,6 +1543,17 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     });
         }
 
+        private void createArcheologyIdentifySource() {
+            archeologyIdentifySource = new WurmDropDown(
+                    "keybinder.archeology.identify.source",
+                    archeologyIdentifySourceMode
+                            == ArcheologyIdentifySourceMode.TOOLBELT_ONLY ? 0 : 1,
+                    new String[]{
+                            Messages.text("editor.archeology.source.toolbelt_only"),
+                            Messages.text("editor.archeology.source.toolbelt_inventory")
+                    });
+        }
+
         private void rebuildPanel() {
             panel.removeAllComponents();
             panel.addComponent(controls);
@@ -1569,8 +1590,12 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 panel.addComponent(usesActionSource() ? source : sourceGap);
             } else {
                 panel.addComponent(sourceSeparator);
-                panel.addComponent(kind() == StepKind.SMART_IMPROVE
-                        ? smartImproveSource : sourceGap);
+                if (kind() == StepKind.SMART_IMPROVE)
+                    panel.addComponent(smartImproveSource);
+                else if (kind() == StepKind.ARCHEOLOGY_IDENTIFY)
+                    panel.addComponent(archeologyIdentifySource);
+                else
+                    panel.addComponent(sourceGap);
             }
             panel.addComponent(targetSeparator);
             panel.addComponent(target);
@@ -1616,6 +1641,11 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             }
             if (kind() == StepKind.SMART_IMPROVE) {
                 actionName.setLabel(Messages.text("editor.step_type.improve"));
+                return;
+            }
+            if (kind() == StepKind.ARCHEOLOGY_IDENTIFY) {
+                actionName.setLabel(Messages.text(
+                        "editor.step_type.archeology_identify"));
                 return;
             }
             if (kind() == StepKind.CONSOLE_COMMAND) return;
@@ -1714,6 +1744,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 sourceSeparator.setSize(SEPARATOR_WIDTH, sourceSeparator.height);
                 if (kind() == StepKind.SMART_IMPROVE)
                     smartImproveSource.setSize(columns[1], smartImproveSource.height);
+                else if (kind() == StepKind.ARCHEOLOGY_IDENTIFY)
+                    archeologyIdentifySource.setSize(
+                            columns[1], archeologyIdentifySource.height);
                 else sourceGap.setSize(columns[1], sourceGap.height);
                 targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
                 target.setSize(columns[2], target.height);
@@ -1757,7 +1790,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     command.getText(), selectedSource, selectedTarget,
                     vanillaCategory(), vanillaEntry(), selectedBulkSource,
                     bulkQuantity.getText(), bulkDestinationKind,
-                    capturedBulkDestination, selectedSmartImproveSourceMode());
+                    capturedBulkDestination, selectedSmartImproveSourceMode(),
+                    selectedArcheologyIdentifySourceMode());
             return draft.toStep(actionId -> resolveActionName(actionId));
         }
 
@@ -1769,13 +1803,23 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     : SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
         }
 
+        private ArcheologyIdentifySourceMode selectedArcheologyIdentifySourceMode() {
+            if (kind() != StepKind.ARCHEOLOGY_IDENTIFY
+                    || archeologyIdentifySource == null)
+                return ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY;
+            return archeologyIdentifySource.getValue() == 0
+                    ? ArcheologyIdentifySourceMode.TOOLBELT_ONLY
+                    : ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY;
+        }
+
         private StepKind kind() {
             switch (type.getValue()) {
                 case 0: return StepKind.ACTIVATE_TOOL;
                 case 1: return StepKind.SMART_IMPROVE;
-                case 2: return StepKind.CONSOLE_COMMAND;
-                case 3: return StepKind.CUSTOM_ACTION;
-                case 4: return StepKind.BULK_TRANSFER;
+                case 2: return StepKind.ARCHEOLOGY_IDENTIFY;
+                case 3: return StepKind.CONSOLE_COMMAND;
+                case 4: return StepKind.CUSTOM_ACTION;
+                case 5: return StepKind.BULK_TRANSFER;
                 default: return StepKind.VANILLA_ACTION;
             }
         }
@@ -1784,7 +1828,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if (isVanilla() && vanillaEntry() != null && vanillaEntry().isActivateTool())
                 return VANILLA_ACTIVATE_TARGET_OPTIONS;
             if (kind() == StepKind.ACTIVATE_TOOL) return ACTIVATE_TARGET_OPTIONS;
-            if (kind() == StepKind.SMART_IMPROVE) return SMART_IMPROVE_TARGET_OPTIONS;
+            if (kind() == StepKind.SMART_IMPROVE
+                    || kind() == StepKind.ARCHEOLOGY_IDENTIFY)
+                return SMART_IMPROVE_TARGET_OPTIONS;
             return BASE_TARGET_OPTIONS;
         }
 
@@ -1798,6 +1844,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             selectedTarget = baseTargetOptions()[0];
             selectedSource = ItemSelector.currentActive();
             smartImproveSourceMode = SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
+            archeologyIdentifySourceMode =
+                    ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY;
             selectedBulkSource = null;
             rememberedActionName = "";
             bulkDestinationKind = BulkDestinationKind.PLAYER_INVENTORY;
@@ -1808,6 +1856,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             createTarget();
             createSource();
             createSmartImproveSource();
+            createArcheologyIdentifySource();
             refreshBulkSourceLabel();
             createBulkDestination();
             updateActionName();
@@ -1820,6 +1869,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 text = Messages.text("editor.help.activate");
             } else if (kind() == StepKind.SMART_IMPROVE) {
                 text = Messages.text("editor.help.improve");
+            } else if (kind() == StepKind.ARCHEOLOGY_IDENTIFY) {
+                text = Messages.text("editor.help.archeology_identify");
             } else if (kind() == StepKind.CONSOLE_COMMAND) {
                 text = Messages.text("editor.help.console");
             } else if (kind() == StepKind.BULK_TRANSFER) {

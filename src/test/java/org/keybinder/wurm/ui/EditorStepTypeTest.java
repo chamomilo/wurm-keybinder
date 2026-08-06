@@ -2,6 +2,7 @@ package org.keybinder.wurm.ui;
 
 import org.junit.Test;
 import org.keybinder.wurm.model.ActionStep;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.ItemSelector;
 import org.keybinder.wurm.model.TargetKind;
@@ -22,7 +23,7 @@ public class EditorStepTypeTest {
         ActionStep cutDown = new ActionStep((short) 96, ItemSelector.toolbeltSlot(3),
                 TargetSpec.simple(TargetKind.HOVER), "Cut down");
 
-        assertEquals(3, EditorStepType.initialIndex(cutDown));
+        assertEquals(4, EditorStepType.initialIndex(cutDown));
         assertEquals(3, cutDown.getSource().getSlot());
     }
 
@@ -31,13 +32,14 @@ public class EditorStepTypeTest {
     }
 
     @Test public void consoleAndVanillaCommandsDoNotOfferActionCapture() {
-        assertEquals(2, EditorStepType.initialIndex(
+        assertEquals(3, EditorStepType.initialIndex(
                 new ConsoleCommandStep("toggle livemap")));
         assertFalse(EditorStepType.supportsCapture(StepKind.CONSOLE_COMMAND));
         assertFalse(EditorStepType.supportsCapture(StepKind.VANILLA_ACTION));
         assertTrue(EditorStepType.supportsCapture(StepKind.CUSTOM_ACTION));
         assertTrue(EditorStepType.supportsCapture(StepKind.ACTIVATE_TOOL));
         assertTrue(EditorStepType.supportsCapture(StepKind.SMART_IMPROVE));
+        assertTrue(EditorStepType.supportsCapture(StepKind.ARCHEOLOGY_IDENTIFY));
         assertFalse(EditorStepType.supportsCapture(StepKind.BULK_TRANSFER));
     }
 
@@ -46,6 +48,11 @@ public class EditorStepTypeTest {
                 new InventoryReference(1L, "bulk storage bin"),
                 new InventoryReference(2L, "barley")), 1,
                 BulkDestinationKind.PLAYER_INVENTORY, null);
-        assertEquals(4, EditorStepType.initialIndex(bulk));
+        assertEquals(5, EditorStepType.initialIndex(bulk));
+    }
+
+    @Test public void archeologyIdentifyHasItsOwnEditorType() {
+        assertEquals(2, EditorStepType.initialIndex(new ArcheologyIdentifyStep(
+                TargetSpec.simple(TargetKind.HOVER))));
     }
 }

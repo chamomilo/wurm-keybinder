@@ -2,6 +2,7 @@ package org.keybinder.wurm.ui;
 
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindStep;
 import org.keybinder.wurm.model.SmartImproveStep;
@@ -16,9 +17,10 @@ public final class EditorStepType {
     public static int initialIndex(KeybindStep step) {
         if (step instanceof ActivateToolStep) return 0;
         if (step instanceof SmartImproveStep) return 1;
-        if (step instanceof ConsoleCommandStep) return 2;
-        if (step == null || step instanceof ActionStep) return 3;
-        if (step instanceof BulkTransferStep) return 4;
+        if (step instanceof ArcheologyIdentifyStep) return 2;
+        if (step instanceof ConsoleCommandStep) return 3;
+        if (step == null || step instanceof ActionStep) return 4;
+        if (step instanceof BulkTransferStep) return 5;
         return -1;
     }
 
