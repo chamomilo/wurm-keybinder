@@ -22,7 +22,9 @@ import org.keybinder.wurm.model.TargetSpec;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 public final class ActionExecutor {
@@ -34,6 +36,12 @@ public final class ActionExecutor {
     private final ActionSourceResolver sources;
     private final InventoryFilterResolver inventoryFilters =
             new InventoryFilterResolver();
+    private final ThreadLocal<Map<ActionStep, ResolvedActionPlan>> prepared =
+            new ThreadLocal<Map<ActionStep, ResolvedActionPlan>>() {
+                @Override protected Map<ActionStep, ResolvedActionPlan> initialValue() {
+                    return new IdentityHashMap<ActionStep, ResolvedActionPlan>();
+                }
+            };
 
     public ActionExecutor(ClientAccess access) {
         this(access, ActionExecutor::defaultActionName, new PushSelectionRetention());
@@ -73,18 +81,9 @@ public final class ActionExecutor {
 
     public int runtimeQueueCost(ActionStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
-        sources.resolve(step.getSource(), hud);
-        TargetSpec target = step.getTarget();
-        if (target.getKind() == TargetKind.NEARBY
-                || target.getKind() == TargetKind.NEARBY_RADIUS)
-            return nearbyTargets(step, hud).size();
-        if (target.getKind() == TargetKind.NEARBY_TYPE)
-            return nearbyTargetByType(step, hud) == null ? 0 : 1;
-        if (target.getKind() == TargetKind.HOVER_TYPE)
-            return hoverTypeTargets(step, hud).ids.size();
-        ensureAvailable(step, hud);
-        if (target.getKind() == TargetKind.AREA) return 9;
-        return 1;
+        ResolvedActionPlan plan = prepare(step, hud);
+        prepared.get().put(step, plan);
+        return plan.getQueueCost();
     }
 
     public void executeStep(ActionStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
@@ -93,18 +92,16 @@ public final class ActionExecutor {
 
     public void executeStep(ActionStep step, HeadsUpDisplay hud, int maxFanOutTargets)
             throws ReflectiveOperationException {
-        ActionSourceResolver.ResolvedSource source = sources.resolve(step.getSource(), hud);
-        if (!source.hasOverride()) {
-            executeTarget(step, hud, maxFanOutTargets);
-            return;
-        }
-        try (ActionSourceOverride.Scope ignored = ActionSourceOverride.push(source.getSourceId())) {
-            executeTarget(step, hud, maxFanOutTargets);
-        }
+        ResolvedActionPlan plan = prepared.get().remove(step);
+        if (plan == null) plan = prepare(step, hud);
+        execute(plan, hud, maxFanOutTargets);
     }
 
-    private void executeTarget(ActionStep step, HeadsUpDisplay hud, int maxFanOutTargets)
+    void clearPrepared() { prepared.remove(); }
+
+    private ResolvedActionPlan prepare(ActionStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
+        ActionSourceResolver.ResolvedSource source = sources.resolve(step.getSource(), hud);
         short id = step.getActionId();
         TargetSpec target = step.getTarget();
         // A numeric ID that exactly matches a built-in vanilla PlayerAction inherits
@@ -113,39 +110,49 @@ public final class ActionExecutor {
         PlayerAction action = vanillaActions.resolveOrGeneric(id);
 
         switch (target.getKind()) {
-            case HOVER:
+            case HOVER: {
                 ExecutionHoverOverride.Snapshot hoverOverride =
                         ExecutionHoverOverride.current();
                 if (hoverOverride != null && hoverOverride.getWorldObjectId() > 0L)
-                    sendObjectAction(action, hoverOverride.getWorldObjectId(), hud);
-                else hud.getWorld().sendHoveredAction(action);
-                return;
-            case BODY:
+                    return individual(source, action,
+                            new long[]{hoverOverride.getWorldObjectId()}, 1, true, false, null);
+                return batch(source, action, hoveredTargets(action, hud), 1, false);
+            }
+            case BODY: {
                 InventoryMetaItem body = access.bodyItem(hud.getPaperDollInventory());
                 if (body == null) throw unavailable(Messages.text("unavailable.body"));
-                sendObjectAction(action, body.getId(), hud); return;
-            case ACTIVE_TOOL:
+                return object(source, action, body.getId());
+            }
+            case ACTIVE_TOOL: {
                 InventoryMetaItem tool = access.activeTool(hud);
                 if (tool == null) throw unavailable(Messages.text("unavailable.active_tool"));
-                sendObjectAction(action, tool.getId(), hud); return;
-            case SELECTED:
+                return object(source, action, tool.getId());
+            }
+            case SELECTED: {
                 PickableUnit selected = access.selected(hud.getSelectBar());
                 if (selected == null) throw unavailable(Messages.text("unavailable.selected"));
-                sendObjectAction(action, selected.getId(), hud); return;
+                return object(source, action, selected.getId());
+            }
             case TILE:
-                sendTile(action, hud, target.getDx(), target.getDy());
-                return;
-            case AREA:
+                return individual(source, action,
+                        new long[]{tileId(hud, target.getDx(), target.getDy())},
+                        1, false, false, null);
+            case AREA: {
+                long[] tiles = new long[9];
+                int index = 0;
                 for (int dy = -1; dy <= 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++) sendTile(action, hud, dx, dy);
-                return;
-            case TOOLBELT_SLOT:
+                    for (int dx = -1; dx <= 1; dx++)
+                        tiles[index++] = tileId(hud, dx, dy);
+                return individual(source, action, tiles, tiles.length,
+                        false, false, null);
+            }
+            case TOOLBELT_SLOT: {
                 InventoryMetaItem beltItem = hud.getToolBelt().getItemInSlot(target.getSlot() - 1);
                 if (beltItem == null)
                     throw unavailable(Messages.text("unavailable.toolbelt_empty", target.getSlot()));
-                sendObjectAction(action, beltItem.getId(), hud);
-                return;
-            case EQUIPMENT_SLOT:
+                return object(source, action, beltItem.getId());
+            }
+            case EQUIPMENT_SLOT: {
                 byte slot = (byte) target.getSlot();
                 PaperDollSlot frame = access.equipmentSlot(hud.getPaperDollInventory(), slot);
                 if (frame == null)
@@ -153,52 +160,48 @@ public final class ActionExecutor {
                             "unavailable.equipment_unavailable", target.getSlot()));
                 if (frame.getEquippedItem() == null)
                     throw unavailable(Messages.text("unavailable.equipment_empty", target.getSlot()));
-                sendObjectAction(action, frame.getEquippedItem().getId(), hud);
-                return;
-            case NEARBY_RADIUS:
-                List<Long> nearby = nearbyTargets(step, hud);
-                for (Long targetId : nearby) sendObjectAction(action, targetId, hud);
-                return;
-            case NEARBY:
-                List<Long> automaticNearby = nearbyTargets(step, hud);
-                int nearbyCount = Math.min(automaticNearby.size(),
-                        Math.max(0, maxFanOutTargets));
-                for (int i = 0; i < nearbyCount; i++)
-                    sendObjectAction(action, automaticNearby.get(i), hud);
-                return;
-            case NEARBY_TYPE:
+                return object(source, action, frame.getEquippedItem().getId());
+            }
+            case NEARBY_RADIUS: {
+                long[] nearby = ids(nearbyTargets(step, hud));
+                return individual(source, action, nearby, nearby.length,
+                        true, false, null);
+            }
+            case NEARBY: {
+                long[] nearby = ids(nearbyTargets(step, hud));
+                return individual(source, action, nearby, nearby.length,
+                        true, true, null);
+            }
+            case NEARBY_TYPE: {
                 CellRenderable found = nearbyTargetByType(step, hud);
-                if (found == null) return;
-                access.select(hud.getSelectBar(), found);
-                sendObjectAction(action, found.getId(), hud);
-                return;
-            case HOVER_TYPE:
+                if (found == null)
+                    return individual(source, action, new long[0], 0,
+                            true, false, null);
+                return individual(source, action, new long[]{found.getId()}, 1,
+                        true, false, found);
+            }
+            case HOVER_TYPE: {
                 HoverTypeResolution hoverMatches = hoverTypeTargets(step, hud);
-                int targetCount = Math.min(hoverMatches.ids.size(),
-                        Math.max(0, maxFanOutTargets));
-                if (targetCount == 0) return;
-                long[] hoverIds = new long[targetCount];
-                for (int i = 0; i < hoverIds.length; i++) hoverIds[i] = hoverMatches.ids.get(i);
-                hud.sendAction(action, hoverIds);
-                return;
-            case INVENTORY_FILTER:
+                long[] hoverIds = ids(hoverMatches.ids);
+                return batch(source, action, hoverIds, hoverIds.length, true);
+            }
+            case INVENTORY_FILTER: {
                 InventoryMetaItem filtered = inventoryFilterItem(target, hud);
                 if (filtered == null)
                     throw unavailable(Messages.text(
                             "unavailable.inventory_filter", target.getText()));
-                sendObjectAction(action, filtered.getId(), hud);
-                return;
+                return object(source, action, filtered.getId());
+            }
             case EXACT_OBJECT:
                 if (!exactObjectAvailable(target, hud))
                     throw unavailable(Messages.text("unavailable.exact_object", exactName(target)));
-                sendObjectAction(action, target.getObjectId(), hud);
-                return;
-            case CURRENT_RIDE:
+                return object(source, action, target.getObjectId());
+            case CURRENT_RIDE: {
                 CreatureCellRenderable ride = currentRide(hud);
                 if (ride == null)
                     throw unavailable(Messages.text("unavailable.current_ride"));
-                sendObjectAction(action, ride.getId(), hud);
-                return;
+                return object(source, action, ride.getId());
+            }
             case UNRESOLVED:
                 throw unavailable(Messages.text("unavailable.unresolved"));
             default:
@@ -207,10 +210,80 @@ public final class ActionExecutor {
         }
     }
 
-    private void sendTile(PlayerAction action, HeadsUpDisplay hud, int dx, int dy) {
+    private void execute(ResolvedActionPlan plan, HeadsUpDisplay hud,
+                         int plannedQueueCost) throws ReflectiveOperationException {
+        ActionSourceResolver.ResolvedSource source = plan.getSource();
+        if (!source.hasOverride()) {
+            dispatch(plan, hud, plannedQueueCost);
+            return;
+        }
+        try (ActionSourceOverride.Scope ignored = ActionSourceOverride.push(source.getSourceId())) {
+            dispatch(plan, hud, plannedQueueCost);
+        }
+    }
+
+    private void dispatch(ResolvedActionPlan plan, HeadsUpDisplay hud,
+                          int plannedQueueCost) throws ReflectiveOperationException {
+        long[] targets = plan.targetsForExecution(plannedQueueCost);
+        if (targets.length == 0) return;
+        if (plan.getSelectBeforeDispatch() != null)
+            access.select(hud.getSelectBar(), plan.getSelectBeforeDispatch());
+        if (plan.isBatchDispatch()) {
+            hud.sendAction(plan.getAction(), targets);
+            return;
+        }
+        for (long targetId : targets) {
+            if (plan.hasObjectTargets()) sendObjectAction(plan.getAction(), targetId, hud);
+            else hud.sendAction(plan.getAction(), targetId);
+        }
+    }
+
+    private static ResolvedActionPlan object(ActionSourceResolver.ResolvedSource source,
+                                             PlayerAction action, long targetId) {
+        return individual(source, action, new long[]{targetId}, 1,
+                true, false, null);
+    }
+
+    private static ResolvedActionPlan individual(
+            ActionSourceResolver.ResolvedSource source, PlayerAction action,
+            long[] targets, int queueCost, boolean objectTargets,
+            boolean budgetedFanOut, PickableUnit selectBeforeDispatch) {
+        return new ResolvedActionPlan(source, action, targets, queueCost,
+                false, objectTargets, budgetedFanOut, selectBeforeDispatch);
+    }
+
+    private static ResolvedActionPlan batch(
+            ActionSourceResolver.ResolvedSource source, PlayerAction action,
+            long[] targets, int queueCost, boolean budgetedFanOut) {
+        return new ResolvedActionPlan(source, action, targets, queueCost,
+                true, false, budgetedFanOut, null);
+    }
+
+    private static long[] ids(List<Long> values) {
+        long[] result = new long[values.size()];
+        for (int i = 0; i < values.size(); i++) result[i] = values.get(i);
+        return result;
+    }
+
+    private static long tileId(HeadsUpDisplay hud, int dx, int dy) {
         int x = hud.getWorld().getPlayerCurrentTileX();
         int y = hud.getWorld().getPlayerCurrentTileY();
-        hud.sendAction(action, Tiles.getTileId(x + dx, y + dy, hud.getWorld().getPlayerLayer()));
+        return Tiles.getTileId(x + dx, y + dy, hud.getWorld().getPlayerLayer());
+    }
+
+    private static long[] hoveredTargets(PlayerAction action, HeadsUpDisplay hud) {
+        if (hud == null) return new long[0];
+        if (hud.getWorld().getClient().isMouseUnavailable()) return new long[0];
+        long[] targets = null;
+        if ((action.getTargetMask() & 256) != 0) {
+            com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
+            targets = hud.getCommandTargetsFrom(client.getXMouse(), client.getYMouse());
+        }
+        if (targets != null) return targets;
+        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+        if (hovered == null || !hovered.targetMatches(action.getTargetMask()))
+            return new long[0];
+        return new long[]{hovered.getId()};
     }
 
     private void sendObjectAction(PlayerAction action, long targetId, HeadsUpDisplay hud) {
@@ -346,61 +419,6 @@ public final class ActionExecutor {
     private static final class HoverTypeResolution {
         private final List<Long> ids;
         private HoverTypeResolution(List<Long> ids) { this.ids = ids; }
-    }
-
-    private void ensureAvailable(ActionStep step, HeadsUpDisplay hud)
-            throws ReflectiveOperationException {
-        TargetSpec target = step.getTarget();
-        switch (target.getKind()) {
-            case BODY:
-                if (access.bodyItem(hud.getPaperDollInventory()) == null)
-                    throw unavailable(Messages.text("unavailable.body"));
-                return;
-            case ACTIVE_TOOL:
-                if (access.activeTool(hud) == null)
-                    throw unavailable(Messages.text("unavailable.active_tool"));
-                return;
-            case SELECTED:
-                if (access.selected(hud.getSelectBar()) == null)
-                    throw unavailable(Messages.text("unavailable.selected"));
-                return;
-            case TOOLBELT_SLOT:
-                if (hud.getToolBelt().getItemInSlot(target.getSlot() - 1) == null)
-                    throw unavailable(Messages.text("unavailable.toolbelt_empty", target.getSlot()));
-                return;
-            case EQUIPMENT_SLOT:
-                PaperDollSlot frame = access.equipmentSlot(
-                        hud.getPaperDollInventory(), (byte) target.getSlot());
-                if (frame == null || frame.getEquippedItem() == null)
-                    throw unavailable(Messages.text("unavailable.equipment_empty", target.getSlot()));
-                return;
-            case NEARBY_RADIUS:
-            case NEARBY:
-                nearbyTargets(step, hud);
-                return;
-            case NEARBY_TYPE:
-                nearbyTargetByType(step, hud);
-                return;
-            case HOVER_TYPE:
-                hoverTypeTargets(step, hud);
-                return;
-            case INVENTORY_FILTER:
-                if (inventoryFilterItem(target, hud) == null)
-                    throw unavailable(Messages.text(
-                            "unavailable.inventory_filter", target.getText()));
-                return;
-            case EXACT_OBJECT:
-                if (!exactObjectAvailable(target, hud))
-                    throw unavailable(Messages.text("unavailable.exact_object", exactName(target)));
-                return;
-            case CURRENT_RIDE:
-                if (currentRide(hud) == null)
-                    throw unavailable(Messages.text("unavailable.current_ride"));
-                return;
-            case UNRESOLVED:
-                throw unavailable(Messages.text("unavailable.unresolved"));
-            default:
-        }
     }
 
     private boolean exactObjectAvailable(TargetSpec target, HeadsUpDisplay hud)

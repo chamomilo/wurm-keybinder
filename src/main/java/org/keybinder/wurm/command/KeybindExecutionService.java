@@ -110,6 +110,7 @@ public final class KeybindExecutionService {
 
     private synchronized void finishExecution(String recordId) {
         if (activeRecordId == null || !activeRecordId.equals(recordId)) return;
+        actions.clearPrepared();
         improve.clearPrepared();
         archeologyIdentify.clearPrepared();
         bulk.clearPrepared();
