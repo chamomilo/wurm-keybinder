@@ -146,7 +146,8 @@ public final class SmartImproveExecutor {
 
         ImproveResourceCandidate inventory = needsSource
                 && step.getSourceMode() == SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY
-                ? inventoryCandidate(access.playerInventoryRoot(hud), excludedTargets)
+                ? InventoryResourceScanner.inventoryCandidate(
+                        access.playerInventoryRoot(hud), excludedTargets)
                 : null;
         List<PreparedItem> result = new ArrayList<PreparedItem>(count);
         ImproveSkillCatalog skillCatalog = improveSkillCatalog(hud);
@@ -224,7 +225,8 @@ public final class SmartImproveExecutor {
             excluded.add(target.getId());
             ImproveResourceCandidate inventory = step.getSourceMode()
                     == SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY
-                    ? inventoryCandidate(access.playerInventoryRoot(hud), excluded) : null;
+                    ? InventoryResourceScanner.inventoryCandidate(
+                            access.playerInventoryRoot(hud), excluded) : null;
             source = resolveSource(hud, inventory, requirement, excluded,
                     step.getSourceMode());
             if (source == null)
@@ -406,12 +408,11 @@ public final class SmartImproveExecutor {
                                                    Set<Long> excludedTargets,
                                                    SmartImproveSourceMode sourceMode) {
         List<ImproveResourceCandidate> toolbelt =
-                toolbeltCandidates(hud, excludedTargets);
+                InventoryResourceScanner.toolbeltCandidates(hud, excludedTargets);
         ImproveResourceCandidate builtIn = null;
         if (requirement.getFamily() == RequirementFamily.BODY_HAND) {
             InventoryMetaItem hand = hud.getPaperDollInventory().getHandItem();
-            builtIn = candidate(hand, excludedTargets,
-                    new HashSet<Long>(), false);
+            builtIn = InventoryResourceScanner.singleCandidate(hand, excludedTargets);
         }
         // Candidate rejection details remain silent normally, but become visible
         // when the existing Debug logging setting is enabled. This makes server-
@@ -436,20 +437,6 @@ public final class SmartImproveExecutor {
                     + ", damage=" + chosen.getDamage());
         }
         return resolved;
-    }
-
-    private static List<ImproveResourceCandidate> toolbeltCandidates(
-            HeadsUpDisplay hud, Set<Long> excludedTargets) {
-        List<ImproveResourceCandidate> result = new ArrayList<ImproveResourceCandidate>();
-        if (hud == null || hud.getToolBelt() == null) return result;
-        Set<Long> visited = new HashSet<Long>();
-        for (int slot = 0; slot < 10; slot++) {
-            ImproveResourceCandidate value = candidate(
-                    hud.getToolBelt().getItemInSlot(slot), excludedTargets,
-                    visited, true);
-            if (value != null) result.add(value);
-        }
-        return result;
     }
 
     private List<InventoryMetaItem> inventoryTargets(TargetSpec target,
@@ -484,26 +471,7 @@ public final class SmartImproveExecutor {
 
     static ImproveResourceCandidate inventoryCandidate(InventoryMetaItem root,
                                                         Set<Long> excluded) {
-        return candidate(root, excluded, new HashSet<Long>(), true);
-    }
-
-    private static ImproveResourceCandidate candidate(InventoryMetaItem item,
-                                                       Set<Long> excluded,
-                                                       Set<Long> visited,
-                                                       boolean descendChildren) {
-        if (item == null || excluded.contains(item.getId())
-                || !visited.add(item.getId())) return null;
-        List<ImproveResourceCandidate> children = new ArrayList<ImproveResourceCandidate>();
-        if (descendChildren && item.getChildren() != null)
-            for (InventoryMetaItem child : item.getChildren()) {
-                ImproveResourceCandidate value = candidate(child, excluded, visited,
-                        true);
-                if (value != null) children.add(value);
-            }
-        return new ImproveResourceCandidate(item.getId(), item.getBaseName(),
-                item.getDisplayName(), item.getMaterialId(), item.getType(),
-                item.getR(), item.getG(), item.getB(), item.getTemperature(),
-                item.getQuality(), item.getDamage(), item.getRarity(), children);
+        return InventoryResourceScanner.inventoryCandidate(root, excluded);
     }
 
     private void logSelection(ResolvedImproveResource selection, String itemName,

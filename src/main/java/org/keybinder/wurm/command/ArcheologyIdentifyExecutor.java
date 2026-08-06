@@ -105,10 +105,11 @@ public final class ArcheologyIdentifyExecutor {
             if (ArcheologyIdentifyPolicy.isUnidentifiedFragment(target))
                 excluded.add(target.getId());
 
-        List<ImproveResourceCandidate> toolbelt = toolbeltCandidates(hud, excluded);
+        List<ImproveResourceCandidate> toolbelt =
+                InventoryResourceScanner.toolbeltCandidates(hud, excluded);
         ImproveResourceCandidate inventory = step.getSourceMode()
                 == ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY
-                ? SmartImproveExecutor.inventoryCandidate(
+                ? InventoryResourceScanner.inventoryCandidate(
                         access.playerInventoryRoot(hud), excluded) : null;
         Consumer<String> debug = log == null ? null : new Consumer<String>() {
             @Override public void accept(String message) { log.debug(message); }
@@ -165,18 +166,6 @@ public final class ArcheologyIdentifyExecutor {
     private static void addTarget(Map<Long, InventoryMetaItem> targets,
                                   InventoryMetaItem target) {
         if (target != null) targets.put(target.getId(), target);
-    }
-
-    private static List<ImproveResourceCandidate> toolbeltCandidates(
-            HeadsUpDisplay hud, Set<Long> excluded) {
-        List<ImproveResourceCandidate> result = new ArrayList<ImproveResourceCandidate>();
-        if (hud == null || hud.getToolBelt() == null) return result;
-        for (int slot = 0; slot < 10; slot++) {
-            ImproveResourceCandidate candidate = SmartImproveExecutor.inventoryCandidate(
-                    hud.getToolBelt().getItemInSlot(slot), excluded);
-            if (candidate != null) result.add(candidate);
-        }
-        return result;
     }
 
     static String sourceModeLabel(ArcheologyIdentifySourceMode sourceMode) {
