@@ -4,12 +4,12 @@ import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.PickableUnit;
 import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
-import com.wurmonline.client.renderer.gui.KeybinderInventorySelectionBridge;
 import com.wurmonline.shared.util.ItemTypeUtilites;
 import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.ExecutionHoverOverride;
+import org.keybinder.wurm.integration.HoveredInventoryResolver;
 import org.keybinder.wurm.integration.BulkInventoryDestinationPolicy;
 import org.keybinder.wurm.model.BulkDestinationKind;
 import org.keybinder.wurm.model.BulkQuantityLimit;
@@ -24,6 +24,8 @@ final class BulkTransferExecutor {
     private final ClientAccess access;
     private final EventLogger log;
     private final BulkTransferCoordinator coordinator;
+    private final HoveredInventoryResolver hoveredInventory =
+            new HoveredInventoryResolver();
     private final Map<BulkTransferStep, Long> prepared =
             new IdentityHashMap<BulkTransferStep, Long>();
 
@@ -129,16 +131,11 @@ final class BulkTransferExecutor {
             boolean playerInventoryWindowHit = false;
             String playerInventoryDiagnostic = "not-probed";
             try {
-                inventoryRow = KeybinderInventorySelectionBridge.itemUnderMouse(
-                        hud, mouseX, mouseY);
-                if (inventoryRow == null) {
-                    KeybinderInventorySelectionBridge.PlayerInventoryHit playerHit =
-                            KeybinderInventorySelectionBridge.playerInventoryUnderMouse(
-                                    hud, mouseX, mouseY);
-                    playerInventoryWindowHit = playerHit.isHit();
-                    playerInventoryDiagnostic = playerHit.diagnostic();
-                    inventoryRow = playerHit.getItem();
-                }
+                HoveredInventoryResolver.Result resolution =
+                        hoveredInventory.resolve(hud, mouseX, mouseY);
+                inventoryRow = resolution.getItem();
+                playerInventoryWindowHit = resolution.isPlayerInventoryWindowHit();
+                playerInventoryDiagnostic = resolution.getDiagnostic();
             } catch (ReflectiveOperationException | RuntimeException failure) {
                 log.diagnostic("bulk-transfer hovered GUI resolution failed open: "
                         + failure.getClass().getSimpleName() + ": "

@@ -5,6 +5,8 @@ import org.keybinder.wurm.bind.BindSnapshot;
 import org.keybinder.wurm.bind.ManagedBindAccess;
 import org.keybinder.wurm.bind.ManagedBindTransaction;
 import org.keybinder.wurm.bind.AccountBindingCoordinator;
+import org.keybinder.wurm.bind.AccountBindingRestorer;
+import org.keybinder.wurm.bind.ExternalBindingSynchronizer;
 import org.keybinder.wurm.bind.VanillaImportService;
 import org.keybinder.wurm.bind.ManagedKeybindMutationService;
 import org.keybinder.wurm.event.EventLogger;
@@ -40,6 +42,8 @@ public final class KeybindRegistry implements ValuePackTarget {
     private final List<KeybindRecord> records = new ArrayList<>();
     private final KeybindStore store;
     private final AccountBindingCoordinator accountBindings;
+    private final AccountBindingRestorer accountRestorer;
+    private final ExternalBindingSynchronizer externalSynchronizer;
     private final ManagedBindAccess binds;
     private final VanillaImportService vanillaImports;
     private final ManagedKeybindMutationService mutations;
@@ -63,6 +67,9 @@ public final class KeybindRegistry implements ValuePackTarget {
                            ActionQueueCostCalculator costs, EventLogger log) {
         this.store = store;
         this.accountBindings = new AccountBindingCoordinator(accountStates, log);
+        this.accountRestorer = new AccountBindingRestorer(
+                binds, accountBindings, costs, log);
+        this.externalSynchronizer = new ExternalBindingSynchronizer(store, binds, log);
         this.binds = binds;
         this.vanillaImports = new VanillaImportService(binds, customActionsImporter, log);
         this.mutations = new ManagedKeybindMutationService(binds, log);
@@ -125,52 +132,15 @@ public final class KeybindRegistry implements ValuePackTarget {
     }
 
     public synchronized boolean syncExternal(WurmConsole console) {
-        long modified = store.lastModifiedMillis();
-        if (modified == 0L || modified == observedStoreModified) return false;
-        try {
-            List<KeybindRecord> incoming = store.load();
-            java.util.Map<String, KeybindRecord> localById = new java.util.HashMap<>();
-            for (KeybindRecord local : records) localById.put(local.getId(), local);
-            java.util.Set<String> incomingIds = new java.util.HashSet<>();
-            for (KeybindRecord external : incoming) {
-                incomingIds.add(external.getId());
-                KeybindRecord local = localById.get(external.getId());
-                if (local == null) {
-                    external.setEnabled(false);
-                    external.setDisabledReason(DisableReason.value("not_enabled_account"));
-                    continue;
-                }
-                String oldKey = local.getKey();
-                String oldCommand = commandFor(local);
-                boolean wasEnabled = local.isEnabled();
-                external.setEnabled(wasEnabled);
-                external.setDisabledReason(local.getDisabledReason());
-                if (wasEnabled && (!oldKey.equalsIgnoreCase(external.getKey())
-                        || !oldCommand.equalsIgnoreCase(commandFor(external)))) {
-                    if (removeLive(console, oldKey, oldCommand))
-                        installLive(console, external.getKey(), commandFor(external));
-                    else {
-                        external.setEnabled(false);
-                        external.setDisabledReason(DisableReason.value("sync_changed"));
-                    }
-                }
-            }
-            for (KeybindRecord local : records) {
-                if (incomingIds.contains(local.getId()) || !local.isEnabled()) continue;
-                removeLive(console, local.getKey(), commandFor(local));
-            }
-            records.clear();
-            records.addAll(incoming);
-            normalizeNames();
-            observedStoreModified = modified;
-            accountBindings.persist(records);
-            log.info(Messages.text("registry.synchronized"));
-            return true;
-        } catch (Exception e) {
-            observedStoreModified = modified;
-            log.error(Messages.text("registry.sync_failed"), e);
-            return false;
-        }
+        ExternalBindingSynchronizer.Result result = externalSynchronizer.synchronize(
+                records, observedStoreModified, console, this::commandFor);
+        observedStoreModified = result.getObservedModified();
+        if (!result.isChanged()) return false;
+        records.clear();
+        records.addAll(result.getRecords());
+        normalizeNames();
+        accountBindings.persist(records);
+        return true;
     }
 
     public synchronized void setCreationContext(String user, String server) {
@@ -192,76 +162,7 @@ public final class KeybindRegistry implements ValuePackTarget {
      */
     public synchronized boolean restoreAccountBindings(
             String account, WurmConsole console, int limit) {
-        if (account == null || account.trim().isEmpty() || console == null) return false;
-        int removed = 0;
-        ManagedBindTransaction reset = new ManagedBindTransaction(binds, console);
-        for (KeybindRecord record : records) {
-            if (record.getKey().trim().isEmpty()) continue;
-            String command = commandFor(record);
-            try {
-                BindSnapshot live = findLive(console, record.getKey());
-                if (live != null && live.getCommand().equalsIgnoreCase(command)
-                        && reset.removeOwned(record.getKey(), command))
-                    removed++;
-            } catch (Exception failure) {
-                reset.rollback(failure);
-                log.error(Messages.text("registry.restore_failed",
-                        record.getName(), account), failure);
-                return false;
-            }
-        }
-
-        String activeAccount = accountBindings.activate(account, records);
-        if (activeAccount.isEmpty()) {
-            reset.rollback(new IllegalStateException(
-                    "Account activation profile was not available"));
-            return false;
-        }
-
-        int restored = 0;
-        int conflicts = 0;
-        for (KeybindRecord record : records) {
-            String command = commandFor(record);
-            try {
-                if (record.isEnabled()) {
-                    try {
-                        validate(record);
-                        applyLimit(record, limit);
-                    } catch (RuntimeException invalid) {
-                        record.setEnabled(false);
-                        record.setDisabledReason(validationDisabledReason(record));
-                    }
-                }
-
-                BindSnapshot live = record.getKey().trim().isEmpty()
-                        ? null : findLive(console, record.getKey());
-                if (record.isEnabled()) {
-                    if (live == null) {
-                        installLive(console, record.getKey(), command);
-                        restored++;
-                    } else if (!live.getCommand().equalsIgnoreCase(command)) {
-                        record.setEnabled(false);
-                        record.setDisabledReason(DisableReason.value("key_used",
-                                record.getKey(), live.getCommand()));
-                        conflicts++;
-                        log.warning(Messages.text("registry.restore_conflict",
-                                record.getName(), record.getKey(), live.getCommand()));
-                    }
-                }
-            } catch (Exception e) {
-                record.setEnabled(false);
-                record.setDisabledReason(DisableReason.value("restore_failed",
-                        e.getClass().getSimpleName()));
-                conflicts++;
-                log.error(Messages.text("registry.restore_failed",
-                        record.getName(), activeAccount), e);
-            }
-        }
-        accountBindings.persist(records);
-        if (restored > 0 || removed > 0 || conflicts > 0)
-            log.info(Messages.text("registry.restore_summary",
-                    activeAccount, restored, removed, conflicts));
-        return true;
+        return accountRestorer.restore(account, records, console, limit, this::commandFor);
     }
 
     public synchronized void persistAccountBindings() {
