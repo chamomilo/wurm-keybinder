@@ -33,6 +33,7 @@ import org.keybinder.wurm.integration.BulkInventoryDestinationPolicy;
 import org.keybinder.wurm.model.InventoryReference;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.ui.EditorOptionPresentation;
+import org.keybinder.wurm.ui.EditorRowLayout;
 import org.keybinder.wurm.ui.EditorStepDraft;
 import org.keybinder.wurm.ui.EditorActionNamePolicy;
 import org.keybinder.wurm.ui.KeybindEditorController;
@@ -109,12 +110,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     static int stepTypeWidth() { return maximumOptionWidth(stepTypeOptions()); }
 
     static int[] actionColumnWidths(int contentWidth, int controlsWidth) {
-        int remaining = Math.max(420,
-                contentWidth - controlsWidth - stepTypeWidth() - HELP_WIDTH - CAPTURE_WIDTH
-                        - SEPARATOR_WIDTH * 3 - COLUMN_GAP * 9);
-        int actionWidth = Math.max(ACTION_NAME_MIN_WIDTH, remaining / 3);
-        int sourceWidth = Math.max(SOURCE_MIN_WIDTH, remaining / 3);
-        return new int[] {actionWidth, sourceWidth, remaining - actionWidth - sourceWidth};
+        return EditorRowLayout.columns(contentWidth, controlsWidth, stepTypeWidth(),
+                HELP_WIDTH, CAPTURE_WIDTH, SEPARATOR_WIDTH, COLUMN_GAP,
+                ACTION_NAME_MIN_WIDTH, SOURCE_MIN_WIDTH);
     }
 
     private final KeybindEditorController controller;
@@ -484,143 +482,132 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             lastHudMultiChecked = hudMulti.checked;
             normalizeNamePrefix();
         }
-        for (ActionRow row : new ArrayList<>(rows)) {
-            int typeValue = row.type.getValue();
-            if (typeValue != row.lastTypeValue) {
-                selectedRow = row;
-                row.lastTypeValue = typeValue;
-                row.resetForType();
-                row.rebuildPanel();
-                lastLayoutWidth = -1;
-                applyLayout();
-                row.zone.updateActionLimit();
-            }
-            row.updateActionName();
-            if (row.kind() == StepKind.BULK_TRANSFER) {
-                int destinationValue = row.bulkDestination.getValue();
-                if (destinationValue != row.lastBulkDestinationValue) {
-                    selectedRow = row;
-                    row.lastBulkDestinationValue = destinationValue;
-                    if (!(row.hasCapturedBulkDestination && destinationValue == 0)) {
-                        int baseIndex = row.hasCapturedBulkDestination
-                                ? destinationValue - 1 : destinationValue;
-                        if (baseIndex == 0) {
-                            boolean removeCapturedOption = row.hasCapturedBulkDestination;
-                            if (pendingBulkDestinationRow == row) {
-                                pendingBulkDestinationRow = null;
-                                controller.cancelTargetSelection();
-                            }
-                            row.bulkDestinationKind = BulkDestinationKind.PLAYER_INVENTORY;
-                            row.capturedBulkDestination = null;
-                            if (removeCapturedOption)
-                                KeybinderMod.deferUi(row::refreshBulkDestination);
-                        } else if (baseIndex == 1) {
-                            boolean removeCapturedOption = row.hasCapturedBulkDestination;
-                            if (pendingBulkDestinationRow == row) {
-                                pendingBulkDestinationRow = null;
-                                controller.cancelTargetSelection();
-                            }
-                            row.bulkDestinationKind = BulkDestinationKind.HOVERED_INVENTORY;
-                            row.capturedBulkDestination = null;
-                            if (removeCapturedOption)
-                                KeybinderMod.deferUi(row::refreshBulkDestination);
-                        } else if (baseIndex == 2) {
-                            pendingTargetRow = null;
-                            pendingSourceRow = null;
-                            pendingBulkSourceRow = null;
-                            pendingBulkDestinationRow = row;
-                            controller.requestTargetSelection("bulk destination");
-                        }
-                    }
-                }
-                continue;
-            }
-            if (row.usesActionSource()) {
-                int sourceValue = row.source.getValue();
-                if (sourceValue != row.lastSourceValue) {
-                    selectedRow = row;
-                    row.lastSourceValue = sourceValue;
-                    if (!(row.hasConcreteSource && sourceValue == 0)) {
-                        int sourceIndex = row.hasConcreteSource ? sourceValue - 1 : sourceValue;
-                        if (sourceIndex >= 0 && sourceIndex < SOURCE_OPTIONS.length) {
-                            String chosenSource = SOURCE_OPTIONS[sourceIndex];
-                            if ("toolbelt".equals(chosenSource)
-                                    || "equipment".equals(chosenSource)
-                                    || "exact-object".equals(chosenSource)) {
-                                pendingTargetRow = null;
-                                pendingSourceRow = row;
-                                controller.requestTargetSelection(
-                                        "exact-object".equals(chosenSource)
-                                                ? "exact object" : chosenSource);
-                            } else {
-                                row.selectedSource = ItemSelectorCodec.decode(chosenSource);
-                                row.refreshSelectedSource();
-                            }
-                        }
-                    }
-                }
-            }
-            if (row.kind() == StepKind.CONSOLE_COMMAND) continue;
-            if (row.isVanilla()) {
-                int value = row.vanillaAction.getValue();
-                if (value != row.lastVanillaValue) {
-                    selectedRow = row;
-                    row.lastVanillaValue = value;
-                    row.createTarget();
-                    row.rebuildPanel();
-                    lastLayoutWidth = -1;
-                    applyLayout();
-                    row.zone.updateActionLimit();
-                    continue;
-                }
-                if (!row.vanillaUsesTarget()) continue;
-            }
-            if (!row.usesActionTarget()) continue;
-            int value = row.target.getValue();
-            if (value == row.lastDropdownValue) continue;
-            selectedRow = row;
-            row.lastDropdownValue = value;
-            if (row.hasConcreteTarget && value == 0) continue;
-            int baseIndex = row.hasConcreteTarget ? value - 1 : value;
-            String[] baseOptions = row.baseTargetOptions();
-            if (baseIndex < 0 || baseIndex >= baseOptions.length) continue;
-            String selected = baseOptions[baseIndex];
-            if ("toolbelt".equals(selected) || "equipment".equals(selected)
-                    || "tiles".equals(selected) || "exact object".equals(selected)
-                    || "nearby by type".equals(selected)
-                    || "hover by type".equals(selected)
-                    || "inventory+filter".equals(selected)) {
-                pendingSourceRow = null;
-                pendingTargetRow = row;
-                // A concrete target belongs only to the completed one-shot
-                // selection. Clear it before every picker so Save can never
-                // retain an old exact object/slot/type if the new capture has
-                // not yet been applied. The dropdown itself remains visible.
-                row.selectedTarget = "unresolved";
-                controller.requestTargetSelection(selected);
-            } else {
-                row.selectedTarget = selected;
-            }
+        for (ActionRow row : new ArrayList<>(rows)) updateRowState(row);
+        applyCompletedTargetSelection(true);
+        applyCompletedBulkSelections(true);
+    }
+
+    private void updateRowState(ActionRow row) {
+        updateStepType(row);
+        row.updateActionName();
+        if (row.kind() == StepKind.BULK_TRANSFER) {
+            updateBulkDestination(row);
+            return;
         }
-        String selected = controller.consumeSelectedTarget();
-        if (selected != null && (pendingTargetRow != null || pendingSourceRow != null)) {
-            applyCompletedTargetSelection(selected, true);
+        updateActionSource(row);
+        if (row.kind() == StepKind.CONSOLE_COMMAND) return;
+        if (row.isVanilla()) {
+            if (updateVanillaAction(row) || !row.vanillaUsesTarget()) return;
         }
-        BulkStorageItem bulkSource = controller.consumeSelectedBulkSource();
-        if (bulkSource != null && pendingBulkSourceRow != null) {
-            ActionRow row = pendingBulkSourceRow;
+        updateActionTarget(row);
+    }
+
+    private void updateStepType(ActionRow row) {
+        int typeValue = row.type.getValue();
+        if (typeValue == row.lastTypeValue) return;
+        selectedRow = row;
+        row.lastTypeValue = typeValue;
+        row.resetForType();
+        row.rebuildPanel();
+        relayoutAfterRowChange(row);
+    }
+
+    private boolean updateVanillaAction(ActionRow row) {
+        int value = row.vanillaAction.getValue();
+        if (value == row.lastVanillaValue) return false;
+        selectedRow = row;
+        row.lastVanillaValue = value;
+        row.createTarget();
+        row.rebuildPanel();
+        relayoutAfterRowChange(row);
+        return true;
+    }
+
+    private void relayoutAfterRowChange(ActionRow row) {
+        lastLayoutWidth = -1;
+        applyLayout();
+        row.zone.updateActionLimit();
+    }
+
+    private void updateBulkDestination(ActionRow row) {
+        int destinationValue = row.bulkDestination.getValue();
+        if (destinationValue == row.lastBulkDestinationValue) return;
+        selectedRow = row;
+        row.lastBulkDestinationValue = destinationValue;
+        if (row.hasCapturedBulkDestination && destinationValue == 0) return;
+        int baseIndex = row.hasCapturedBulkDestination
+                ? destinationValue - 1 : destinationValue;
+        if (baseIndex == 2) {
+            pendingTargetRow = null;
+            pendingSourceRow = null;
             pendingBulkSourceRow = null;
-            row.selectedBulkSource = bulkSource;
-            KeybinderMod.deferUi(row::refreshBulkSource);
+            pendingBulkDestinationRow = row;
+            controller.requestTargetSelection("bulk destination");
+            return;
         }
-        InventoryReference bulkDestination = controller.consumeSelectedBulkDestination();
-        if (bulkDestination != null && pendingBulkDestinationRow != null) {
-            ActionRow row = pendingBulkDestinationRow;
+        if (baseIndex != 0 && baseIndex != 1) return;
+        boolean removeCapturedOption = row.hasCapturedBulkDestination;
+        if (pendingBulkDestinationRow == row) {
             pendingBulkDestinationRow = null;
-            row.bulkDestinationKind = BulkDestinationKind.CAPTURED_INVENTORY;
-            row.capturedBulkDestination = bulkDestination;
-            KeybinderMod.deferUi(row::refreshBulkDestination);
+            controller.cancelTargetSelection();
         }
+        row.bulkDestinationKind = baseIndex == 0
+                ? BulkDestinationKind.PLAYER_INVENTORY
+                : BulkDestinationKind.HOVERED_INVENTORY;
+        row.capturedBulkDestination = null;
+        if (removeCapturedOption) KeybinderMod.deferUi(row::refreshBulkDestination);
+    }
+
+    private void updateActionSource(ActionRow row) {
+        if (!row.usesActionSource()) return;
+        int sourceValue = row.source.getValue();
+        if (sourceValue == row.lastSourceValue) return;
+        selectedRow = row;
+        row.lastSourceValue = sourceValue;
+        if (row.hasConcreteSource && sourceValue == 0) return;
+        int sourceIndex = row.hasConcreteSource ? sourceValue - 1 : sourceValue;
+        if (sourceIndex < 0 || sourceIndex >= SOURCE_OPTIONS.length) return;
+        String chosenSource = SOURCE_OPTIONS[sourceIndex];
+        if ("toolbelt".equals(chosenSource) || "equipment".equals(chosenSource)
+                || "exact-object".equals(chosenSource)) {
+            pendingTargetRow = null;
+            pendingSourceRow = row;
+            controller.requestTargetSelection(
+                    "exact-object".equals(chosenSource) ? "exact object" : chosenSource);
+            return;
+        }
+        row.selectedSource = ItemSelectorCodec.decode(chosenSource);
+        row.refreshSelectedSource();
+    }
+
+    private void updateActionTarget(ActionRow row) {
+        if (!row.usesActionTarget()) return;
+        int value = row.target.getValue();
+        if (value == row.lastDropdownValue) return;
+        selectedRow = row;
+        row.lastDropdownValue = value;
+        if (row.hasConcreteTarget && value == 0) return;
+        int baseIndex = row.hasConcreteTarget ? value - 1 : value;
+        String[] baseOptions = row.baseTargetOptions();
+        if (baseIndex < 0 || baseIndex >= baseOptions.length) return;
+        String selected = baseOptions[baseIndex];
+        if (requiresTargetPicker(selected)) {
+            pendingSourceRow = null;
+            pendingTargetRow = row;
+            // Save must not retain an old exact target while a new one-shot
+            // target selection is still pending.
+            row.selectedTarget = "unresolved";
+            controller.requestTargetSelection(selected);
+            return;
+        }
+        row.selectedTarget = selected;
+    }
+
+    private static boolean requiresTargetPicker(String target) {
+        return "toolbelt".equals(target) || "equipment".equals(target)
+                || "tiles".equals(target) || "exact object".equals(target)
+                || "nearby by type".equals(target) || "hover by type".equals(target)
+                || "inventory+filter".equals(target);
     }
 
     private void extractVariant(VariantZone extracted) {
@@ -1681,32 +1668,35 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private void resize(int contentWidth) {
+            EditorRowLayout.Plan layout = EditorRowLayout.plan(
+                    kind(), isVanilla(), isVanilla() && vanillaUsesTarget(),
+                    usesActionTarget(), contentWidth, controls.width, stepTypeWidth(),
+                    HELP_WIDTH, CAPTURE_WIDTH, SEPARATOR_WIDTH, COLUMN_GAP,
+                    ACTION_NAME_MIN_WIDTH, SOURCE_MIN_WIDTH);
             type.setSize(stepTypeWidth(), type.height);
             help.setSize(HELP_WIDTH, help.height);
             if (kind() == StepKind.CONSOLE_COMMAND) {
-                int commandWidth = Math.max(160, contentWidth - controls.width - stepTypeWidth()
-                        - HELP_WIDTH - CAPTURE_WIDTH - SEPARATOR_WIDTH - COLUMN_GAP * 5);
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
-                command.setSize(commandWidth, command.height);
-                capture.setEnabled(false);
+                command.setSize(layout.getActionWidth(), command.height);
+                capture.setEnabled(layout.isCaptureEnabled());
                 updateControlStates();
                 panel.componentResized();
                 return;
             }
             if (kind() == StepKind.BULK_TRANSFER) {
-                int[] columns = actionColumnWidths(contentWidth, controls.width);
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
-                bulkSourceButton.setSize(columns[0], bulkSourceButton.height);
+                bulkSourceButton.setSize(layout.getActionWidth(), bulkSourceButton.height);
                 sourceSeparator.setSize(SEPARATOR_WIDTH, sourceSeparator.height);
-                bulkQuantityPanel.setSize(columns[1], bulkQuantityPanel.height);
-                int quantityWidth = Math.max(32, columns[1] - bulkQuantityLabel.width - 4);
+                bulkQuantityPanel.setSize(layout.getSourceWidth(), bulkQuantityPanel.height);
+                int quantityWidth = Math.max(32,
+                        layout.getSourceWidth() - bulkQuantityLabel.width - 4);
                 bulkQuantity.setSize(quantityWidth, bulkQuantity.height);
                 bulkQuantityPanel.componentResized();
                 targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
-                bulkDestination.setSize(columns[2], bulkDestination.height);
-                capture.setEnabled(false);
+                bulkDestination.setSize(layout.getTargetWidth(), bulkDestination.height);
+                capture.setEnabled(layout.isCaptureEnabled());
                 updateControlStates();
                 panel.componentResized();
                 return;
@@ -1715,41 +1705,35 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
                 if (vanillaUsesTarget()) {
-                    int[] columns = actionColumnWidths(contentWidth, controls.width);
-                    vanillaAction.setSize(columns[0], vanillaAction.height);
+                    vanillaAction.setSize(layout.getActionWidth(), vanillaAction.height);
                     sourceSeparator.setSize(SEPARATOR_WIDTH, sourceSeparator.height);
                     if (usesActionSource())
-                        source.setSize(columns[1], source.height);
-                    else sourceGap.setSize(columns[1], sourceGap.height);
+                        source.setSize(layout.getSourceWidth(), source.height);
+                    else sourceGap.setSize(layout.getSourceWidth(), sourceGap.height);
                     targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
-                    target.setSize(columns[2], target.height);
+                    target.setSize(layout.getTargetWidth(), target.height);
                 } else {
-                    int actionWidth = Math.max(160,
-                            contentWidth - controls.width - stepTypeWidth()
-                                    - HELP_WIDTH - CAPTURE_WIDTH
-                                    - SEPARATOR_WIDTH - COLUMN_GAP * 5);
-                    vanillaAction.setSize(actionWidth, vanillaAction.height);
+                    vanillaAction.setSize(layout.getActionWidth(), vanillaAction.height);
                 }
-                capture.setEnabled(false);
+                capture.setEnabled(layout.isCaptureEnabled());
                 updateControlStates();
                 panel.componentResized();
                 return;
             }
             if (kind() != StepKind.CUSTOM_ACTION) {
-                int[] columns = actionColumnWidths(contentWidth, controls.width);
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 capture.setSize(CAPTURE_WIDTH, capture.height);
-                capture.setEnabled(true);
-                actionName.setSize(columns[0], actionName.height);
+                capture.setEnabled(layout.isCaptureEnabled());
+                actionName.setSize(layout.getActionWidth(), actionName.height);
                 sourceSeparator.setSize(SEPARATOR_WIDTH, sourceSeparator.height);
                 if (kind() == StepKind.SMART_IMPROVE)
-                    smartImproveSource.setSize(columns[1], smartImproveSource.height);
+                    smartImproveSource.setSize(layout.getSourceWidth(), smartImproveSource.height);
                 else if (kind() == StepKind.ARCHEOLOGY_IDENTIFY)
                     archeologyIdentifySource.setSize(
-                            columns[1], archeologyIdentifySource.height);
-                else sourceGap.setSize(columns[1], sourceGap.height);
+                            layout.getSourceWidth(), archeologyIdentifySource.height);
+                else sourceGap.setSize(layout.getSourceWidth(), sourceGap.height);
                 targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
-                target.setSize(columns[2], target.height);
+                target.setSize(layout.getTargetWidth(), target.height);
                 updateControlStates();
                 panel.componentResized();
                 return;
@@ -1757,26 +1741,21 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if (!usesActionTarget()) {
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 capture.setSize(CAPTURE_WIDTH, capture.height);
-                capture.setEnabled(true);
-                int actionWidth = Math.max(160,
-                        contentWidth - controls.width - stepTypeWidth()
-                                - HELP_WIDTH - CAPTURE_WIDTH
-                                - SEPARATOR_WIDTH - COLUMN_GAP * 5);
-                actionName.setSize(actionWidth, actionName.height);
+                capture.setEnabled(layout.isCaptureEnabled());
+                actionName.setSize(layout.getActionWidth(), actionName.height);
                 updateControlStates();
                 panel.componentResized();
                 return;
             }
-            int[] columns = actionColumnWidths(contentWidth, controls.width);
             controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
             capture.setSize(CAPTURE_WIDTH, capture.height);
-            capture.setEnabled(true);
-            actionName.setSize(columns[0], actionName.height);
+            capture.setEnabled(layout.isCaptureEnabled());
+            actionName.setSize(layout.getActionWidth(), actionName.height);
             sourceSeparator.setSize(SEPARATOR_WIDTH, sourceSeparator.height);
-            if (usesActionSource()) source.setSize(columns[1], source.height);
-            else sourceGap.setSize(columns[1], sourceGap.height);
+            if (usesActionSource()) source.setSize(layout.getSourceWidth(), source.height);
+            else sourceGap.setSize(layout.getSourceWidth(), sourceGap.height);
             targetSeparator.setSize(SEPARATOR_WIDTH, targetSeparator.height);
-            target.setSize(columns[2], target.height);
+            target.setSize(layout.getTargetWidth(), target.height);
             updateControlStates();
             panel.componentResized();
         }
