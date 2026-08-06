@@ -23,9 +23,6 @@ import com.wurmonline.client.renderer.gui.SelectBar;
 import com.wurmonline.client.renderer.gui.WurmComponent;
 import com.wurmonline.shared.constants.PlayerAction;
 import org.keybinder.wurm.bind.VanillaBindService;
-import org.keybinder.wurm.bind.MultiKeyController;
-import org.keybinder.wurm.bind.SelectorSessionController;
-import org.keybinder.wurm.bind.WheelInputHandler;
 import org.keybinder.wurm.bind.BindSnapshot;
 import org.keybinder.wurm.bind.AccountActivationGate;
 import org.keybinder.wurm.bind.VanillaImportCandidate;
@@ -44,6 +41,7 @@ import org.keybinder.wurm.integration.EmbarkHeadingController;
 import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.integration.FailOpenHookInstaller;
 import org.keybinder.wurm.integration.KeybinderClientHooks;
+import org.keybinder.wurm.integration.ManagedInputCoordinator;
 import org.keybinder.wurm.integration.HudIntegration;
 import org.keybinder.wurm.integration.CurrentServerTracker;
 import org.keybinder.wurm.integration.HudSessionController;
@@ -180,20 +178,12 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             new VanillaImportReviewService();
     private static final TransferFileChooser TRANSFER_CHOOSER = new TransferFileChooser(
             Paths.get("mods", "keybinder", "transfer"));
-    private static final MultiKeyController MULTI_KEY = new MultiKeyController();
-    private static final SelectorSessionController SELECTOR_SESSION =
-            new SelectorSessionController();
-    private static final ThreadLocal<Integer> SUPPRESSED_SELECTOR_KEY =
-            new ThreadLocal<Integer>();
-    private static final long LONG_PRESS_NANOS = 200_000_000L;
     private static volatile boolean toolbeltOpenedForSelection;
     private static volatile boolean equipmentOpenedForSelection;
     private static volatile boolean inventoryOpenedForSelection;
     private static final TargetClickGesture TARGET_CLICK = new TargetClickGesture();
     private static final BulkStorageSourceResolver BULK_SOURCES =
             new BulkStorageSourceResolver();
-    private static volatile long lastWheelFailureAt;
-    private static volatile String lastWheelFailure = "";
     private static volatile long lastSharedSyncPoll;
     private static volatile long lastCreationCatalogRequest;
     private static volatile int creationCatalogRequestAttempts;
@@ -203,6 +193,39 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static KeybindTransferWorkflow transferWorkflow;
     private static final KeybinderCommandRouter COMMANDS =
             new KeybinderCommandRouter(EVENTS);
+    private static final ManagedInputCoordinator INPUT =
+            new ManagedInputCoordinator(new ManagedInputCoordinator.Environment() {
+                @Override public HeadsUpDisplay hud() { return hud; }
+                @Override public KeybindRecord findEnabledByChord(String chord) {
+                    return registry == null ? null : registry.findEnabledByChord(chord);
+                }
+                @Override public KeybindRecord findById(String id) {
+                    return registry == null ? null : registry.find(id);
+                }
+                @Override public void execute(KeybindRecord record, HeadsUpDisplay currentHud)
+                        throws Exception {
+                    executeManaged(record, currentHud);
+                }
+                @Override public void openSelector(KeybindRecord record,
+                                                   boolean hudSelection, int triggerKey) {
+                    openMultiSelector(record, hudSelection, triggerKey);
+                }
+                @Override public void closeSelector() { closeMultiSelector(); }
+                @Override public void warning(String message, Throwable failure) {
+                    LOGGER.log(Level.WARNING, message, failure);
+                }
+                @Override public void fine(String message, Throwable failure) {
+                    LOGGER.log(Level.FINE, message, failure);
+                }
+                @Override public void reportWheelFailure(String failure, Throwable cause) {
+                    EVENTS.error(Messages.text("error.mouse_wheel")
+                            + " (" + failure + ")", cause);
+                }
+                @Override public long nanoTime() { return System.nanoTime(); }
+                @Override public long currentTimeMillis() {
+                    return System.currentTimeMillis();
+                }
+            });
     private static final KeybinderCommandRouter.Context COMMAND_CONTEXT =
             new KeybinderCommandRouter.Context() {
                 @Override public void ensureReady() { ensureRegistry(); }
@@ -306,13 +329,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                         @Override public void enabledStateChanged(String id, boolean enabled) {
                             if (!enabled && ((multiSelectorWindow != null
                                     && multiSelectorWindow.selectsRecord(id))
-                                    || id.equals(MULTI_KEY.getRecordId()))) closeMultiSelector();
+                                    || INPUT.isHoldingRecord(id))) closeMultiSelector();
                         }
                         @Override public void extractedFrom(KeybindRecord parent) {
                             if (parent != null && !parent.isMultiPurpose()
                                     && ((multiSelectorWindow != null
                                     && multiSelectorWindow.selectsRecord(parent.getId()))
-                                    || parent.getId().equals(MULTI_KEY.getRecordId())))
+                                    || INPUT.isHoldingRecord(parent.getId())))
                                 closeMultiSelector();
                         }
                     });
@@ -334,56 +357,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     public static void handleMouseWheel(final int x, final int y, final int delta) {
-        try {
-            if (SELECTOR_SESSION.otherPointerAction()) {
-                closeMultiSelector();
-                return;
-            }
-            final HeadsUpDisplay currentHud = hud;
-            WheelInputHandler.handle(new WheelInputHandler.Environment() {
-                @Override public boolean isOverHudComponent(int px, int py) {
-                    if (currentHud == null) return true;
-                    try {
-                        return currentHud.getComponentAt(px, py) != null;
-                    } catch (Throwable e) {
-                        /*
-                         * A just-hidden Wurm window can briefly remain in the
-                         * component stack. Never let a failed HUD hit-test
-                         * interfere with the client's ordinary scrolling.
-                         */
-                        LOGGER.log(Level.FINE,
-                                "Mouse wheel HUD hit-test failed open", e);
-                        return true;
-                    }
-                }
-                @Override public boolean isControlDown() { return currentHud.isControlDown(); }
-                @Override public boolean isShiftDown() { return currentHud.isShiftDown(); }
-                @Override public boolean isAltDown() { return currentHud.isAltDown(); }
-            }, new WheelInputHandler.Dispatcher() {
-                @Override public boolean executeExact(String chord) throws Exception {
-                    KeybindRecord record = registry == null
-                            ? null : registry.findEnabledByChord(chord);
-                    if (record == null) return false;
-                    if (record.isHudMulti())
-                        openMultiSelector(record, true, -1);
-                    else executeManaged(record, currentHud);
-                    return true;
-                }
-            }, x, y, delta);
-        } catch (Throwable e) {
-            String failure = e.getClass().getName() + ": "
-                    + String.valueOf(e.getMessage());
-            LOGGER.log(Level.WARNING,
-                    "Mouse wheel keybind hook failed open (" + failure + ")", e);
-            long now = System.currentTimeMillis();
-            if (!failure.equals(lastWheelFailure)
-                    || now - lastWheelFailureAt >= 30000L) {
-                lastWheelFailure = failure;
-                lastWheelFailureAt = now;
-                EVENTS.error(Messages.text("error.mouse_wheel")
-                        + " (" + failure + ")", e);
-            }
-        }
+        INPUT.handleMouseWheel(x, y, delta);
     }
 
     public static void alignViewAfterEmbark(PlayerObj player, float vehicleRotation) {
@@ -409,63 +383,16 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     public static boolean handleKeyToggle(WurmConsole console, int key, boolean pressed) {
-        try {
-            if (pressed) {
-                Integer suppressed = SUPPRESSED_SELECTOR_KEY.get();
-                SUPPRESSED_SELECTOR_KEY.remove();
-                if (suppressed != null && suppressed == key) return true;
-            }
-            if (!pressed) {
-                String heldId = MULTI_KEY.getRecordId();
-                MultiKeyController.Event release = MULTI_KEY.release(key);
-                if (release != MultiKeyController.Event.NONE) {
-                    KeybindRecord held = registry == null ? null : registry.find(heldId);
-                    if (release == MultiKeyController.Event.EXECUTE_ACTIVE
-                            && held != null && held.isEnabled()) executeManaged(held);
-                    return true;
-                }
-            }
-            com.wurmonline.client.console.KeyBinding binding = console.getCurrentBinding(key);
-            if (binding == null || binding.getAction() != null) return false;
-            String command = binding.getStrCommand();
-            if (command == null || !command.toLowerCase(Locale.ENGLISH).startsWith("keybinder_run "))
-                return false;
-            String id = command.substring("keybinder_run ".length()).trim();
-            KeybindRecord record = registry == null ? null : registry.find(id);
-            if (record == null || !record.isEnabled() || !record.isSelectorKeybind()) return false;
-            if (pressed) {
-                MultiKeyController.Event event = MULTI_KEY.press(id, key,
-                        record.isHudMulti() ? MultiKeyController.Mode.HUD
-                                : MultiKeyController.Mode.ORDINARY,
-                        System.nanoTime());
-                if (event == MultiKeyController.Event.OPEN_HUD_SELECTOR)
-                    openMultiSelector(record, true, key);
-                return true;
-            }
-            return true;
-        } catch (Throwable e) {
-            LOGGER.log(Level.WARNING, "Long-press key hook failed open", e);
-            clearLongPress();
-            return false;
-        }
+        return INPUT.handleKeyToggle(console, key, pressed);
     }
 
     private static void pollLongPress() {
-        MultiKeyController.Event event = MULTI_KEY.threshold(
-                System.nanoTime(), LONG_PRESS_NANOS);
-        if (event != MultiKeyController.Event.OPEN_ORDINARY_SELECTOR) return;
-        String id = MULTI_KEY.getRecordId();
-        KeybindRecord record = registry == null ? null : registry.find(id);
-        if (record == null || !record.isEnabled() || !record.isMultiPurpose()) {
-            clearLongPress();
-            return;
-        }
-        openMultiSelector(record, false, MULTI_KEY.getKey());
+        INPUT.pollLongPress();
     }
 
     private static void openMultiSelector(KeybindRecord record, boolean hudSelection,
                                           int triggerKey) {
-        final long sessionToken = SELECTOR_SESSION.open(triggerKey);
+        final long sessionToken = INPUT.openSelectorSession(triggerKey);
         final int originalMouseX = hud == null ? 0
                 : hud.getWorld().getClient().getXMouse();
         final int originalMouseY = hud == null ? 0
@@ -486,7 +413,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 + ", worldPoint=" + worldPoint
                 + ", overrideCaptured=" + (multiSelectorHoverSnapshot != null));
         deferUi(() -> {
-            if (!SELECTOR_SESSION.isCurrent(sessionToken)) return;
+            if (!INPUT.isCurrentSelectorSession(sessionToken)) return;
             try {
                 hideSafely(multiSelectorWindow);
                 multiSelectorWindow = new KeybinderMultiSelectorWindow(
@@ -500,25 +427,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     public static void observeKeyPressed(int key) {
-        try {
-            SUPPRESSED_SELECTOR_KEY.remove();
-            SelectorSessionController.KeyDecision decision = SELECTOR_SESSION.keyPressed(key);
-            if (decision == SelectorSessionController.KeyDecision.NONE) return;
-            if (decision == SelectorSessionController.KeyDecision.DISMISS_AND_SUPPRESS_TRIGGER)
-                SUPPRESSED_SELECTOR_KEY.set(key);
-            closeMultiSelector();
-        } catch (Throwable failure) {
-            SUPPRESSED_SELECTOR_KEY.remove();
-            LOGGER.log(Level.FINE, "Unable to dismiss multi selector for key press", failure);
-        }
+        INPUT.observeKeyPressed(key);
     }
 
     public static void observeKeyReleased(int key) {
-        try {
-            SELECTOR_SESSION.triggerReleased(key);
-        } catch (Throwable failure) {
-            LOGGER.log(Level.FINE, "Unable to arm multi selector cancellation", failure);
-        }
+        INPUT.observeKeyReleased(key);
     }
 
     private static void executeManaged(KeybindRecord record) throws ReflectiveOperationException {
@@ -558,10 +471,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         return action != null && !action.trim().isEmpty();
     }
 
-    private static void clearLongPress() {
-        MULTI_KEY.clear();
-    }
-
     public static void chooseMultiVariant(String recordId, String variantId,
                                           boolean hudSelection) {
         KeybindRecord selected;
@@ -599,7 +508,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         multiSelectorHoverSnapshot = null;
         final KeybinderMultiSelectorWindow selector = multiSelectorWindow;
         multiSelectorWindow = null;
-        clearLongPress();
+        INPUT.clear();
         hideSafely(selector);
         try {
             if (selector != null) selector.restoreOriginalPointer();
@@ -625,8 +534,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     public static void closeMultiSelector() {
-        SELECTOR_SESSION.close();
-        clearLongPress();
+        INPUT.closeSelectorSession();
+        INPUT.clear();
         multiSelectorHoverSnapshot = null;
         KeybinderMultiSelectorWindow selector = multiSelectorWindow;
         multiSelectorWindow = null;
@@ -814,7 +723,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             KeybinderMultiSelectorWindow selector = multiSelectorWindow;
             String variantId = selector == null ? null : selector.variantAt(mouseX, mouseY);
-            if (SELECTOR_SESSION.pointerPressed(button, variantId)) closeMultiSelector();
+            if (INPUT.pointerPressed(button, variantId)) closeMultiSelector();
             if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
                     || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
                     || SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE)
@@ -840,7 +749,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             KeybinderMultiSelectorWindow selector = multiSelectorWindow;
             String variantId = selector == null ? null : selector.variantAt(mouseX, mouseY);
-            if (SELECTOR_SESSION.pointerReleased(button, variantId)) closeMultiSelector();
+            if (INPUT.pointerReleased(button, variantId)) closeMultiSelector();
             if ((SELECTION.getMode() == SelectionController.Mode.EXACT_OBJECT
                     || SELECTION.getMode() == SelectionController.Mode.NEARBY_TYPE
                     || SELECTION.getMode() == SelectionController.Mode.HOVER_TYPE)
@@ -1067,7 +976,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             WORLD_IMPROVE.clear();
             BULK_TRANSFERS.clear("HUD initialized");
             resetExactPress();
-            clearLongPress();
+            INPUT.clear();
             closeMultiSelector();
             window = new KeybinderWindow(INSTANCE);
             tagWindow = new KeybinderTagWindow(INSTANCE);
@@ -1131,7 +1040,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         WORLD_IMPROVE.clear();
         BULK_TRANSFERS.clear("HUD replaced");
         resetExactPress();
-        clearLongPress();
+        INPUT.clear();
         UI_AFTER_TICK.clear();
         if (ACCESS != null)
             new HudSessionDisposer<HeadsUpDisplay, WurmComponent>(
@@ -1454,7 +1363,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             registry.delete(id, ACCESS.console(hud));
             if ((multiSelectorWindow != null && multiSelectorWindow.selectsRecord(id))
-                    || id.equals(MULTI_KEY.getRecordId())) closeMultiSelector();
+                    || INPUT.isHoldingRecord(id)) closeMultiSelector();
             if (window != null) window.refresh();
         } catch (Exception e) { EVENTS.error(Messages.text("error.delete_keybind"), e); }
     }
