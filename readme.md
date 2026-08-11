@@ -10,51 +10,53 @@ Hello, SKLOTOPOLIS!
 
 Keybinder 0.7.3 is ready for testing.
 
-This release adds a portable inventory-filtered Tool source to ordinary custom
-actions, removes the first-use work from Smart Improve chance estimates, and
-fixes the mouse-wheel scrolling problem in the Keybinder list.
+This is a small update with several fixes and a useful new option for actions
+that need materials from your inventory — for example, finding a sprout and
+using it to plant.
 
 - [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.3)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
 ## What is new in 0.7.3?
 
-### Portable Inventory + filter tools
+### Inventory + filter tools
 
-Ordinary custom-action steps now have a new **Tool** option:
-**Inventory + filter**.
+This is helpful when an action must use a material stored in your inventory as
+its Tool. For example, you can plant whatever sprout you have or create kindling
+from whatever suitable wood scrap is available.
 
-Choose an example item and Keybinder stores its portable item type instead of a
-runtime object ID. When the keybind runs, it finds the first matching item in
-this order:
+It is simple to use:
+
+1. Select **Tool → Inventory + filter**. Keybinder asks you to choose a filter
+   item; click a sprout.
+2. When you press the keybind, Keybinder searches your inventory for any
+   matching sprout and selects it.
+3. The selected sprout is used for the action — in this example, **Plant**.
+
+The command stores the item's normalized short type as a portable filter. At
+execution time it searches in this order:
 
 - toolbelt;
 - direct player inventory;
 - nested containers.
 
-The same keybind can therefore select the correct hammer, sickle, seed, or
-other tool after relogging, travelling between servers, or switching to an alt.
+### Smart Improve became faster
 
-### Faster Smart Improve estimates
+Smart Improve was optimized to calculate its success-rate predictions faster.
 
-Improve success chance is now calculated directly instead of running thousands
-of sample rolls on the game thread. The live creation-skill catalog is also
-reused until the server sends a catalog change.
+### Smooth mouse-wheel scrolling
 
-This keeps a useful client-side estimate while removing the noticeable cold
-lookup work when Smart Improve is first used.
+Thanks to **Zeex**, the bug affecting mouse-wheel scrolling in large keybind
+lists was found and fixed. The list no longer jumps back toward the top.
+Scroll and enjoy!
 
-### Scrolling and compatibility fixes
+### Compatibility and internal fixes
 
-- Mouse-wheel scrolling in the main Keybinder list no longer jumps back toward
-  the top. Scrollbar dragging remains available and now tracks the same stable
-  content layout.
-- The small **KB** launcher no longer loads Wurm's `TargetWindow` class as its
-  superclass. This avoids freezing that client class before other compatible
-  mods can install target-name hooks.
-- The launcher still preserves its position, visibility, and lock state.
-- Internal action execution, input handling, persistence, and HUD hooks have
-  been separated into smaller components without changing saved keybinds.
+- Resolved an incompatibility with the **Archery** mod. Creature names are now
+  displayed correctly instead of labels such as `20m null`.
+- The **KB** launcher continues to preserve its position, visibility, and lock
+  state.
+- Added small fixes and internal refactoring without changing saved keybinds.
 
 ## Core features
 
@@ -91,8 +93,7 @@ system. It sends ordinary Wurm actions while respecting your character's action
 queue.
 
 Thank you to everyone who tested the new functions and sent detailed Event
-logs. They made these fixes possible. The mouse-wheel fix was also verified
-manually in the game before this release was prepared.
+logs. They made these fixes possible.
 
 If you find a bug or have another idea, please reply in the forum thread and
 include the relevant Event log. Enable **Debug logging** when possible.

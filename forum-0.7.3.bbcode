@@ -8,37 +8,35 @@ Hello, SKLOTOPOLIS!
 
 Keybinder 0.7.3 is ready for testing.
 
-This release adds a portable Inventory + filter Tool to ordinary custom actions, makes Smart Improve faster on first use, and fixes the mouse-wheel scrolling problem in the Keybinder list.
+This is a small update with several fixes and a useful new option for actions that need materials from your inventory — for example, finding a sprout and using it to plant.
 
 [hr]
 
 [font size="4"][font color="#d6ad68"][b]What is new in 0.7.3?[/b][/font][/font]
 
-[font size="3"][font color="#d6ad68"][b]Portable Inventory + filter tools[/b][/font][/font]
+[font size="3"][font color="#d6ad68"][b]Inventory + filter tools[/b][/font][/font]
 
-Ordinary custom-action steps now have a new Tool option: [b]Inventory + filter[/b].
+This is helpful when an action must use a material stored in your inventory as its Tool. For example, you can plant whatever sprout you have or create kindling from whatever suitable wood scrap is available.
 
-Choose an example item and Keybinder remembers its portable item type instead of a temporary object ID. When the keybind runs, it finds the first matching item in this order:
+It is simple to use:
+
+[ol][li]Select [b]Tool → Inventory + filter[/b]. Keybinder asks you to choose a filter item; click a sprout.[/li][li]When you press the keybind, Keybinder searches your inventory for any matching sprout and selects it.[/li][li]The selected sprout is used for the action — in this example, [b]Plant[/b].[/li][/ol]
+
+The command stores the item's normalized short type as a portable filter. At execution time it searches in this order:
 
 [ul][li]toolbelt;[/li][li]direct player inventory;[/li][li]nested containers.[/li][/ul]
 
-You can build one action for a hammer, sickle, seed, or another tool and keep using it after relogging, travelling between servers, or switching to an alt. C for convenience!
-
 [font size="3"][font color="#d6ad68"][b]Smart Improve became faster[/b][/font][/font]
 
-Smart Improve no longer performs thousands of sample rolls on the game thread when it calculates the Improve success chance. The estimate is now calculated directly, and the live creation-skill catalog is reused until the server sends an update.
-
-The result is a useful client-side estimate without the noticeable cold lookup work on first use.
+Smart Improve was optimized to calculate its success-rate predictions faster.
 
 [font size="3"][font color="#d6ad68"][b]Smooth mouse-wheel scrolling[/b][/font][/font]
 
-The main Keybinder list now scrolls normally with the mouse wheel. It no longer jumps down and immediately returns almost to the top. Scrollbar dragging continues to work and follows the same stable list position.
-
-Thank you for the detailed report and live testing — this one was very helpful!
+Thanks to [b]Zeex[/b], the bug affecting mouse-wheel scrolling in large keybind lists was found and fixed. The list no longer jumps back toward the top. Scroll and enjoy!
 
 [font size="3"][font color="#d6ad68"][b]Compatibility and internal fixes[/b][/font][/font]
 
-[ul][li]The small KB launcher no longer loads Wurm's TargetWindow class as its superclass, so compatible client mods can still install their target-name hooks.[/li][li]The KB launcher continues to preserve its position, visibility, and lock state.[/li][li]Action execution, input handling, persistence, and HUD hooks were separated into smaller components without changing your saved keybinds.[/li][li]Temporary scroll diagnostics used to find the problem have been removed from the release build.[/li][/ul]
+[ul][li]Resolved an incompatibility with the [b]Archery[/b] mod. Creature names are now displayed correctly instead of labels such as "20m null".[/li][li]The KB launcher continues to preserve its position, visibility, and lock state.[/li][li]Added small fixes and internal refactoring without changing your saved keybinds.[/li][/ul]
 
 [hr]
 
