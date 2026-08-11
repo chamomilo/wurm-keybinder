@@ -18,6 +18,8 @@ public class ItemSelectorCodecTest {
                 {ItemSelector.hoveredItem(), "hovered-item"},
                 {ItemSelector.toolbeltSlot(10), "@tb10"},
                 {ItemSelector.equipmentSlot(7), "@eq7"},
+                {ItemSelector.inventoryFilter("rare steel hammer (glowing)"),
+                        "inventory+filter hammer"},
                 {ItemSelector.exactObject(123L, "rare hammer"),
                         "@id123:cmFyZSBoYW1tZXI"}
         });

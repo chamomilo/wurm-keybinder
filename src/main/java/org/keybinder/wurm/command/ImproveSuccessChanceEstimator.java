@@ -1,18 +1,12 @@
 package org.keybinder.wurm.command;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
-
 /**
  * Client-side approximation of the server's Improve skill check. The server's
- * integer Gaussian chance table is private server state, so missing cells are
- * reproduced deterministically from the same roll algorithm.
+ * integer Gaussian chance table is private server state. The probability is
+ * evaluated directly from the roll's normal distribution so execution never
+ * performs Monte Carlo sampling on the game thread.
  */
 final class ImproveSuccessChanceEstimator {
-    private static final int SAMPLES = 30000;
-    private final Map<Integer, Integer> chanceCache = new HashMap<Integer, Integer>();
-
     int estimate(double skill, double parentSkill, double targetQuality,
                  double sourceQuality, double sourceDamage, boolean epic) {
         return estimate(skill, parentSkill, targetQuality, sourceQuality,
@@ -64,46 +58,25 @@ final class ImproveSuccessChanceEstimator {
                     + (cube(skill) - cube(difficulty)) / 100000.0;
             return (int) Math.max(0.0, Math.min(100.0, chance));
         }
-        int skillIndex = (int) skill;
-        int difficultyIndex = (int) difficulty;
-        int key = skillIndex * 101 + difficultyIndex;
-        Integer cached = chanceCache.get(key);
-        if (cached != null) return cached;
-
-        Random random = new Random(0x4b455942494e444cL ^ key);
-        int successes = 0;
-        for (int i = 0; i < SAMPLES; i++)
-            if (rollGaussian(skillIndex, difficultyIndex, random) > 0.0f)
-                successes++;
-        int chance = successes / 300;
-        chanceCache.put(key, chance);
-        return chance;
+        double skillIndex = (int) skill;
+        double difficultyIndex = (int) difficulty;
+        double slide = (cube(skillIndex) - cube(difficultyIndex)) / 50000.0
+                + skillIndex - difficultyIndex;
+        double width = 30.0 - Math.abs(skillIndex - difficultyIndex) / 4.0;
+        double deviation = width + Math.abs(slide) / 6.0;
+        int chance = (int) (100.0 * normalCdf(slide / deviation));
+        return Math.max(0, Math.min(100, chance));
     }
 
-    private static float rollGaussian(float skill, float difficulty, Random random) {
-        float slide = (skill * skill * skill
-                - difficulty * difficulty * difficulty) / 50000.0f
-                + skill - difficulty;
-        float width = 30.0f - Math.abs(skill - difficulty) / 4.0f;
-        int attempts = 0;
-        while (true) {
-            float result = (float) random.nextGaussian()
-                    * (width + Math.abs(slide) / 6.0f) + slide;
-            float reject = (float) random.nextGaussian()
-                    * (width - Math.abs(slide) / 6.0f) + slide;
-            if (slide > 0.0f
-                    && result > reject + Math.max(100.0f - slide, 0.0f))
-                result = -1000.0f;
-            else if (slide <= 0.0f
-                    && result < reject - Math.max(100.0f + slide, 0.0f))
-                result = -1000.0f;
-            attempts++;
-            if (attempts == 100) {
-                if (result > 100.0f) return 90.0f;
-                if (result < -100.0f) return -90.0f;
-            }
-            if (result >= -100.0f && result <= 100.0f) return result;
-        }
+    /** Abramowitz-Stegun normal-CDF approximation; maximum error is < 8e-8. */
+    private static double normalCdf(double value) {
+        double x = Math.abs(value);
+        double t = 1.0 / (1.0 + 0.2316419 * x);
+        double density = 0.3989422804014327 * Math.exp(-x * x / 2.0);
+        double tail = density * t * (0.319381530 + t * (-0.356563782
+                + t * (1.781477937 + t * (-1.821255978
+                + t * 1.330274429))));
+        return value >= 0.0 ? 1.0 - tail : tail;
     }
 
     private static double epicValue(double value) {

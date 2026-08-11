@@ -34,5 +34,7 @@ public class EditorOptionPresentationTest {
                 ItemSelectorKind.TOOLBELT_SLOT));
         assertEquals(5, EditorOptionPresentation.sourceOptionFor(
                 ItemSelectorKind.EXACT_OBJECT));
+        assertEquals(6, EditorOptionPresentation.sourceOptionFor(
+                ItemSelectorKind.INVENTORY_FILTER));
     }
 }

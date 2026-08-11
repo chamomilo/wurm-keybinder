@@ -12,6 +12,8 @@ import org.keybinder.wurm.model.ItemSelectorKind;
 /** Resolves one portable action source during per-step preflight. */
 public final class ActionSourceResolver {
     private final ClientAccess access;
+    private final InventoryFilterResolver inventoryFilters =
+            new InventoryFilterResolver();
 
     public ActionSourceResolver(ClientAccess access) { this.access = access; }
 
@@ -39,6 +41,14 @@ public final class ActionSourceResolver {
                         ? null : frame.getEquippedItem().getItem();
                 if (item == null)
                     throw unavailable(Messages.text("source.equipment_empty", selector.getSlot()));
+                return ResolvedSource.override(item.getId());
+            }
+            case INVENTORY_FILTER: {
+                InventoryMetaItem item = inventoryFilters.resolve(selector.getText(), hud,
+                        access.playerInventoryRoot(hud));
+                if (item == null)
+                    throw unavailable(Messages.text(
+                            "unavailable.inventory_filter", selector.getText()));
                 return ResolvedSource.override(item.getId());
             }
             case EXACT_OBJECT: {

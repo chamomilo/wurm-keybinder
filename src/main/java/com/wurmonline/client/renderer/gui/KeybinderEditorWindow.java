@@ -71,7 +71,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     };
     private static final String[] SOURCE_OPTIONS = {
             "current-active", "empty-hand", "hovered-item",
-            "toolbelt", "equipment", "exact-object"
+            "toolbelt", "equipment", "exact-object", "inventory+filter"
     };
     private static final VanillaKeybindCatalog VANILLA_CATALOG = new VanillaKeybindCatalog();
     private static final VanillaCatalogStepFactory VANILLA_STEPS =
@@ -569,7 +569,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         if (sourceIndex < 0 || sourceIndex >= SOURCE_OPTIONS.length) return;
         String chosenSource = SOURCE_OPTIONS[sourceIndex];
         if ("toolbelt".equals(chosenSource) || "equipment".equals(chosenSource)
-                || "exact-object".equals(chosenSource)) {
+                || "exact-object".equals(chosenSource)
+                || "inventory+filter".equals(chosenSource)) {
             pendingTargetRow = null;
             pendingSourceRow = row;
             controller.requestTargetSelection(
@@ -1509,7 +1510,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     || selectedSource.getKind()
                     == org.keybinder.wurm.model.ItemSelectorKind.EQUIPMENT_SLOT
                     || selectedSource.getKind()
-                    == org.keybinder.wurm.model.ItemSelectorKind.EXACT_OBJECT;
+                    == org.keybinder.wurm.model.ItemSelectorKind.EXACT_OBJECT
+                    || selectedSource.getKind()
+                    == org.keybinder.wurm.model.ItemSelectorKind.INVENTORY_FILTER;
             String[] labels = new String[SOURCE_OPTIONS.length + (hasConcreteSource ? 1 : 0)];
             int offset = hasConcreteSource ? 1 : 0;
             if (hasConcreteSource) labels[0] = ItemSelectorCodec.display(selectedSource);

@@ -64,6 +64,19 @@ public class EditorStepDraftTest {
         assertEquals(TargetKind.HOVER, ((ActionStep) step).getTarget().getKind());
     }
 
+    @Test public void customActionKeepsPortableInventoryFilterSource() {
+        EditorStepDraft draft = new EditorStepDraft(StepKind.CUSTOM_ACTION,
+                "192", "", ItemSelector.inventoryFilter(
+                "rare steel hammer (glowing)"), "hover", null, null);
+
+        ActionStep step = (ActionStep) draft.toStep(id -> "Improve");
+
+        assertEquals(ItemSelectorKind.INVENTORY_FILTER,
+                step.getSource().getKind());
+        assertEquals("hammer", step.getSource().getText());
+        assertEquals(TargetKind.HOVER, step.getTarget().getKind());
+    }
+
     @Test public void bulkSnapshotKeepsExactIdsAndArbitraryQuantity() {
         BulkTransferStep step = (BulkTransferStep) new EditorStepDraft(
                 StepKind.BULK_TRANSFER, "", "", ItemSelector.currentActive(), "",

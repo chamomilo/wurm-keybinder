@@ -8,6 +8,8 @@ import org.keybinder.wurm.catalog.CreationSkillEntry;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 public class CreationSkillRegistryTest {
     @After public void clearRegistry() {
@@ -34,5 +36,26 @@ public class CreationSkillRegistryTest {
 
         assertEquals(0, CreationSkillRegistry.snapshot().size());
         assertEquals(0, CreationSkillRegistry.size());
+    }
+
+    @Test public void revisionSnapshotChangesOnlyForCatalogMutations() {
+        CreationSkillRegistry.clear();
+        CreationSkillRegistry.Snapshot empty =
+                CreationSkillRegistry.snapshotAfter(Long.MIN_VALUE);
+        assertNotNull(empty);
+        assertNull(CreationSkillRegistry.snapshotAfter(empty.getRevision()));
+
+        CreationListItem recipe = new CreationListItem(
+                "huge tub", "Fine carpentry", 0, (short) 1,
+                (short) 2, false);
+        CreationSkillRegistry.observe(recipe);
+        CreationSkillRegistry.Snapshot populated =
+                CreationSkillRegistry.snapshotAfter(empty.getRevision());
+        assertNotNull(populated);
+        assertEquals(1, populated.getEntries().size());
+
+        CreationSkillRegistry.observe(recipe);
+        assertNull(CreationSkillRegistry.snapshotAfter(
+                populated.getRevision()));
     }
 }

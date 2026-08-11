@@ -7,5 +7,6 @@ public enum ItemSelectorKind {
     HOVERED_ITEM,
     TOOLBELT_SLOT,
     EQUIPMENT_SLOT,
+    INVENTORY_FILTER,
     EXACT_OBJECT
 }

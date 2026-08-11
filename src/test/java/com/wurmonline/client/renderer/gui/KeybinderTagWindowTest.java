@@ -11,8 +11,15 @@ import java.lang.reflect.Method;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class KeybinderTagWindowTest {
+    @Test
+    public void tagDoesNotLoadTargetWindowAsItsSuperclass() {
+        assertEquals(StaticComponent.class, KeybinderTagWindow.class.getSuperclass());
+        assertTrue(WindowSerializer.class.isAssignableFrom(KeybinderTagWindow.class));
+    }
+
     @Test
     public void rightClickIsDeclaredAsNoOpOnTagItself() throws Exception {
         Method declared = KeybinderTagWindow.class.getDeclaredMethod(

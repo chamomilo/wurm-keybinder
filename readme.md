@@ -2,75 +2,59 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.7.2 for Wurm Unlimited
+# Keybinder 0.7.3 for Wurm Unlimited
 
-## One key, many actions — now with Archaeology Identify and Smart Smart Improve
+## One key, many actions — now with portable tool filters and smooth scrolling
 
 Hello, SKLOTOPOLIS!
 
-Keybinder 0.7.2 is ready for testing.
+Keybinder 0.7.3 is ready for testing.
 
-This release adds a dedicated Archaeology Identify step, makes Smart Improve
-even smarter, and fixes several small issues found during play.
+This release adds a portable inventory-filtered Tool source to ordinary custom
+actions, removes the first-use work from Smart Improve chance estimates, and
+fixes the mouse-wheel scrolling problem in the Keybinder list.
 
-- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.2)
+- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.3)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-## What is new in 0.7.2?
+## What is new in 0.7.3?
 
-### Archaeology Identify
+### Portable Inventory + filter tools
 
-There is a new dedicated step type: **Archaeology Identify**.
+Ordinary custom-action steps now have a new **Tool** option:
+**Inventory + filter**.
 
-Point at one unidentified fragment or a group of fragments and press **F**.
-Keybinder selects the correct tool from your inventory for every fragment. As
-with Smart Improve, you can use either **Toolbelt only** or **First toolbelt,
-then inventory** as the search area.
+Choose an example item and Keybinder stores its portable item type instead of a
+runtime object ID. When the keybind runs, it finds the first matching item in
+this order:
 
-With one key, identify your fragments up to the free action-queue limit.
+- toolbelt;
+- direct player inventory;
+- nested containers.
 
-```text
-[12:34:18] [Keybinder] Archeology Identify: using metal brush, steel (w84c90) from "backpack" in inventory to identify "unidentified wooden fragment"
-```
+The same keybind can therefore select the correct hammer, sickle, seed, or
+other tool after relogging, travelling between servers, or switching to an alt.
 
-### Smart Improve now became smarter
+### Faster Smart Improve estimates
 
-Smart Improve now adds the QL of the improved item, the estimated Improve
-action success chance, and the rarity-upgrade chance after a rarity drumroll —
-for those who want to know.
+Improve success chance is now calculated directly instead of running thousands
+of sample rolls on the game thread. The live creation-skill catalog is also
+reused until the server sends a catalog change.
 
-```text
-[04:31:42] [Keybinder] Smart Improve: using log, cherrywood from toolbelt to improve "rare fruit press, applewood" QL 90.45 (improve chance ~57%, improve to supreme chance after drumroll 0.80%)
-```
+This keeps a useful client-side estimate while removing the noticeable cold
+lookup work when Smart Improve is first used.
 
-The Improve estimate uses the live server crafting catalog and the character
-data available to the client: relevant skill and parent skill, target QL, tool
-QL and damage, Epic curve, priest penalty, and the Vynora bonus.
+### Scrolling and compatibility fixes
 
-The rarity estimate accounts for the target's current rarity,
-rarity-improvement runes seen in Examine, and a rarer consumable source.
-
-These are client-side estimates. The rarity percentage is conditional on an
-active rarity window and a successful Improve; it is not the chance of the
-rarity window opening.
-
-### Some bug fixes
-
-- Hitched wagons can be used as proper Smart Improve targets.
-- Smart Improve reads the data it needs from external objects after Examine.
-- Rift stone shards are covered by premium-material protection and are not
-  selected as ordinary rock shards.
-- Stone chisel and carving knife identification has been corrected again; it
-  now uses the actual item type and is covered by tests.
-- Cold metal target improvements are rejected locally and are not sent to the
-  server.
-- Smart Improve source and failure messages are clearer.
-- Debug logging now provides extended details about what happened.
-- A HUD Multi button can work with even one action inside.
-- HUD and Multi selectors close automatically when they are no longer needed.
-- Between-server travel and server-specific keybind records have been fixed.
-- Hovered, nearby, and inventory filters now state and match their item type
-  more consistently.
+- Mouse-wheel scrolling in the main Keybinder list no longer jumps back toward
+  the top. Scrollbar dragging remains available and now tracks the same stable
+  content layout.
+- The small **KB** launcher no longer loads Wurm's `TargetWindow` class as its
+  superclass. This avoids freezing that client class before other compatible
+  mods can install target-name hooks.
+- The launcher still preserves its position, visibility, and lock state.
+- Internal action execution, input handling, persistence, and HUD hooks have
+  been separated into smaller components without changing saved keybinds.
 
 ## Core features
 
@@ -79,6 +63,8 @@ rarity window opening.
 - Action chains and Multi-keybinds that respect the character's action queue.
 - Hovered, selected, filtered, nearby, tile, area, inventory, equipment,
   toolbelt, and current-ride targets.
+- Custom actions can resolve their Tool through a portable inventory filter,
+  using toolbelt, direct inventory, and nested containers in that order.
 - Mouse-wheel bindings for actions such as push, pull, and turn.
 - Duplicate, merge, extract, import, and export tools for managed keybinds.
 - Smart Improve with automatic resource selection and client-side chance
@@ -92,8 +78,8 @@ rarity window opening.
 1. Disable the old **Custom Actions**, **Improved Improve**, and **i2improve**
    client mods.
 2. Download
-   [Keybinder 0.7.2 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.2).
-3. Extract `keybinder-0.7.2.zip` into your Wurm Unlimited client directory, as
+   [Keybinder 0.7.3 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.3).
+3. Extract `keybinder-0.7.3.zip` into your Wurm Unlimited client directory, as
    usual for Ago's Client Mod Launcher.
 4. When upgrading, simply overwrite the existing Keybinder files. Your managed
    keybinds are stored separately and are not replaced by the archive.
@@ -105,7 +91,8 @@ system. It sends ordinary Wurm actions while respecting your character's action
 queue.
 
 Thank you to everyone who tested the new functions and sent detailed Event
-logs. They made these fixes possible.
+logs. They made these fixes possible. The mouse-wheel fix was also verified
+manually in the game before this release was prepared.
 
 If you find a bug or have another idea, please reply in the forum thread and
 include the relevant Event log. Enable **Debug logging** when possible.

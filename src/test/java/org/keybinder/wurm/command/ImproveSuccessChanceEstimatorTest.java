@@ -78,4 +78,19 @@ public class ImproveSuccessChanceEstimatorTest {
         assertEquals(50, estimator.estimate(100.0, 0.0, 100.0,
                 100.0, 0.0, false));
     }
+
+    @Test
+    public void coldChanceLookupsDoNotSampleOnTheExecutionThread() {
+        long started = System.nanoTime();
+        int checksum = 0;
+        for (int skill = 1; skill <= 99; skill++)
+            for (int difficulty = 1; difficulty <= 20; difficulty++)
+                checksum += estimator.estimateWithoutToolQuality(
+                        skill, 0.0, difficulty, false, 0.0);
+        long elapsedMillis = (System.nanoTime() - started) / 1_000_000L;
+
+        assertTrue(checksum > 0);
+        assertTrue("cold chance lookups took " + elapsedMillis + " ms",
+                elapsedMillis < 1000L);
+    }
 }

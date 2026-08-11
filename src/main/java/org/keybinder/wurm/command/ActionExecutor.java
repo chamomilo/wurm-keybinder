@@ -437,11 +437,7 @@ public final class ActionExecutor {
 
     private InventoryMetaItem inventoryFilterItem(TargetSpec target,
                                                    HeadsUpDisplay hud) {
-        List<InventoryMetaItem> toolbelt = new ArrayList<InventoryMetaItem>(10);
-        if (hud.getToolBelt() != null)
-            for (int slot = 0; slot < 10; slot++)
-                toolbelt.add(hud.getToolBelt().getItemInSlot(slot));
-        return inventoryFilters.resolve(target.getText(), toolbelt,
+        return inventoryFilters.resolve(target.getText(), hud,
                 access.playerInventoryRoot(hud));
     }
 

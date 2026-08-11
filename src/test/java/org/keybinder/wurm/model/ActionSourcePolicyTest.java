@@ -68,4 +68,15 @@ public class ActionSourcePolicyTest {
         assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.DIG.getId()));
         assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.BLESS.getId()));
     }
+
+    @Test
+    public void ordinaryActionsKeepPortableInventoryFilterTool() {
+        ActionStep improve = new ActionStep(PlayerAction.IMPROVE.getId(),
+                ItemSelector.inventoryFilter("rare steel hammer (glowing)"),
+                TargetSpec.simple(TargetKind.HOVER), "Improve");
+
+        assertEquals(ItemSelectorKind.INVENTORY_FILTER,
+                improve.getSource().getKind());
+        assertEquals("hammer", improve.getSource().getText());
+    }
 }

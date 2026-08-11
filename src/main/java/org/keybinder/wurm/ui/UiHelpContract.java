@@ -13,6 +13,7 @@ public final class UiHelpContract {
             "help.source.current_active", "help.source.empty_hand",
             "help.source.hovered_item", "help.source.toolbelt_slot",
             "help.source.equipment_slot", "help.source.exact_object",
+            "help.source.inventory_filter",
             "editor.help.activate", "selection.hover_type", "selection.nearby_type",
             "editor.variant.extract", "merge.confirm.tip", "merge.cancel.tip",
             "reason.duplicate_review", "reason.extracted_review",

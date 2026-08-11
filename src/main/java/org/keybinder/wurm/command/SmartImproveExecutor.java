@@ -51,6 +51,9 @@ public final class SmartImproveExecutor {
             new ImproveSuccessChanceEstimator();
     private final ImproveRarityChanceEstimator rarityChanceEstimator =
             new ImproveRarityChanceEstimator();
+    private HeadsUpDisplay cachedSkillCatalogHud;
+    private long cachedSkillCatalogRevision = Long.MIN_VALUE;
+    private ImproveSkillCatalog cachedSkillCatalog;
     private final ThreadLocal<Map<SmartImproveStep, PreparedBatch>> prepared =
             new ThreadLocal<Map<SmartImproveStep, PreparedBatch>>() {
                 @Override protected Map<SmartImproveStep, PreparedBatch> initialValue() {
@@ -361,7 +364,7 @@ public final class SmartImproveExecutor {
             long[] targets = hud.getCommandTargetsFrom(
                     client.getXMouse(), client.getYMouse());
             ExecutionHoverOverride.Snapshot override = ExecutionHoverOverride.current();
-            log.diagnostic("Smart Improve world target resolved: requested="
+            log.debug("Smart Improve world target resolved: requested="
                     + requested.getKind() + ", examinedId=" + examinedId
                     + ", resolved=" + describePickable(resolved)
                     + ", selected=" + describePickable(selected)
@@ -426,7 +429,7 @@ public final class SmartImproveExecutor {
                     + requirement + ", sourceMode=" + sourceMode);
         } else {
             ImproveResourceCandidate chosen = resolved.getCandidate();
-            log.diagnostic("Smart Improve resource selected: requirement="
+            log.debug("Smart Improve resource selected: requirement="
                     + requirement + ", id=" + chosen.getId()
                     + ", baseName=\"" + chosen.getBaseName()
                     + "\", displayName=\"" + chosen.getDisplayName()
@@ -554,17 +557,33 @@ public final class SmartImproveExecutor {
     }
 
     private ImproveSkillCatalog improveSkillCatalog(HeadsUpDisplay hud) {
+        long knownRevision = cachedSkillCatalog != null
+                && cachedSkillCatalogHud == hud
+                ? cachedSkillCatalogRevision : Long.MIN_VALUE;
+        CreationSkillRegistry.Snapshot snapshot =
+                CreationSkillRegistry.snapshotAfter(knownRevision);
+        if (snapshot == null) return cachedSkillCatalog;
+
         List<org.keybinder.wurm.catalog.CreationSkillEntry> entries =
-                CreationSkillRegistry.snapshot();
-        try {
-            entries.addAll(access.creationSkills(hud));
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
-            log.diagnostic("Smart Improve creation-window catalog unavailable: "
-                    + unavailable.getClass().getName() + ": " + unavailable.getMessage());
+                new ArrayList<org.keybinder.wurm.catalog.CreationSkillEntry>(
+                        snapshot.getEntries());
+        // The receive hook is authoritative. Retain one defensive live-window
+        // fallback for clients where that optional hook could not be installed.
+        if (entries.isEmpty()) {
+            try {
+                entries.addAll(access.creationSkills(hud));
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+                log.diagnostic("Smart Improve creation-window catalog unavailable: "
+                        + unavailable.getClass().getName() + ": "
+                        + unavailable.getMessage());
+            }
         }
-        log.diagnostic("Smart Improve creation-skill catalog contains "
+        log.debug("Smart Improve creation-skill catalog contains "
                 + entries.size() + " captured/window rows");
-        return new ImproveSkillCatalog(entries);
+        cachedSkillCatalog = new ImproveSkillCatalog(entries);
+        cachedSkillCatalogHud = hud;
+        cachedSkillCatalogRevision = snapshot.getRevision();
+        return cachedSkillCatalog;
     }
 
     private Integer estimateSuccessChance(HeadsUpDisplay hud,
@@ -613,7 +632,7 @@ public final class SmartImproveExecutor {
                         targetQuality, candidate.getQuality(),
                         candidate.getDamage(), hud.getWorld().isServerEpic(),
                         actionBonus);
-            log.diagnostic("Smart Improve chance calculated: targetType=\""
+            log.debug("Smart Improve chance calculated: targetType=\""
                     + targetType + "\", skill=\"" + skillName + "\"="
                     + skill.getValue() + ", parent=" + parentValue
                     + ", targetQL=" + targetQuality + ", sourceQL="

@@ -38,6 +38,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private static final String FILTER_ALL = KeybindListViewModel.FILTER_ALL;
     private final KeybinderWindowController controller;
     private final WurmArrayPanel<FlexComponent> table;
+    private final WurmScrollPanel listScroll;
     private final WurmBorderPanel root;
     private final WurmArrayPanel<FlexComponent> listTop;
     private final WurmArrayPanel<FlexComponent> filterControls;
@@ -98,7 +99,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         super("keybinder.window", true);
         this.controller = controller;
         setTitle(Messages.text("window.title"));
-        table = new WurmArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL, true);
+        table = createScrollableTable();
+        listScroll = new WurmScrollPanel("keybinder.scroll", table, false, true);
         addButton = new WButton(Messages.text("list.add"), this);
         importButton = new WButton(Messages.text("list.import"), this);
         importFileButton = new WButton(Messages.text("list.import_file"), this);
@@ -118,10 +120,19 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         filterControls.componentWidthOffset = COLUMN_GAP;
         rebuildListTop();
         root.setComponent(listTop, WurmBorderPanel.NORTH);
-        root.setComponent(new WurmScrollPanel("keybinder.scroll", table, false, true), WurmBorderPanel.CENTER);
+        root.setComponent(listScroll, WurmBorderPanel.CENTER);
         refresh();
         setComponent(root);
         setInitialSize(Math.max(minimumWidth, 420), DEFAULT_HEIGHT, true);
+    }
+
+    private static WurmArrayPanel<FlexComponent> createScrollableTable() {
+        // WurmArrayPanel's auto-width pass transiently reports height 0 while
+        // WurmScrollPanel moves its content. The scroll panel then clamps yo
+        // back to 0 inside the same wheel event. Column widths are already
+        // applied explicitly by applyTableLayout(), so auto-width is neither
+        // necessary nor safe for this scroll content.
+        return new WurmArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL);
     }
 
     public void showIntro() {

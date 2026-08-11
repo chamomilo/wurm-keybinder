@@ -1,0 +1,59 @@
+[font size="5"][font color="#d6ad68"][b][Client Mod] Keybinder 0.7.3[/b][/font][/font]
+
+[font size="3"][b]One key, many actions — now with portable tool filters and smooth scrolling[/b][/font]
+
+[hr]
+
+Hello, SKLOTOPOLIS!
+
+Keybinder 0.7.3 is ready for testing.
+
+This release adds a portable Inventory + filter Tool to ordinary custom actions, makes Smart Improve faster on first use, and fixes the mouse-wheel scrolling problem in the Keybinder list.
+
+[hr]
+
+[font size="4"][font color="#d6ad68"][b]What is new in 0.7.3?[/b][/font][/font]
+
+[font size="3"][font color="#d6ad68"][b]Portable Inventory + filter tools[/b][/font][/font]
+
+Ordinary custom-action steps now have a new Tool option: [b]Inventory + filter[/b].
+
+Choose an example item and Keybinder remembers its portable item type instead of a temporary object ID. When the keybind runs, it finds the first matching item in this order:
+
+[ul][li]toolbelt;[/li][li]direct player inventory;[/li][li]nested containers.[/li][/ul]
+
+You can build one action for a hammer, sickle, seed, or another tool and keep using it after relogging, travelling between servers, or switching to an alt. C for convenience!
+
+[font size="3"][font color="#d6ad68"][b]Smart Improve became faster[/b][/font][/font]
+
+Smart Improve no longer performs thousands of sample rolls on the game thread when it calculates the Improve success chance. The estimate is now calculated directly, and the live creation-skill catalog is reused until the server sends an update.
+
+The result is a useful client-side estimate without the noticeable cold lookup work on first use.
+
+[font size="3"][font color="#d6ad68"][b]Smooth mouse-wheel scrolling[/b][/font][/font]
+
+The main Keybinder list now scrolls normally with the mouse wheel. It no longer jumps down and immediately returns almost to the top. Scrollbar dragging continues to work and follows the same stable list position.
+
+Thank you for the detailed report and live testing — this one was very helpful!
+
+[font size="3"][font color="#d6ad68"][b]Compatibility and internal fixes[/b][/font][/font]
+
+[ul][li]The small KB launcher no longer loads Wurm's TargetWindow class as its superclass, so compatible client mods can still install their target-name hooks.[/li][li]The KB launcher continues to preserve its position, visibility, and lock state.[/li][li]Action execution, input handling, persistence, and HUD hooks were separated into smaller components without changing your saved keybinds.[/li][li]Temporary scroll diagnostics used to find the problem have been removed from the release build.[/li][/ul]
+
+[hr]
+
+[font size="4"][font color="#d6ad68"][b]Installation and upgrade[/b][/font][/font]
+
+[ol][li]Disable the old Custom Actions, Improved Improve, and i2improve client mods.[/li][li]Download Keybinder 0.7.3: [a href="https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.3"]Download Keybinder 0.7.3 from GitHub[/a][/li][li]Extract keybinder-0.7.3.zip into your Wurm Unlimited client directory, as usual for Ago's Client Mod Launcher.[/li][li]When upgrading, simply overwrite the existing Keybinder files. Your managed keybinds are stored separately and are not replaced by the archive.[/li][li]Start the game. If the KB icon is not visible, enable Keybinder in HUD Settings.[/li][/ol]
+
+[hr]
+
+Keybinder is a keybind manager, not an unattended automation or scripting system. It sends ordinary Wurm actions while respecting your character's action queue.
+
+Thank you to everyone who tested the new functions and sent detailed Event logs. They made these fixes possible.
+
+If you find a bug or have another idea, please reply here and include the relevant Event log. Enable Debug logging when possible.
+
+Cheers!
+
+Chamomilo

@@ -41,6 +41,11 @@ public final class ItemSelector {
         return new ItemSelector(ItemSelectorKind.EQUIPMENT_SLOT, slot, 0L, "");
     }
 
+    public static ItemSelector inventoryFilter(String type) {
+        String value = ObjectTypeNormalizer.normalizeType(type);
+        return new ItemSelector(ItemSelectorKind.INVENTORY_FILTER, 0, 0L, value);
+    }
+
     public static ItemSelector exactObject(long objectId, String displayLabel) {
         String label = displayLabel == null ? "" : displayLabel.trim();
         if (label.isEmpty())

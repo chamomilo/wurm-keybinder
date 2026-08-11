@@ -1,14 +1,25 @@
 package org.keybinder.wurm.command;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
+import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
 import org.keybinder.wurm.model.ObjectTypeNormalizer;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 /** Deterministic toolbelt-first lookup over the complete player inventory tree. */
 public final class InventoryFilterResolver {
+    public InventoryMetaItem resolve(String itemType, HeadsUpDisplay hud,
+                                     InventoryMetaItem inventoryRoot) {
+        List<InventoryMetaItem> toolbelt = new ArrayList<InventoryMetaItem>(10);
+        if (hud != null && hud.getToolBelt() != null)
+            for (int slot = 0; slot < 10; slot++)
+                toolbelt.add(hud.getToolBelt().getItemInSlot(slot));
+        return resolve(itemType, toolbelt, inventoryRoot);
+    }
+
     public InventoryMetaItem resolve(String itemType,
                                      List<InventoryMetaItem> toolbeltItems,
                                      InventoryMetaItem inventoryRoot) {

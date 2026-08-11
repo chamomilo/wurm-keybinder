@@ -77,6 +77,7 @@ public final class EditorOptionPresentation {
             case TOOLBELT_SLOT: return 3;
             case EQUIPMENT_SLOT: return 4;
             case EXACT_OBJECT: return 5;
+            case INVENTORY_FILTER: return 6;
             default: return 0;
         }
     }
@@ -88,6 +89,8 @@ public final class EditorOptionPresentation {
         if ("toolbelt".equals(value)) return Messages.text("source.toolbelt");
         if ("equipment".equals(value)) return Messages.text("source.equipment");
         if ("exact-object".equals(value)) return Messages.text("source.exact_item");
+        if (InventoryFilterTarget.OPTION.equals(value))
+            return Messages.text("source.inventory_filter");
         return value;
     }
 
