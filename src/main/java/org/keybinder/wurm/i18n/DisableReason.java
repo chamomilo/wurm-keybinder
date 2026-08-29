@@ -30,7 +30,19 @@ public final class DisableReason {
     public static boolean blocksEnable(String stored) {
         if (stored == null || stored.trim().isEmpty()) return false;
         return !"disabled by user".equals(stored)
-                && !value("disabled_by_user").equals(stored);
+                && !value("disabled_by_user").equals(stored)
+                && !isQueueExceeded(stored);
+    }
+
+    /** Legacy automatic queue-limit disables are warnings in current builds. */
+    public static boolean isQueueExceeded(String stored) {
+        if (stored == null || stored.trim().isEmpty()) return false;
+        if (stored.startsWith(PREFIX)) {
+            String[] fields = split(stored.substring(PREFIX.length()));
+            return fields.length > 0 && "queue_exceeded".equals(fields[0]);
+        }
+        return stored.matches(
+                "^execution cost \\d+ exceeds (?:the )?current limit \\d+$");
     }
 
     /** True when the stored error is only caused by another owner of the same chord. */

@@ -6,8 +6,6 @@ import org.keybinder.wurm.event.EventLogger;
 import org.keybinder.wurm.i18n.DisableReason;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.KeybindRecord;
-import org.keybinder.wurm.queue.ActionQueueCostCalculator;
-import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.validation.KeybindValidator;
 
 import java.util.List;
@@ -17,20 +15,18 @@ import java.util.function.Function;
 public final class AccountBindingRestorer {
     private final ManagedBindAccess binds;
     private final AccountBindingCoordinator accountBindings;
-    private final ActionQueueCostCalculator costs;
     private final EventLogger log;
 
     public AccountBindingRestorer(ManagedBindAccess binds,
                                   AccountBindingCoordinator accountBindings,
-                                  ActionQueueCostCalculator costs, EventLogger log) {
+                                  EventLogger log) {
         this.binds = binds;
         this.accountBindings = accountBindings;
-        this.costs = costs;
         this.log = log;
     }
 
     public boolean restore(String account, List<KeybindRecord> records,
-                           WurmConsole console, int limit,
+                           WurmConsole console,
                            Function<KeybindRecord, String> commandFor) {
         if (account == null || account.trim().isEmpty() || console == null) return false;
         int removed = 0;
@@ -66,7 +62,6 @@ public final class AccountBindingRestorer {
                 if (record.isEnabled()) {
                     try {
                         KeybindValidator.validateConfigured(record);
-                        applyLimit(record, limit);
                     } catch (RuntimeException invalid) {
                         record.setEnabled(false);
                         record.setDisabledReason(KeybindValidator.disabledReason(record));
@@ -113,13 +108,4 @@ public final class AccountBindingRestorer {
         if (!InputKeyCatalog.isVirtual(key)) binds.install(console, key, command);
     }
 
-    private void applyLimit(KeybindRecord record, int limit) {
-        QueueCost cost = costs.keybindCost(record);
-        if (limit > 0 && cost.getKind() == QueueCost.Kind.FIXED
-                && cost.getValue() > limit) {
-            record.setEnabled(false);
-            record.setDisabledReason(
-                    DisableReason.value("queue_exceeded", cost.getValue(), limit));
-        }
-    }
 }

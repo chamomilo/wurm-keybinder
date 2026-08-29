@@ -39,17 +39,21 @@ public final class KeybindListViewModel {
                 && !DisableReason.isManagedKeyConflict(record.getDisabledReason()))
             reasons.add(DisableReason.display(record.getDisabledReason()));
         QueueCost cost = COSTS.keybindCost(record);
-        if (cost.getKind() == QueueCost.Kind.FIXED && queueLimit > 0
-                && cost.getValue() > queueLimit)
-            reasons.add(Messages.text("status.queue_exceeded", cost.getValue(), queueLimit));
-        if (reasons.isEmpty()) return Status.OK;
+        boolean queueWarning = cost.getKind() == QueueCost.Kind.FIXED && queueLimit > 0
+                && cost.getValue() > queueLimit;
+        String warningText = queueWarning ? Messages.text("status.queue_warning",
+                cost.getValue(), queueLimit) : "";
+        if (reasons.isEmpty())
+            return queueWarning ? new Status(false, true, warningText) : Status.OK;
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < reasons.size(); i++) {
             if (i > 0) text.append(i + 1 == reasons.size()
                     ? " " + Messages.text("common.and") + " " : ", ");
             text.append(reasons.get(i));
         }
-        return new Status(true, Messages.text("status.cannot_enable", text.toString()));
+        String errorText = Messages.text("status.cannot_enable", text.toString());
+        if (queueWarning) errorText += " " + warningText;
+        return new Status(true, queueWarning, errorText);
     }
 
     public static List<KeybindRecord> filter(
@@ -103,16 +107,19 @@ public final class KeybindListViewModel {
     }
 
     public static final class Status {
-        private static final Status OK = new Status(false, "");
+        private static final Status OK = new Status(false, false, "");
         private final boolean error;
+        private final boolean warning;
         private final String hoverText;
 
-        private Status(boolean error, String hoverText) {
+        private Status(boolean error, boolean warning, String hoverText) {
             this.error = error;
+            this.warning = warning;
             this.hoverText = hoverText;
         }
 
         public boolean isError() { return error; }
+        public boolean isWarning() { return warning; }
         public String getHoverText() { return hoverText; }
     }
 

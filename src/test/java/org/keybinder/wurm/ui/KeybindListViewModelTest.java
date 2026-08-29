@@ -63,6 +63,19 @@ public class KeybindListViewModelTest {
                 Collections.singletonList(owner), 10).isError());
     }
 
+    @Test public void overLimitConfiguredRecordIsWarningRatherThanEnableError() {
+        KeybindRecord record = new KeybindRecord("long", "Long", "R", Arrays.asList(
+                new ActionStep((short) 1, TargetSpec.simple(TargetKind.HOVER)),
+                new ActionStep((short) 2, TargetSpec.simple(TargetKind.HOVER))));
+
+        KeybindListViewModel.Status status = KeybindListViewModel.status(
+                record, Collections.singletonList(record), 1);
+
+        assertFalse(status.isError());
+        assertTrue(status.isWarning());
+        assertTrue(status.getHoverText().contains("remains enabled"));
+    }
+
     private static KeybindRecord record(String name, String key) {
         return new KeybindRecord(null, name, key,
                 Collections.singletonList(new ActionStep((short) 1,

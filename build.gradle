@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.7.3"
+version "0.7.4"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -73,6 +73,7 @@ task verifyJarNamespace(dependsOn: jar) {
         }
         ['keybinder/i18n/messages_en.properties',
          'keybinder/i18n/messages_pt-BR.properties',
+         'keybinder/i18n/messages_de.properties',
          'keybinder/value-pack.keybinder'].each { resource ->
             if (tree.matching { include resource }.files.empty) {
                 throw new GradleException("Required resource is missing from keybinder.jar: ${resource}")
@@ -114,6 +115,7 @@ task verifyDistArchive(dependsOn: dist) {
         def nested = zipTree(packagedJar)
         ['keybinder/i18n/messages_en.properties',
          'keybinder/i18n/messages_pt-BR.properties',
+         'keybinder/i18n/messages_de.properties',
          'keybinder/value-pack.keybinder'].each { resource ->
             if (nested.matching { include resource }.files.empty) {
                 throw new GradleException(

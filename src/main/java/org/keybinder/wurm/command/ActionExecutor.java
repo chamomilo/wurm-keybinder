@@ -16,6 +16,9 @@ import org.keybinder.wurm.integration.ExecutionHoverOverride;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.catalog.VanillaPlayerActionCatalog;
 import org.keybinder.wurm.model.ActionStep;
+import org.keybinder.wurm.model.ActionSourcePolicy;
+import org.keybinder.wurm.model.ActionTargetPolicy;
+import org.keybinder.wurm.model.ItemSelectorKind;
 import org.keybinder.wurm.model.ObjectTypeNormalizer;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
@@ -101,55 +104,71 @@ public final class ActionExecutor {
 
     private ResolvedActionPlan prepare(ActionStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
-        ActionSourceResolver.ResolvedSource source = sources.resolve(step.getSource(), hud);
         short id = step.getActionId();
         TargetSpec target = step.getTarget();
         // A numeric ID that exactly matches a built-in vanilla PlayerAction inherits
         // its real mask/flags. Unknown and mod-provided IDs retain the permissive
         // legacy Custom Actions behavior.
         PlayerAction action = vanillaActions.resolveOrGeneric(id);
+        ActionSourceResolver.ResolvedSource source = resolveSource(step, hud);
 
         switch (target.getKind()) {
             case HOVER: {
                 ExecutionHoverOverride.Snapshot hoverOverride =
                         ExecutionHoverOverride.current();
-                if (hoverOverride != null && hoverOverride.getWorldObjectId() > 0L)
+                if (hoverOverride != null && hoverOverride.getWorldObjectId() > 0L) {
+                    if (!hoverOverride.targetMatches(action.getTargetMask()))
+                        throw incompatibleTarget(action, hoverOverride.getHoverName());
                     return individual(source, action,
                             new long[]{hoverOverride.getWorldObjectId()}, 1, true, false, null);
-                return batch(source, action, hoveredTargets(action, hud), 1, false);
+                }
+                long[] hovered = hoveredTargets(action, hud);
+                if (hovered.length == 0)
+                    throw unavailable(Messages.text("unavailable.hover"));
+                // Mirror World.sendHoveredAction: component targets are supplied
+                // by the native component, while world targets have already passed
+                // PickableUnit.targetMatches in hoveredTargets(). A tile ID is not
+                // an inventory/ground object and must not be resolved as one here.
+                return targetBatch(source, action, hovered);
             }
             case BODY: {
                 InventoryMetaItem body = access.bodyItem(hud.getPaperDollInventory());
                 if (body == null) throw unavailable(Messages.text("unavailable.body"));
+                requireInventoryTarget(action);
                 return object(source, action, body.getId());
             }
             case ACTIVE_TOOL: {
                 InventoryMetaItem tool = access.activeTool(hud);
                 if (tool == null) throw unavailable(Messages.text("unavailable.active_tool"));
+                requireInventoryTarget(action);
                 return object(source, action, tool.getId());
             }
             case SELECTED: {
                 PickableUnit selected = access.selected(hud.getSelectBar());
                 if (selected == null) throw unavailable(Messages.text("unavailable.selected"));
+                requirePickableTarget(action, selected);
                 return object(source, action, selected.getId());
             }
             case TILE:
+                requireTileTarget(step, action, hud);
                 return individual(source, action,
                         new long[]{tileId(hud, target.getDx(), target.getDy())},
                         1, false, false, null);
             case AREA: {
+                requireTileTarget(step, action, hud);
                 long[] tiles = new long[9];
                 int index = 0;
                 for (int dy = -1; dy <= 1; dy++)
                     for (int dx = -1; dx <= 1; dx++)
                         tiles[index++] = tileId(hud, dx, dy);
                 return individual(source, action, tiles, tiles.length,
-                        false, false, null);
+                        false, true, null);
             }
             case TOOLBELT_SLOT: {
                 InventoryMetaItem beltItem = hud.getToolBelt().getItemInSlot(target.getSlot() - 1);
                 if (beltItem == null)
                     throw unavailable(Messages.text("unavailable.toolbelt_empty", target.getSlot()));
+                requireInventoryTarget(action);
                 return object(source, action, beltItem.getId());
             }
             case EQUIPMENT_SLOT: {
@@ -160,46 +179,53 @@ public final class ActionExecutor {
                             "unavailable.equipment_unavailable", target.getSlot()));
                 if (frame.getEquippedItem() == null)
                     throw unavailable(Messages.text("unavailable.equipment_empty", target.getSlot()));
+                requireInventoryTarget(action);
                 return object(source, action, frame.getEquippedItem().getId());
             }
             case NEARBY_RADIUS: {
                 long[] nearby = ids(nearbyTargets(step, hud));
+                if (nearby.length == 0)
+                    throw unavailable(Messages.text("unavailable.nearby"));
                 return individual(source, action, nearby, nearby.length,
-                        true, false, null);
+                        true, true, null);
             }
             case NEARBY: {
                 long[] nearby = ids(nearbyTargets(step, hud));
+                if (nearby.length == 0)
+                    throw unavailable(Messages.text("unavailable.nearby"));
                 return individual(source, action, nearby, nearby.length,
                         true, true, null);
             }
             case NEARBY_TYPE: {
                 CellRenderable found = nearbyTargetByType(step, hud);
                 if (found == null)
-                    return individual(source, action, new long[0], 0,
-                            true, false, null);
+                    throw unavailable(Messages.text("unavailable.nearby"));
                 return individual(source, action, new long[]{found.getId()}, 1,
                         true, false, found);
             }
             case HOVER_TYPE: {
                 HoverTypeResolution hoverMatches = hoverTypeTargets(step, hud);
                 long[] hoverIds = ids(hoverMatches.ids);
-                return batch(source, action, hoverIds, hoverIds.length, true);
+                if (hoverIds.length == 0)
+                    throw unavailable(Messages.text("unavailable.hover"));
+                return targetBatch(source, action, hoverIds);
             }
             case INVENTORY_FILTER: {
                 InventoryMetaItem filtered = inventoryFilterItem(target, hud);
                 if (filtered == null)
                     throw unavailable(Messages.text(
                             "unavailable.inventory_filter", target.getText()));
+                requireInventoryTarget(action);
                 return object(source, action, filtered.getId());
             }
             case EXACT_OBJECT:
-                if (!exactObjectAvailable(target, hud))
-                    throw unavailable(Messages.text("unavailable.exact_object", exactName(target)));
+                requireObjectIdTarget(action, target.getObjectId(), hud);
                 return object(source, action, target.getObjectId());
             case CURRENT_RIDE: {
                 CreatureCellRenderable ride = currentRide(hud);
                 if (ride == null)
                     throw unavailable(Messages.text("unavailable.current_ride"));
+                requirePickableTarget(action, ride);
                 return object(source, action, ride.getId());
             }
             case UNRESOLVED:
@@ -208,6 +234,15 @@ public final class ActionExecutor {
                 throw new IllegalArgumentException(
                         Messages.text("unavailable.unsupported_action_target", target.getKind()));
         }
+    }
+
+    private ActionSourceResolver.ResolvedSource resolveSource(
+            ActionStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
+        if (ActionSourcePolicy.acceptsSelectableTool(step.getActionId())
+                && step.getSource().getKind() == ItemSelectorKind.CURRENT_ACTIVE
+                && access.activeTool(hud) == null)
+            throw unavailable(Messages.text("source.current_active_missing"));
+        return sources.resolve(step.getSource(), hud);
     }
 
     private void execute(ResolvedActionPlan plan, HeadsUpDisplay hud,
@@ -257,6 +292,14 @@ public final class ActionExecutor {
             long[] targets, int queueCost, boolean budgetedFanOut) {
         return new ResolvedActionPlan(source, action, targets, queueCost,
                 true, false, budgetedFanOut, null);
+    }
+
+    private static ResolvedActionPlan targetBatch(
+            ActionSourceResolver.ResolvedSource source, PlayerAction action,
+            long[] targets) {
+        boolean fanOut = !action.isAtomic();
+        int queueCost = fanOut ? targets.length : targets.length == 0 ? 0 : 1;
+        return batch(source, action, targets, queueCost, fanOut);
     }
 
     private static long[] ids(List<Long> values) {
@@ -421,18 +464,71 @@ public final class ActionExecutor {
         private HoverTypeResolution(List<Long> ids) { this.ids = ids; }
     }
 
-    private boolean exactObjectAvailable(TargetSpec target, HeadsUpDisplay hud)
+    private void requireObjectIdTarget(PlayerAction action, long id, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
-        long id = target.getObjectId();
-        if (access.inventoryItem(hud, id) != null) return true;
+        if (access.inventoryItem(hud, id) != null) {
+            requireInventoryTarget(action);
+            return;
+        }
         PickableUnit selected = access.selected(hud.getSelectBar());
-        if (selected != null && selected.getId() == id) return true;
+        if (selected != null && selected.getId() == id) {
+            requirePickableTarget(action, selected);
+            return;
+        }
         PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
-        if (hovered != null && hovered.getId() == id) return true;
+        if (hovered != null && hovered.getId() == id) {
+            requirePickableTarget(action, hovered);
+            return;
+        }
         ServerConnectionListenerClass listener =
                 hud.getWorld().getServerConnection().getServerConnectionListener();
-        if (access.groundItems(listener).containsKey(id)) return true;
-        return listener.getCreatures().containsKey(id);
+        PickableUnit ground = access.groundItems(listener).get(id);
+        if (ground != null) {
+            requirePickableTarget(action, ground);
+            return;
+        }
+        PickableUnit creature = listener.getCreatures().get(id);
+        if (creature != null) {
+            requirePickableTarget(action, creature);
+            return;
+        }
+        throw unavailable(Messages.text("unavailable.exact_object", Long.toString(id)));
+    }
+
+    private void requirePickableTarget(PlayerAction action, PickableUnit target) {
+        if (target.targetMatches(action.getTargetMask())) return;
+        throw incompatibleTarget(action, target.getHoverName());
+    }
+
+    private void requireInventoryTarget(PlayerAction action) {
+        if (acceptsInventoryTarget(action.getTargetMask())) return;
+        throw incompatibleTarget(action, Messages.text("event.inventory_target"));
+    }
+
+    private void requireTileTarget(ActionStep step, PlayerAction action,
+                                   HeadsUpDisplay hud) {
+        if (!ActionTargetPolicy.acceptsSelectableTarget(step.getActionId())) return;
+        if (acceptsTileTarget(action.getTargetMask(),
+                hud.getWorld().getPlayerLayer())) return;
+        throw incompatibleTarget(action, Messages.text("event.tile_target"));
+    }
+
+    static boolean acceptsInventoryTarget(int targetMask) {
+        return (targetMask & PlayerAction.INVENTORY_ITEM) != 0;
+    }
+
+    static boolean acceptsTileTarget(int targetMask, int playerLayer) {
+        int compatible = playerLayer < 0 ? PlayerAction.CAVE_TILE
+                : PlayerAction.SURFACE_TILE | PlayerAction.SURFACE_TILE_BORDER;
+        return (targetMask & compatible) != 0;
+    }
+
+    private StepUnavailableException incompatibleTarget(
+            PlayerAction action, String targetName) {
+        String name = targetName == null || targetName.trim().isEmpty()
+                ? Messages.text("event.generic_target") : targetName.trim();
+        return unavailable(Messages.text("unavailable.action_target",
+                actionName(action.getId()), name));
     }
 
     private InventoryMetaItem inventoryFilterItem(TargetSpec target,
@@ -443,11 +539,6 @@ public final class ActionExecutor {
 
     private static CreatureCellRenderable currentRide(HeadsUpDisplay hud) {
         return hud.getWorld().getPlayer().getCarrierCreature();
-    }
-
-    private static String exactName(TargetSpec target) {
-        return target.getText().isEmpty()
-                ? Long.toString(target.getObjectId()) : "\"" + target.getText() + "\"";
     }
 
     private static StepUnavailableException unavailable(String message) {

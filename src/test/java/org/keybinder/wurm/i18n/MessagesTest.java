@@ -26,6 +26,16 @@ public class MessagesTest {
         assertEquals("Não foi possível criar o atalho", Messages.text("error.create_keybind"));
     }
 
+    @Test public void germanLoadsAsUtf8() {
+        Messages.select("de");
+        assertEquals("de", Messages.languageCode());
+        assertEquals("Tastenbelegung konnte nicht erstellt werden",
+                Messages.text("error.create_keybind"));
+        assertArrayEquals(
+                new String[] {"Englisch", "Portugiesisch (Brasilien)", "Deutsch"},
+                Language.displayNames());
+    }
+
     @Test public void unknownLanguageFallsBackToEnglish() {
         Messages.select("unknown");
         assertEquals("en", Messages.languageCode());
@@ -37,19 +47,25 @@ public class MessagesTest {
 
     @Test public void dictionariesHaveIdenticalKeys() {
         Map<String, String> english = Messages.loadDictionary("en");
-        Map<String, String> portuguese = Messages.loadDictionary("pt-BR");
-        assertEquals(english.keySet(), portuguese.keySet());
+        for (Language language : Language.values())
+            assertEquals(language.getCode(), english.keySet(),
+                    Messages.loadDictionary(language.getCode()).keySet());
     }
 
     @Test public void dictionariesHaveNonEmptyValuesAndMatchingPlaceholders() {
         Map<String, String> english = Messages.loadDictionary("en");
-        Map<String, String> portuguese = Messages.loadDictionary("pt-BR");
         java.util.regex.Pattern placeholder = java.util.regex.Pattern.compile("\\{\\d+}");
-        for (String key : english.keySet()) {
-            assertFalse(key, english.get(key).trim().isEmpty());
-            assertFalse(key, portuguese.get(key).trim().isEmpty());
-            assertEquals(key, placeholders(placeholder, english.get(key)),
-                    placeholders(placeholder, portuguese.get(key)));
+        for (Language language : Language.values()) {
+            Map<String, String> dictionary = Messages.loadDictionary(language.getCode());
+            for (String key : english.keySet()) {
+                assertFalse(language.getCode() + " " + key,
+                        english.get(key).trim().isEmpty());
+                assertFalse(language.getCode() + " " + key,
+                        dictionary.get(key).trim().isEmpty());
+                assertEquals(language.getCode() + " " + key,
+                        placeholders(placeholder, english.get(key)),
+                        placeholders(placeholder, dictionary.get(key)));
+            }
         }
     }
 
@@ -60,11 +76,11 @@ public class MessagesTest {
     }
 
     @Test public void listInstructionsUseTheClientFontSafeMinusCharacter() {
-        for (String language : new String[] {"en", "pt-BR"}) {
-            Messages.select(language);
+        for (Language language : Language.values()) {
+            Messages.select(language.getCode());
             String instructions = Messages.text("list.instructions.merge");
-            assertTrue(language, instructions.contains("+/-"));
-            assertFalse(language, instructions.contains("−"));
+            assertTrue(language.getCode(), instructions.contains("+/-"));
+            assertFalse(language.getCode(), instructions.contains("−"));
         }
     }
 
@@ -78,9 +94,9 @@ public class MessagesTest {
                 Messages.text("drag.merge_with_keybind"));
     }
 
-    @Test public void importAndTransferDialogsHaveUiTextInBothLanguages() {
-        for (String language : new String[] {"en", "pt-BR"}) {
-            Messages.select(language);
+    @Test public void importAndTransferDialogsHaveUiTextInEveryLanguage() {
+        for (Language language : Language.values()) {
+            Messages.select(language.getCode());
             assertFalse(Messages.text("list.import.question").trim().isEmpty());
             assertFalse(Messages.text("list.import.confirm").trim().isEmpty());
             assertFalse(Messages.text("transfer.import.title").trim().isEmpty());
@@ -98,6 +114,12 @@ public class MessagesTest {
         LocalizationSettings.save(properties, "pt-BR");
         assertEquals("pt-BR", LocalizationSettings.load(properties));
         assertEquals("true", properties.getProperty("skipIntroPage"));
+    }
+
+    @Test public void germanSettingRoundTrips() {
+        Properties properties = new Properties();
+        LocalizationSettings.save(properties, "de");
+        assertEquals("de", LocalizationSettings.load(properties));
     }
 
     private static java.util.Set<String> placeholders(java.util.regex.Pattern pattern,

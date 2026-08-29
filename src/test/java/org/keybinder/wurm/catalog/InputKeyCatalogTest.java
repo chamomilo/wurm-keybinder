@@ -69,5 +69,10 @@ public class InputKeyCatalogTest {
         assertEquals("Roda do mouse para cima", catalog.displayName("MOUSE_WHEEL_UP"));
         assertEquals("MOUSE_WHEEL_UP", catalog.persistedName("Roda do mouse para cima"));
         assertEquals("MOUSE2", catalog.persistedName("Botão da roda do mouse"));
+
+        Messages.select("de");
+        assertEquals("Mausrad nach oben", catalog.displayName("MOUSE_WHEEL_UP"));
+        assertEquals("MOUSE_WHEEL_UP", catalog.persistedName("Mausrad nach oben"));
+        assertEquals("MOUSE2", catalog.persistedName("Mausradtaste"));
     }
 }

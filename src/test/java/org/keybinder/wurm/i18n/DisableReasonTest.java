@@ -31,9 +31,18 @@ public class DisableReasonTest {
                 DisableReason.value("disabled_by_user")));
         assertFalse(DisableReason.blocksEnable("disabled by user"));
         assertFalse(DisableReason.blocksEnable(""));
-        assertTrue(DisableReason.blocksEnable(
+        assertFalse(DisableReason.blocksEnable(
                 DisableReason.value("queue_exceeded", 12, 4)));
         assertTrue(DisableReason.blocksEnable(
+                DisableReason.value("key_in_use")));
+    }
+
+    @Test public void identifiesStableAndLegacyQueueWarnings() {
+        assertTrue(DisableReason.isQueueExceeded(
+                DisableReason.value("queue_exceeded", 12, 4)));
+        assertTrue(DisableReason.isQueueExceeded(
+                "execution cost 12 exceeds current limit 4"));
+        assertFalse(DisableReason.isQueueExceeded(
                 DisableReason.value("key_in_use")));
     }
 

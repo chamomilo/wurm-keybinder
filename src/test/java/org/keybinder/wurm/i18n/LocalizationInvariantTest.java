@@ -29,11 +29,12 @@ public class LocalizationInvariantTest {
 
         Messages.select("en");
         String english = machineSnapshot(importer.importCommand(command));
-        Messages.select("pt-BR");
-        String portuguese = machineSnapshot(importer.importCommand(command));
-
         assertEquals("154:tile_nw|163:@tb10|-7:selected", english);
-        assertEquals(english, portuguese);
+        for (Language language : Language.values()) {
+            Messages.select(language.getCode());
+            assertEquals(language.getCode(), english,
+                    machineSnapshot(importer.importCommand(command)));
+        }
     }
 
     @Test
@@ -52,10 +53,12 @@ public class LocalizationInvariantTest {
 
         Messages.select("en");
         String dispatcher = registry.dispatcherCommand(record);
-        Messages.select("pt-BR");
-
-        assertEquals(dispatcher, registry.dispatcherCommand(record));
         assertEquals("keybinder_run " + record.getId(), dispatcher);
+        for (Language language : Language.values()) {
+            Messages.select(language.getCode());
+            assertEquals(language.getCode(), dispatcher,
+                    registry.dispatcherCommand(record));
+        }
         assertEquals("CTRL+R", record.getOriginalKey());
         assertEquals("act 163 tool", record.getOriginalCommand());
     }

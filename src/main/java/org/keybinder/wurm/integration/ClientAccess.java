@@ -315,7 +315,9 @@ public final class ClientAccess {
         CreatureCellRenderable creature = listener.getCreatures().get(id);
         if (creature != null) return objectType(creature);
         PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
-        return hovered != null && hovered.getId() == id ? objectType(hovered) : null;
+        if (hovered != null && hovered.getId() == id) return objectType(hovered);
+        PickableUnit selected = selected(hud.getSelectBar());
+        return selected != null && selected.getId() == id ? objectType(selected) : null;
     }
 
     private String rawObjectName(ObjectData data) throws ReflectiveOperationException {

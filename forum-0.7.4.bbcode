@@ -1,0 +1,45 @@
+[font size="5"][font color="#d6ad68"][b][Client Mod] Keybinder 0.7.4[/b][/font][/font]
+
+[font size="3"][b]See your action queue and cancel queued actions before they start[/b][/font]
+
+[hr]
+
+Hello, SKLOTOPOLIS!
+
+Keybinder 0.7.4 is ready for testing.
+
+This update adds a compact Wurm-styled action queue monitor, safer target validation, and German localization. It also lets you mark a later queued action for cancellation: Keybinder remembers the request and stops that action as soon as Wurm starts it.
+
+[hr]
+
+[font size="4"][font color="#d6ad68"][b]What is new in 0.7.4?[/b][/font][/font]
+
+[font size="3"][font color="#d6ad68"][b]Compact action queue monitor[/b][/font][/font]
+
+The monitor sits against the right edge of the screen. In compact mode it shows up to ten native Build Menu queue lamps and nothing else. Click the left arrow above the first lamp to slide it open and see each action together with its Tool and Target. The arrow then points right to close the panel. The expanded width follows the displayed text instead of wasting screen space.
+
+Click a lit lamp to cancel that action. Wurm can cancel only the action currently in progress, so when you click a later queue entry Keybinder remembers it and automatically sends Stop when that action becomes current.
+
+[font size="3"][font color="#d6ad68"][b]Safer action execution[/b][/font][/font]
+
+Keybinder now validates the source and target against Wurm's action rules before sending each action. Impossible combinations are skipped with a clear Event message instead of being sent silently. The queue budget is checked step by step against the slots currently available, and long saved chains are no longer disabled merely because their total theoretical cost exceeds the character's queue limit.
+
+[font size="3"][font color="#d6ad68"][b]Localization and compatibility[/b][/font][/font]
+
+[ul][li]Added complete German localization alongside English and Brazilian Portuguese.[/li][li]Corrected Embark and Disembark source handling.[/li][li]Improved hover matching, nearby resolution, batch queue costs, and managed bind restoration.[/li][li]Saved keybinds remain compatible with 0.7.3.[/li][/ul]
+
+[hr]
+
+[font size="4"][font color="#d6ad68"][b]Installation and upgrade[/b][/font][/font]
+
+[ol][li]Disable the old Custom Actions, Improved Improve, and i2improve client mods.[/li][li]Download Keybinder 0.7.4: [a href="https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.4"]Download Keybinder 0.7.4 from GitHub[/a][/li][li]Extract keybinder-0.7.4.zip into your Wurm Unlimited client directory, as usual for Ago's Client Mod Launcher.[/li][li]When upgrading, simply overwrite the existing Keybinder files. Your managed keybinds are stored separately and are not replaced by the archive.[/li][li]Start the game. If the KB icon is not visible, enable Keybinder in HUD Settings.[/li][/ol]
+
+[hr]
+
+Keybinder is a keybind manager, not an unattended automation or scripting system. It sends ordinary Wurm actions while respecting your character's action queue.
+
+If you find a bug or have another idea, please reply here and include the relevant Event log. Enable Debug logging when possible.
+
+Cheers!
+
+Chamomilo

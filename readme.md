@@ -2,67 +2,64 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.7.3 for Wurm Unlimited
+# Keybinder 0.7.4 for Wurm Unlimited
 
-## One key, many actions — now with portable tool filters and smooth scrolling
+## See your action queue and cancel queued actions before they start
 
 Hello, SKLOTOPOLIS!
 
-Keybinder 0.7.3 is ready for testing.
+Keybinder 0.7.4 is ready for testing.
 
-This is a small update with several fixes and a useful new option for actions
-that need materials from your inventory — for example, finding a sprout and
-using it to plant.
+This update adds a compact Wurm-styled action queue monitor, safer target
+validation, and German localization. It also lets you mark a later queued
+action for cancellation: Keybinder remembers the request and stops that action
+as soon as Wurm starts it.
 
-- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.3)
+- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.4)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-## What is new in 0.7.3?
+## What is new in 0.7.4?
 
-### Inventory + filter tools
+### Compact action queue monitor
 
-This is helpful when an action must use a material stored in your inventory as
-its Tool. For example, you can plant whatever sprout you have or create kindling
-from whatever suitable wood scrap is available.
+The new monitor sits against the right edge of the screen. In its compact mode
+it shows up to ten native Build Menu queue lamps and nothing else. Click its
+left arrow above the first lamp to slide it open and see each action together
+with its Tool and Target. The arrow then points right to close the panel. The
+expanded width follows the displayed text instead of wasting screen space.
 
-It is simple to use:
+Click a lit lamp to cancel that action. Wurm can cancel only the action currently
+in progress, so when you click a later queue entry Keybinder remembers it and
+automatically sends Stop when that action becomes current. Reconnects and HUD
+replacement clear stale queue state and pending cancellation requests.
 
-1. Select **Tool → Inventory + filter**. Keybinder asks you to choose a filter
-   item; click a sprout.
-2. When you press the keybind, Keybinder searches your inventory for any
-   matching sprout and selects it.
-3. The selected sprout is used for the action — in this example, **Plant**.
+### Safer action execution
 
-The command stores the item's normalized short type as a portable filter. At
-execution time it searches in this order:
+Keybinder now validates the source and target against Wurm's action rules before
+sending each action. Impossible combinations are skipped with a clear Event
+message instead of being sent silently. Hovered, selected, inventory, creature,
+ride, and tile targets use their actual target capabilities; unknown server-mod
+actions remain permissive.
 
-- toolbelt;
-- direct player inventory;
-- nested containers.
+The queue budget is checked step by step against the slots currently available.
+Long saved chains are no longer disabled merely because their total theoretical
+cost exceeds the character's queue limit.
 
-### Smart Improve became faster
+### Localization and compatibility
 
-Smart Improve was optimized to calculate its success-rate predictions faster.
-
-### Smooth mouse-wheel scrolling
-
-Thanks to **Zeex**, the bug affecting mouse-wheel scrolling in large keybind
-lists was found and fixed. The list no longer jumps back toward the top.
-Scroll and enjoy!
-
-### Compatibility and internal fixes
-
-- Resolved an incompatibility with the **Archery** mod. Creature names are now
-  displayed correctly instead of labels such as `20m null`.
-- The **KB** launcher continues to preserve its position, visibility, and lock
-  state.
-- Added small fixes and internal refactoring without changing saved keybinds.
+- Added complete German localization alongside English and Brazilian
+  Portuguese.
+- Corrected Embark and Disembark source handling.
+- Improved hover matching, nearby resolution, batch queue costs, and managed
+  bind restoration.
+- Saved keybinds remain compatible with 0.7.3.
 
 ## Core features
 
 - Wurm-styled keybind manager available through **HUD Settings**.
 - One-shot capture of ordinary, server-mod, and client-mod actions.
 - Action chains and Multi-keybinds that respect the character's action queue.
+- Compact right-edge action queue monitor with deferred cancellation.
 - Hovered, selected, filtered, nearby, tile, area, inventory, equipment,
   toolbelt, and current-ride targets.
 - Custom actions can resolve their Tool through a portable inventory filter,
@@ -73,15 +70,15 @@ Scroll and enjoy!
   estimates.
 - Archaeology Identify with automatic brush or chisel selection.
 - Per-character enabled state across a shared Keybinder installation.
-- English and Brazilian Portuguese localization.
+- English, Brazilian Portuguese, and German localization.
 
 ## Installation and upgrade
 
 1. Disable the old **Custom Actions**, **Improved Improve**, and **i2improve**
    client mods.
 2. Download
-   [Keybinder 0.7.3 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.3).
-3. Extract `keybinder-0.7.3.zip` into your Wurm Unlimited client directory, as
+   [Keybinder 0.7.4 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.4).
+3. Extract `keybinder-0.7.4.zip` into your Wurm Unlimited client directory, as
    usual for Ago's Client Mod Launcher.
 4. When upgrading, simply overwrite the existing Keybinder files. Your managed
    keybinds are stored separately and are not replaced by the archive.

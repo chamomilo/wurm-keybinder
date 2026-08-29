@@ -66,50 +66,18 @@ public class ExecutionPlannerTest {
     }
 
     @Test
-    public void automaticNearbyFanOutUsesOnlyTheRemainingQueueCapacity() {
-        KeybindStep fixed = new ActionStep((short) 97,
-                TargetSpec.simple(TargetKind.HOVER));
-        KeybindStep automaticNearby = new ActionStep((short) 98,
-                TargetSpec.simple(TargetKind.NEARBY));
-        ExecutionPlan resolved = new ExecutionPlanner().plan(
-                Arrays.asList(fixed, automaticNearby),
-                step -> step == automaticNearby ? 20 : 1);
-
-        ExecutionPlan capped = KeybindExecutionService
-                .capDynamicFanOutWithinQueue(resolved, 8);
-
-        assertEquals(8, capped.getQueueCost());
-        assertEquals(1, capped.getEntries().get(0).getQueueCost());
-        assertEquals(7, capped.getEntries().get(1).getQueueCost());
+    public void automaticFanOutUsesOnlyTheCurrentFreeQueueCapacity() {
+        assertEquals(7, KeybindExecutionService.executableQueueCost(20, 7, true));
     }
 
     @Test
-    public void filteredFanOutDoesNotHideAKeybindThatCannotFitOnce() {
-        KeybindStep first = new ActionStep((short) 97,
-                TargetSpec.simple(TargetKind.HOVER));
-        KeybindStep second = new ActionStep((short) 98,
-                TargetSpec.simple(TargetKind.HOVER));
-        KeybindStep filtered = new ActionStep((short) 99,
-                TargetSpec.hoverType("strawberries"));
-        ExecutionPlan resolved = new ExecutionPlanner().plan(
-                Arrays.asList(first, second, filtered), step -> step == filtered ? 20 : 1);
-
-        ExecutionPlan minimum = KeybindExecutionService
-                .capDynamicFanOutWithinQueue(resolved, 2);
-
-        assertEquals(3, minimum.getQueueCost());
+    public void indivisibleStepIsSkippedWhenItDoesNotFitTheCurrentQueue() {
+        assertEquals(-1, KeybindExecutionService.executableQueueCost(2, 1, false));
     }
 
     @Test
-    public void subsequentFilteredFanOutIsRejectedWhenQueueIsFull() {
-        KeybindStep filtered = new ActionStep((short) 98,
-                TargetSpec.hoverType("strawberries"));
-        ExecutionPlan resolved = new ExecutionPlanner().plan(
-                Arrays.asList(filtered), step -> 20);
-
-        ExecutionPlan minimum = KeybindExecutionService
-                .capDynamicFanOutWithinQueue(resolved, 0);
-
-        assertEquals(1, minimum.getQueueCost());
+    public void queueConsumingStepIsSkippedWhenQueueIsFull() {
+        assertEquals(-1, KeybindExecutionService.executableQueueCost(1, 0, true));
+        assertEquals(0, KeybindExecutionService.executableQueueCost(0, 0, false));
     }
 }

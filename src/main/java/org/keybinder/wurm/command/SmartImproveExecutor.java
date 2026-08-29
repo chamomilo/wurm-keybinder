@@ -74,7 +74,9 @@ public final class SmartImproveExecutor {
 
     public int runtimeCost(SmartImproveStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
-        return prepare(step, hud, Integer.MAX_VALUE).queueCost;
+        PreparedBatch batch = prepare(step, hud, Integer.MAX_VALUE);
+        prepared.get().put(step, batch);
+        return batch.queueCost;
     }
 
     int prepareWithinBudget(SmartImproveStep step, HeadsUpDisplay hud, int budget)

@@ -1,6 +1,7 @@
 package org.keybinder.wurm.integration;
 
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
+import com.wurmonline.client.renderer.gui.KeybinderActionQueueMonitor;
 import com.wurmonline.client.renderer.gui.KeybinderWindow;
 import com.wurmonline.client.renderer.gui.KeybinderTagWindow;
 import com.wurmonline.client.renderer.gui.MainMenu;
@@ -29,6 +30,13 @@ public final class HudIntegration {
         add(hud, tag);
         SavePosManager positions = (SavePosManager) access.savePosManager(hud);
         positions.registerAndRefresh(tag, "keybinder.tag");
+    }
+
+    public void registerQueueMonitor(HeadsUpDisplay hud,
+                                     KeybinderActionQueueMonitor monitor)
+            throws ReflectiveOperationException {
+        add(hud, monitor);
+        access.ensureComponentVisible(hud, monitor);
     }
 
     public void add(HeadsUpDisplay hud, com.wurmonline.client.renderer.gui.WurmComponent component)

@@ -25,6 +25,25 @@ import org.keybinder.wurm.transfer.PortableKeybindDefinition;
 import org.keybinder.wurm.transfer.TransferImportResult;
 
 public class KeybindRegistryDefinitionMutationTest {
+    @Test public void addKeepsFixedOverLimitActionChainEnabled() throws Exception {
+        KeybindRegistry registry = registry();
+        KeybindRecord record = new KeybindRecord("long", "Long", "MOUSE_WHEEL_UP",
+                Arrays.<KeybindStep>asList(
+                        new ActionStep((short) 1, TargetSpec.simple(TargetKind.HOVER)),
+                        new ActionStep((short) 2, TargetSpec.simple(TargetKind.HOVER))));
+
+        registry.add(record, null, 1);
+
+        assertTrue(record.isEnabled());
+        assertEquals("", record.getDisabledReason());
+
+        registry.setEnabled(record.getId(), false, null, 1);
+        assertFalse(record.isEnabled());
+        registry.setEnabled(record.getId(), true, null, 1);
+        assertTrue(record.isEnabled());
+        assertEquals("", record.getDisabledReason());
+    }
+
     @Test public void duplicateUsesNewIdsPreservesDefinitionAndClearsOwnership() throws Exception {
         KeybindRegistry registry = registry();
         KeybindVariant first = new KeybindVariant("one", "One",

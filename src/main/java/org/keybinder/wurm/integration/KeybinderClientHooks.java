@@ -188,10 +188,10 @@ public final class KeybinderClientHooks {
                 "com.wurmonline.client.comm.SimpleServerConnectionClass");
         connection.getMethod("sendAction",
                 "(J[JLcom/wurmonline/shared/constants/PlayerAction;)V").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.observeActionSent($2, $3);");
+                "org.keybinder.wurm.KeybinderMod.observeActionSent($1, $2, $3);");
         connection.getMethod("sendSingleAction",
                 "(JJLcom/wurmonline/shared/constants/PlayerAction;)V").insertAfter(
-                "org.keybinder.wurm.KeybinderMod.observeSingleActionSent();");
+                "org.keybinder.wurm.KeybinderMod.observeSingleActionSent($1, $2, $3);");
         pool.getCtClass("com.wurmonline.client.renderer.gui.HeadsUpDisplay")
                 .getMethod("setAction", "(Ljava/lang/String;F)V").insertAfter(
                 "org.keybinder.wurm.KeybinderMod.observeActionState($1, $2);");

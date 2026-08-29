@@ -20,7 +20,6 @@ public final class ManagedKeybindMutationService {
         boolean sameChord(String left, String right);
         void stamp(KeybindRecord record);
         void validate(KeybindRecord record);
-        void applyLimit(KeybindRecord record, int limit);
         void save() throws IOException;
         void rollbackStore(Throwable original);
         void announceConflict(BindSnapshot conflict, String key, String newCommand);
@@ -40,11 +39,11 @@ public final class ManagedKeybindMutationService {
         KeybindRecord record = context.find(id);
         if (record == null)
             throw new IllegalArgumentException(Messages.text("event.record_missing", id));
-        if (enabled) enable(record, console, limit, context);
+        if (enabled) enable(record, console, context);
         else disable(record, console, context);
     }
 
-    private void enable(KeybindRecord record, WurmConsole console, int limit, Context context)
+    private void enable(KeybindRecord record, WurmConsole console, Context context)
             throws IOException, ReflectiveOperationException {
         boolean oldEnabled = record.isEnabled();
         String oldReason = record.getDisabledReason();
@@ -58,10 +57,6 @@ public final class ManagedKeybindMutationService {
         try {
             context.validate(record);
             record.setEnabled(true);
-            context.applyLimit(record, limit);
-            if (!record.isEnabled())
-                throw new IllegalArgumentException(
-                        DisableReason.display(record.getDisabledReason()));
             record.setDisabledReason("");
             if (displaced != null) {
                 displaced.setEnabled(false);
@@ -146,7 +141,6 @@ public final class ManagedKeybindMutationService {
             displaced.setEnabled(false);
             displaced.setDisabledReason(DisableReason.value("replaced_by", record.getName()));
         }
-        context.applyLimit(record, limit);
         context.records().add(record);
         try {
             context.save();

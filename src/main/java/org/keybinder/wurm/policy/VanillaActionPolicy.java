@@ -35,7 +35,10 @@ public final class VanillaActionPolicy {
     /** Unknown server/mod actions remain fully configurable. */
     public static boolean acceptsSelectableTool(short actionId) {
         if (actionId == DRINK_ACTION_ID
-                || actionId == OPEN_INVENTORY_CONTAINER_ACTION_ID) return false;
+                || actionId == OPEN_INVENTORY_CONTAINER_ACTION_ID
+                || actionId == PlayerAction.EMBARK_DRIVER.getId()
+                || actionId == PlayerAction.EMBARK_PASSENGER.getId()
+                || actionId == PlayerAction.DISEMBARK.getId()) return false;
         Capabilities capabilities = CAPABILITIES.get(actionId);
         return capabilities == null || capabilities.selectableTool;
     }

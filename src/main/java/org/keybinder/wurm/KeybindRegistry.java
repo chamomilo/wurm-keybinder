@@ -22,7 +22,6 @@ import org.keybinder.wurm.model.KeybindNamePrefixes;
 import org.keybinder.wurm.model.KeybindDefinitionService;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
-import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.storage.KeybindStore;
 import org.keybinder.wurm.storage.AccountKeybindStateStore;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
@@ -47,7 +46,6 @@ public final class KeybindRegistry implements ValuePackTarget {
     private final ManagedBindAccess binds;
     private final VanillaImportService vanillaImports;
     private final ManagedKeybindMutationService mutations;
-    private final ActionQueueCostCalculator costs;
     private final EventLogger log;
     private final KeybindDefinitionService definitions = new KeybindDefinitionService();
     private String currentUser = "";
@@ -68,12 +66,11 @@ public final class KeybindRegistry implements ValuePackTarget {
         this.store = store;
         this.accountBindings = new AccountBindingCoordinator(accountStates, log);
         this.accountRestorer = new AccountBindingRestorer(
-                binds, accountBindings, costs, log);
+                binds, accountBindings, log);
         this.externalSynchronizer = new ExternalBindingSynchronizer(store, binds, log);
         this.binds = binds;
         this.vanillaImports = new VanillaImportService(binds, customActionsImporter, log);
         this.mutations = new ManagedKeybindMutationService(binds, log);
-        this.costs = costs;
         this.log = log;
     }
 
@@ -161,8 +158,8 @@ public final class KeybindRegistry implements ValuePackTarget {
      * that player's keybindings, then repairs missing owned dispatcher binds.
      */
     public synchronized boolean restoreAccountBindings(
-            String account, WurmConsole console, int limit) {
-        return accountRestorer.restore(account, records, console, limit, this::commandFor);
+            String account, WurmConsole console) {
+        return accountRestorer.restore(account, records, console, this::commandFor);
     }
 
     public synchronized void persistAccountBindings() {
@@ -363,7 +360,7 @@ public final class KeybindRegistry implements ValuePackTarget {
                                           WurmConsole console, int limit)
             throws IOException, ReflectiveOperationException {
         validate(persisted);
-        applyLimit(persisted, limit);
+        clearLegacyQueueDisable(persisted);
         String oldKey = found.getKey();
         String oldCommand = commandFor(found);
         String newCommand = commandFor(persisted);
@@ -406,7 +403,7 @@ public final class KeybindRegistry implements ValuePackTarget {
                                            String reason, WurmConsole console, int limit)
             throws IOException, ReflectiveOperationException {
         validate(persisted);
-        applyLimit(persisted, limit);
+        clearLegacyQueueDisable(persisted);
         persisted.setEnabled(false);
         persisted.setDisabledReason(reason == null || reason.trim().isEmpty()
                 ? DisableReason.value("key_in_use") : reason);
@@ -517,7 +514,7 @@ public final class KeybindRegistry implements ValuePackTarget {
         KeybindRecord extracted = extraction.getExtracted();
         String variantName = extraction.getVariantName();
         validate(parent);
-        if (parent.isEnabled()) applyLimit(parent, limit);
+        if (parent.isEnabled()) clearLegacyQueueDisable(parent);
         validate(extracted);
 
         String oldKey = source.getKey();
@@ -758,9 +755,6 @@ public final class KeybindRegistry implements ValuePackTarget {
             @Override public void stamp(KeybindRecord record) {
                 KeybindRegistry.this.stamp(record);
             }
-            @Override public void applyLimit(KeybindRecord record, int limit) {
-                KeybindRegistry.this.applyLimit(record, limit);
-            }
             @Override public void save() throws IOException { saveRecords(); }
         };
     }
@@ -786,9 +780,6 @@ public final class KeybindRegistry implements ValuePackTarget {
             }
             @Override public void validate(KeybindRecord record) {
                 KeybindRegistry.this.validate(record);
-            }
-            @Override public void applyLimit(KeybindRecord record, int limit) {
-                KeybindRegistry.this.applyLimit(record, limit);
             }
             @Override public void save() throws IOException { saveRecords(); }
             @Override public void rollbackStore(Throwable original) {
@@ -832,7 +823,7 @@ public final class KeybindRegistry implements ValuePackTarget {
         }
     }
 
-    public synchronized void enforceLimit(int limit, WurmConsole console) {
+    public synchronized void reconcileManagedBindings(WurmConsole console) {
         boolean changed = false;
         for (KeybindRecord record : records) {
             if (!record.getPreviousManagedCommand().isEmpty()) {
@@ -856,7 +847,7 @@ public final class KeybindRegistry implements ValuePackTarget {
                 }
             }
             boolean wasEnabled = record.isEnabled();
-            applyLimit(record, limit);
+            clearLegacyQueueDisable(record);
             if (wasEnabled && !record.isEnabled()) {
                 try { removeLive(console, record.getKey(), commandFor(record)); }
                 catch (Exception e) {
@@ -907,12 +898,13 @@ public final class KeybindRegistry implements ValuePackTarget {
         return InputKeyCatalog.isVirtual(key) || binds.removeIfOwned(console, key, command);
     }
 
-    private void applyLimit(KeybindRecord record, int limit) {
-        QueueCost cost = costs.keybindCost(record);
-        if (limit > 0 && cost.getKind() == QueueCost.Kind.FIXED && cost.getValue() > limit) {
-            record.setEnabled(false);
-            record.setDisabledReason(DisableReason.value("queue_exceeded", cost.getValue(), limit));
-        }
+    private void clearLegacyQueueDisable(KeybindRecord record) {
+        // Queue capacity is runtime state, not a validity or activation rule.
+        // The editor/list still calculate and display the warning, while the
+        // executor budgets each concrete step immediately before dispatch.
+        if (record.isEnabled()
+                && DisableReason.isQueueExceeded(record.getDisabledReason()))
+            record.setDisabledReason("");
     }
 
     private String contents(KeybindRecord record) {

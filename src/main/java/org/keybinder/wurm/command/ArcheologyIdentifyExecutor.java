@@ -55,7 +55,7 @@ public final class ArcheologyIdentifyExecutor {
         this.sender = sender;
     }
 
-    /** Resolves the complete batch before queue preflight and caches it for execution. */
+    /** Resolves the complete batch for the current step and caches it for execution. */
     public int runtimeCost(ArcheologyIdentifyStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
         PreparedBatch batch = prepare(step, hud, Integer.MAX_VALUE);

@@ -7,7 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 public class ActionExecutorHoverTypeTest {
     @Test
-    public void absentOrUnresolvedHoverIsSilent() {
+    public void absentOrUnresolvedHoverDoesNotClaimATypeMismatch() {
         assertFalse(ActionExecutor.shouldReportHoverTypeMismatch(0, 0));
         assertFalse(ActionExecutor.shouldReportHoverTypeMismatch(1, 0));
     }

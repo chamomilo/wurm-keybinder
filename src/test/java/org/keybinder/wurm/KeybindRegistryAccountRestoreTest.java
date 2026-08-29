@@ -65,7 +65,7 @@ public class KeybindRegistryAccountRestoreTest {
             live.put("R", "keybinder_run smelt");
             KeybindRegistry session = registry(definitions, accounts, live);
 
-            assertTrue(session.restoreAccountBindings(names[i], console(), 10));
+            assertTrue(session.restoreAccountBindings(names[i], console()));
 
             for (int j = 0; j < expected[i].length; j++)
                 assertEquals("keybinder_run " + expected[i][j], live.get(keys[i][j]));

@@ -2,6 +2,7 @@ package org.keybinder.wurm.bind;
 
 import org.junit.Test;
 import org.keybinder.wurm.event.EventLogger;
+import org.keybinder.wurm.i18n.DisableReason;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.storage.AccountKeybindStateStore;
@@ -90,6 +91,23 @@ public class AccountBindingCoordinatorTest {
         assertFalse(secondA.isEnabled());
         assertFalse(firstB.isEnabled());
         assertTrue(secondB.isEnabled());
+    }
+
+    @Test public void legacyAutomaticQueueDisableMigratesBackToEnabled() throws Exception {
+        AccountKeybindStateStore store = new AccountKeybindStateStore(
+                Files.createTempDirectory("account-queue-warning")
+                        .resolve("accounts.properties"));
+        KeybindRecord record = record("long");
+        record.setEnabled(false);
+        record.setDisabledReason(DisableReason.value("queue_exceeded", 9, 4));
+        store.save("Player", Collections.<String>emptySet());
+        AccountBindingCoordinator coordinator = new AccountBindingCoordinator(store,
+                new EventLogger(Logger.getAnonymousLogger()));
+
+        coordinator.activate("Player", Collections.singletonList(record));
+
+        assertTrue(record.isEnabled());
+        assertEquals("", record.getDisabledReason());
     }
 
     private static KeybindRecord record(String id) {

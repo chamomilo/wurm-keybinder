@@ -22,9 +22,9 @@ import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.model.BulkTransferStep;
 import org.keybinder.wurm.integration.ExecutionOriginGuard;
 import org.keybinder.wurm.integration.ExecutionHoverOverride;
+import org.keybinder.wurm.queue.QueueCapacityException;
 import org.keybinder.wurm.queue.QueueCapacityPreflight;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntSupplier;
 
@@ -77,26 +77,9 @@ public final class KeybindExecutionService {
                     Messages.text("execution.sequence_pending", record.getName()));
         boolean waitingForBulk = false;
         try {
-            int occupied = occupiedQueueSlots == null ? 0
-                    : Math.max(0, occupiedQueueSlots.getAsInt());
-            int free = Math.max(0, queueLimit - occupied);
-            ExecutionPlan plan;
-            try (ExecutionHoverOverride.Scope ignored =
-                         ExecutionHoverOverride.push(hoverSnapshot)) {
-                plan = planWithinQueue(record.getKeybindSteps(), hud, free,
-                        queueLimit, occupiedQueueSlots);
-            }
-            for (ExecutionPlan.Entry entry : plan.getEntries()) {
-                if (!entry.isSkipped()) continue;
-                Throwable failure = entry.getSkippedBy();
-                String message = skipMessage(entry.getIndex(), entry.getStep(),
-                        safeMessage(failure));
-                if (failure instanceof StepUnavailableException) log.warning(message);
-                else log.error(message, failure);
-            }
-            QueueCapacityPreflight.requireFits(plan.getQueueCost(), queueLimit, occupied);
             waitingForBulk = new ExecutionSequence(
-                    record.getId(), hud, plan, hoverSnapshot).runFrom(0);
+                    record.getId(), hud, record.getKeybindSteps(), hoverSnapshot,
+                    queueLimit, occupiedQueueSlots).runFrom(0);
         } finally {
             if (!waitingForBulk) finishExecution(record.getId());
         }
@@ -121,42 +104,51 @@ public final class KeybindExecutionService {
     private final class ExecutionSequence {
         private final String recordId;
         private final HeadsUpDisplay hud;
-        private final ExecutionPlan plan;
+        private final List<KeybindStep> steps;
         private final ExecutionHoverOverride.Snapshot hoverSnapshot;
+        private final int queueLimit;
+        private final IntSupplier occupiedQueueSlots;
+        private int occupiedBaseline;
+        private int locallyReserved;
 
         private ExecutionSequence(String recordId, HeadsUpDisplay hud,
-                                  ExecutionPlan plan,
-                                  ExecutionHoverOverride.Snapshot hoverSnapshot) {
+                                  List<KeybindStep> steps,
+                                  ExecutionHoverOverride.Snapshot hoverSnapshot,
+                                  int queueLimit,
+                                  IntSupplier occupiedQueueSlots) {
             this.recordId = recordId;
             this.hud = hud;
-            this.plan = plan;
+            this.steps = steps;
             this.hoverSnapshot = hoverSnapshot;
+            this.queueLimit = queueLimit;
+            this.occupiedQueueSlots = occupiedQueueSlots;
+            this.occupiedBaseline = reportedOccupied();
         }
 
         private boolean runFrom(int position) {
             ExecutionOriginGuard.enterInternal();
             try (ExecutionHoverOverride.Scope ignored =
                          ExecutionHoverOverride.push(hoverSnapshot)) {
-                List<ExecutionPlan.Entry> entries = plan.getEntries();
-                for (int current = position; current < entries.size(); current++) {
-                    ExecutionPlan.Entry entry = entries.get(current);
-                    if (entry.isSkipped()) continue;
-                    int index = entry.getIndex();
-                    KeybindStep step = entry.getStep();
+                for (int current = position; current < steps.size(); current++) {
+                    KeybindStep step = steps.get(current);
                     try {
+                        int plannedQueueCost = prepareWithinCurrentQueue(step);
                         if (step instanceof BulkTransferStep) {
                             final int resumeAt = current + 1;
                             bulk.execute((BulkTransferStep) step, hud,
                                     proceed -> continueAfterBulk(resumeAt, proceed));
                             return true;
                         }
-                        executeStep(step, hud, entry.getQueueCost());
+                        executeStep(step, hud, plannedQueueCost);
+                        reserveLocally(plannedQueueCost);
                     } catch (StepUnavailableException unavailable) {
-                        log.warning(skipMessage(index, step, unavailable.getMessage()));
+                        log.warning(skipMessage(current, step, unavailable.getMessage()));
+                    } catch (QueueCapacityException capacity) {
+                        log.warning(skipMessage(current, step, capacity.getMessage()));
                     } catch (RuntimeException failure) {
-                        log.error(skipMessage(index, step, safeMessage(failure)), failure);
+                        log.error(skipMessage(current, step, safeMessage(failure)), failure);
                     } catch (ReflectiveOperationException failure) {
-                        log.error(skipMessage(index, step, safeMessage(failure)), failure);
+                        log.error(skipMessage(current, step, safeMessage(failure)), failure);
                     }
                 }
                 return false;
@@ -168,108 +160,85 @@ public final class KeybindExecutionService {
         private void continueAfterBulk(int position, boolean proceed) {
             boolean waitingAgain = false;
             try {
-                if (proceed) waitingAgain = runFrom(position);
+                if (proceed) {
+                    rebaseQueueEstimate();
+                    waitingAgain = runFrom(position);
+                }
             } catch (RuntimeException failure) {
                 log.error(Messages.text("error.bulk_continuation"), failure);
             } finally {
                 if (!waitingAgain) finishExecution(recordId);
             }
         }
+
+        private int prepareWithinCurrentQueue(KeybindStep step)
+                throws ReflectiveOperationException {
+            int required = runtimeStepCost(step, hud);
+            if (required < 0) throw new IllegalStateException("Negative queue cost");
+            int occupied = effectiveOccupied();
+            int free = QueueCapacityPreflight.remaining(queueLimit, occupied);
+            int allowed = executableQueueCost(required, free, canSplitAcrossTargets(step));
+            if (allowed < 0)
+                throw new QueueCapacityException(Messages.text(
+                        "execution.step_queue_remaining", required, free,
+                        queueLimit, occupied));
+            if (allowed < required) {
+                int prepared = allowed;
+                if (step instanceof SmartImproveStep)
+                    prepared = improve.prepareWithinBudget((SmartImproveStep) step, hud,
+                            allowed, queueLimit, occupiedQueueSlots);
+                else if (step instanceof ArcheologyIdentifyStep)
+                    prepared = archeologyIdentify.prepareWithinBudget(
+                            (ArcheologyIdentifyStep) step, hud, allowed);
+                if (prepared <= 0 && required > 0)
+                    throw new QueueCapacityException(Messages.text(
+                            "execution.step_queue_remaining", required, free,
+                            queueLimit, occupied));
+                return prepared;
+            }
+            return allowed;
+        }
+
+        private int reportedOccupied() {
+            return occupiedQueueSlots == null ? 0
+                    : Math.max(0, occupiedQueueSlots.getAsInt());
+        }
+
+        private int effectiveOccupied() {
+            long local = (long) occupiedBaseline + locallyReserved;
+            int localFloor = local > Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE : (int) local;
+            return Math.max(reportedOccupied(), localFloor);
+        }
+
+        private void reserveLocally(int count) {
+            if (count <= 0) return;
+            locallyReserved = locallyReserved > Integer.MAX_VALUE - count
+                    ? Integer.MAX_VALUE : locallyReserved + count;
+        }
+
+        private void rebaseQueueEstimate() {
+            occupiedBaseline = reportedOccupied();
+            locallyReserved = 0;
+        }
     }
 
-    private ExecutionPlan planWithinQueue(List<KeybindStep> steps, HeadsUpDisplay hud,
-                                          int freeQueueSlots, int queueLimit,
-                                          IntSupplier occupiedQueueSlots) {
-        List<ExecutionPlan.Entry> entries = new ArrayList<ExecutionPlan.Entry>(steps.size());
-        int nonImproveCost = 0;
-        for (int index = 0; index < steps.size(); index++) {
-            KeybindStep step = steps.get(index);
-            if (step instanceof SmartImproveStep
-                    || step instanceof ArcheologyIdentifyStep) {
-                entries.add(null);
-                continue;
-            }
-            try {
-                int cost = runtimeStepCost(step, hud);
-                if (cost < 0) throw new IllegalStateException("Negative queue cost");
-                entries.add(new ExecutionPlan.Entry(index, step, cost, null));
-                nonImproveCost += cost;
-            } catch (Exception failure) {
-                entries.add(new ExecutionPlan.Entry(index, step, 0, failure));
-            }
-        }
-        ExecutionPlan nonImprovePlan = capDynamicFanOutWithinQueue(
-                new ExecutionPlan(entries, nonImproveCost), freeQueueSlots);
-        entries = new ArrayList<ExecutionPlan.Entry>(nonImprovePlan.getEntries());
-        nonImproveCost = nonImprovePlan.getQueueCost();
-        int remaining = Math.max(0, freeQueueSlots - nonImproveCost);
-        int adaptiveCost = 0;
-        for (int index = 0; index < steps.size(); index++) {
-            KeybindStep step = steps.get(index);
-            try {
-                int cost;
-                if (step instanceof SmartImproveStep) {
-                    cost = improve.prepareWithinBudget((SmartImproveStep) step, hud,
-                            remaining, queueLimit, occupiedQueueSlots);
-                } else if (step instanceof ArcheologyIdentifyStep) {
-                    cost = archeologyIdentify.prepareWithinBudget(
-                            (ArcheologyIdentifyStep) step, hud, remaining);
-                } else {
-                    continue;
-                }
-                entries.set(index, new ExecutionPlan.Entry(index, step, cost, null));
-                remaining = Math.max(0, remaining - cost);
-                adaptiveCost += cost;
-            } catch (Exception failure) {
-                entries.set(index, new ExecutionPlan.Entry(index, step, 0, failure));
-            }
-        }
-        return new ExecutionPlan(entries, nonImproveCost + adaptiveCost);
+    static int executableQueueCost(int required, int free, boolean splittable) {
+        if (required < 0) throw new IllegalArgumentException("Negative queue cost");
+        int available = Math.max(0, free);
+        if (required <= available) return required;
+        if (splittable && available > 0) return available;
+        return -1;
     }
 
-    /**
-     * An automatic Nearby or filtered Hover action is one keybind step that can
-     * expand to many server queue entries. Preserve at least one target per available
-     * fan-out step so the keybind itself remains atomic, then spend the remaining
-     * queue capacity on additional targets in step order. Targets beyond that budget
-     * are intentionally silent; only failure of the minimum keybind itself reaches
-     * the ordinary one-line queue-capacity warning.
-     */
-    static ExecutionPlan capDynamicFanOutWithinQueue(ExecutionPlan plan,
-                                                      int freeQueueSlots) {
-        int minimumCost = 0;
-        for (ExecutionPlan.Entry entry : plan.getEntries()) {
-            if (entry == null || entry.isSkipped()) continue;
-            minimumCost += isBudgetedFanOut(entry.getStep()) && entry.getQueueCost() > 0
-                    ? 1 : entry.getQueueCost();
-        }
-        boolean minimumFits = minimumCost <= freeQueueSlots;
-        int extraCapacity = minimumFits ? freeQueueSlots - minimumCost : 0;
-        int cappedCost = 0;
-        List<ExecutionPlan.Entry> capped =
-                new ArrayList<ExecutionPlan.Entry>(plan.getEntries().size());
-        for (ExecutionPlan.Entry entry : plan.getEntries()) {
-            if (entry == null || entry.isSkipped() || !isBudgetedFanOut(entry.getStep())
-                    || entry.getQueueCost() <= 0) {
-                capped.add(entry);
-                if (entry != null) cappedCost += entry.getQueueCost();
-                continue;
-            }
-            int extraTargets = minimumFits
-                    ? Math.min(entry.getQueueCost() - 1, extraCapacity) : 0;
-            int allowedTargets = 1 + extraTargets;
-            extraCapacity -= extraTargets;
-            capped.add(new ExecutionPlan.Entry(entry.getIndex(), entry.getStep(),
-                    allowedTargets, null));
-            cappedCost += allowedTargets;
-        }
-        return new ExecutionPlan(capped, cappedCost);
-    }
-
-    private static boolean isBudgetedFanOut(KeybindStep step) {
+    private static boolean canSplitAcrossTargets(KeybindStep step) {
+        if (step instanceof SmartImproveStep || step instanceof ArcheologyIdentifyStep)
+            return true;
         if (!(step instanceof ActionStep)) return false;
         TargetKind target = ((ActionStep) step).getTarget().getKind();
-        return target == TargetKind.HOVER_TYPE || target == TargetKind.NEARBY;
+        return target == TargetKind.AREA || target == TargetKind.NEARBY_RADIUS
+                || target == TargetKind.NEARBY || target == TargetKind.HOVER
+                || target == TargetKind.HOVER_TYPE;
     }
 
     private int runtimeStepCost(KeybindStep step, HeadsUpDisplay hud)

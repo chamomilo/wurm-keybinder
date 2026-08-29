@@ -30,6 +30,7 @@ public final class AccountBindingCoordinator {
             persist(records);
         if (store == null) {
             activeAccount = requestedAccount;
+            restoreLegacyQueueWarnings(records);
             return activeAccount;
         }
         try {
@@ -37,12 +38,18 @@ public final class AccountBindingCoordinator {
             activeAccount = requestedAccount;
             if (state.isPresent()) {
                 for (KeybindRecord record : records) {
-                    boolean enabled = state.getEnabledIds().contains(record.getId());
+                    // Older releases removed over-limit records from the account's
+                    // enabled set. Their persisted reason is the only remaining
+                    // evidence of user intent, so migrate that one automatic state
+                    // back to enabled now that queue length is warning-only.
+                    boolean enabled = state.getEnabledIds().contains(record.getId())
+                            || DisableReason.isQueueExceeded(record.getDisabledReason());
                     record.setEnabled(enabled);
                     record.setDisabledReason(enabled ? ""
                             : DisableReason.value("disabled_by_user"));
                 }
             } else {
+                restoreLegacyQueueWarnings(records);
                 persist(records);
             }
         } catch (Exception failure) {
@@ -51,6 +58,14 @@ public final class AccountBindingCoordinator {
             return "";
         }
         return activeAccount;
+    }
+
+    private static void restoreLegacyQueueWarnings(List<KeybindRecord> records) {
+        for (KeybindRecord record : records) {
+            if (!DisableReason.isQueueExceeded(record.getDisabledReason())) continue;
+            record.setEnabled(true);
+            record.setDisabledReason("");
+        }
     }
 
     public void persist(List<KeybindRecord> records) {

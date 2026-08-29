@@ -6,6 +6,7 @@ import com.wurmonline.client.game.PlayerObj;
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.PickableUnit;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
+import com.wurmonline.client.renderer.gui.KeybinderActionQueueMonitor;
 import com.wurmonline.client.renderer.gui.KeybinderCaptureWindow;
 import com.wurmonline.client.renderer.gui.KeybinderConflictWindow;
 import com.wurmonline.client.renderer.gui.KeybinderEditorWindow;
@@ -22,6 +23,7 @@ import com.wurmonline.client.renderer.gui.KeybinderTagWindow;
 import com.wurmonline.client.renderer.gui.SelectBar;
 import com.wurmonline.client.renderer.gui.WurmComponent;
 import com.wurmonline.shared.constants.PlayerAction;
+import com.wurmonline.mesh.Tiles;
 import org.keybinder.wurm.bind.VanillaBindService;
 import org.keybinder.wurm.bind.BindSnapshot;
 import org.keybinder.wurm.bind.AccountActivationGate;
@@ -68,8 +70,8 @@ import org.keybinder.wurm.model.BulkStorageItem;
 import org.keybinder.wurm.model.InventoryReference;
 import org.keybinder.wurm.migration.CustomActionsImporter;
 import org.keybinder.wurm.queue.ActionQueueCostCalculator;
+import org.keybinder.wurm.queue.ActionQueueEntry;
 import org.keybinder.wurm.queue.ActionQueueOccupancyTracker;
-import org.keybinder.wurm.queue.QueueCapacityException;
 import org.keybinder.wurm.queue.QueueCost;
 import org.keybinder.wurm.queue.QueueLimitService;
 import org.keybinder.wurm.recording.ActionCapture;
@@ -109,7 +111,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.7.3";
+    public static final String VERSION = "0.7.4";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -162,6 +164,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             new AccountActivationGate();
     private static volatile KeybinderWindow window;
     private static volatile KeybinderTagWindow tagWindow;
+    private static volatile KeybinderActionQueueMonitor queueMonitor;
     private static volatile KeybinderEditorWindow editorWindow;
     private static volatile KeybinderCaptureWindow captureWindow;
     private static volatile KeybinderConflictWindow conflictWindow;
@@ -402,8 +405,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         boolean worldPoint = hud != null
                 && hud.getComponentAt(originalMouseX, originalMouseY) == null;
         multiSelectorHoverSnapshot = hudSelection && worldPoint && originalHovered != null
-                ? new ExecutionHoverOverride.Snapshot(originalHovered.getId(),
-                originalHovered instanceof com.wurmonline.client.renderer.cell.GroundItemCellRenderable)
+                ? new ExecutionHoverOverride.Snapshot(originalHovered)
                 : null;
         EVENTS.diagnostic("multi-selector opening: recordId=" + record.getId()
                 + ", hudSelection=" + hudSelection + ", originalMouseX="
@@ -453,14 +455,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             return;
         }
         final int queueLimit = LIMITS.readLimit(currentHud);
-        try {
-            KEYBIND_EXECUTOR.execute(record, currentHud, queueLimit,
-                    () -> ACTION_QUEUE.occupied(hudShowsAction(currentHud)),
-                    hoverSnapshot);
-        } catch (QueueCapacityException capacity) {
-            EVENTS.warning(capacity.getMessage());
-            return;
-        }
+        KEYBIND_EXECUTOR.execute(record, currentHud, queueLimit,
+                () -> ACTION_QUEUE.occupied(hudShowsAction(currentHud)),
+                hoverSnapshot);
         EVENTS.execution(Messages.text("event.executed", record.getDisplayName(),
                 org.keybinder.wurm.catalog.InputKeyCatalog.displayChord(record.getKey())));
     }
@@ -633,19 +630,92 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    public static void observeActionSent(long[] targets, PlayerAction action) {
+    public static void observeActionSent(long sourceId, long[] targets, PlayerAction action) {
         if (targets == null || targets.length == 0) return;
-        int count = action != null && action.isAtomic()
-                ? 1 : Math.min(10, targets.length);
-        ACTION_QUEUE.actionsSent(count);
+        if (isStopAction(action)) return;
+        String actionName = queueActionName(action);
+        String sourceName = queueObjectName(sourceId, true);
+        if (action != null && action.isAtomic()) {
+            String targetName = targets.length == 1
+                    ? queueObjectName(targets[0], false)
+                    : Messages.text("queue.monitor.targets", targets.length);
+            ACTION_QUEUE.actionSent(actionName, sourceName, targetName, targets[0]);
+            return;
+        }
+        for (int index = 0; index < Math.min(10, targets.length); index++)
+            ACTION_QUEUE.actionSent(actionName, sourceName,
+                    queueObjectName(targets[index], false), targets[index]);
     }
 
-    public static void observeSingleActionSent() {
-        ACTION_QUEUE.actionsSent(1);
+    public static void observeSingleActionSent(long sourceId, long targetId,
+                                               PlayerAction action) {
+        if (isStopAction(action)) return;
+        ACTION_QUEUE.actionSent(queueActionName(action),
+                queueObjectName(sourceId, true), queueObjectName(targetId, false), targetId);
     }
 
     public static void observeActionState(String actionText, float durationSeconds) {
-        ACTION_QUEUE.actionState(actionText, durationSeconds);
+        try {
+            ACTION_QUEUE.actionState(actionText, durationSeconds);
+            ActionQueueEntry remembered = ACTION_QUEUE.claimReadyCancellation();
+            if (remembered != null && sendStopForMonitoredAction(remembered)) {
+                EVENTS.info(Messages.text("event.queue_monitor_auto_stop",
+                        remembered.getAction()));
+            }
+        } catch (Throwable failure) {
+            LOGGER.log(Level.WARNING, "Unable to process a remembered queue cancellation",
+                    failure);
+        }
+    }
+
+    private static boolean isStopAction(PlayerAction action) {
+        return action != null && action.getId() == PlayerAction.STOP.getId();
+    }
+
+    private static String queueActionName(PlayerAction action) {
+        if (action == null) return Messages.text("editor.action");
+        KeybinderMod instance = INSTANCE;
+        if (instance != null) {
+            String displayed = instance.getActionName(action.getId());
+            if (displayed != null && !displayed.trim().isEmpty())
+                return stripActionNumber(displayed.trim());
+        }
+        String name = action.getName();
+        if (name != null && !name.trim().isEmpty()) return stripActionNumber(name.trim());
+        return Messages.text("event.action_number", action.getId());
+    }
+
+    private static String queueObjectName(long objectId, boolean source) {
+        if (objectId < 0L)
+            return Messages.text(source ? "source.empty_hand" : "queue.monitor.no_target");
+        if (!source && isTileId(objectId))
+            return Messages.text("queue.monitor.tile",
+                    Tiles.decodeTileX(objectId), Tiles.decodeTileY(objectId));
+        HeadsUpDisplay currentHud = hud;
+        ClientAccess access = ACCESS;
+        if (currentHud != null && access != null) {
+            try {
+                InventoryMetaItem item = access.inventoryItem(currentHud, objectId);
+                String name = preferredName(item);
+                if (!name.isEmpty()) return name;
+            } catch (ReflectiveOperationException | RuntimeException failure) {
+                LOGGER.log(Level.FINEST, "Unable to describe queued inventory object "
+                        + objectId, failure);
+            }
+            try {
+                String name = access.objectType(currentHud, objectId);
+                if (name != null && !name.trim().isEmpty()) return name.trim();
+            } catch (ReflectiveOperationException | RuntimeException failure) {
+                LOGGER.log(Level.FINEST, "Unable to describe queued world object "
+                        + objectId, failure);
+            }
+        }
+        return Messages.text("queue.monitor.object", objectId);
+    }
+
+    private static boolean isTileId(long id) {
+        int type = (int) (id & 0xffL);
+        return type == 3 || type == 17;
     }
 
     public static Object interceptToolbeltSelection(Object proxy,
@@ -980,9 +1050,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             closeMultiSelector();
             window = new KeybinderWindow(INSTANCE);
             tagWindow = new KeybinderTagWindow(INSTANCE);
+            queueMonitor = new KeybinderActionQueueMonitor(INSTANCE);
             HudIntegration hudIntegration = new HudIntegration(ACCESS);
             hudIntegration.register(newHud, window);
             hudIntegration.registerTag(newHud, tagWindow);
+            hudIntegration.registerQueueMonitor(newHud, queueMonitor);
             if (LEGACY_ACTION.isInstalled())
                 EVENTS.warning(Messages.text("event.legacy_installed"));
             if (LEGACY_IMPROVE.isInstalled())
@@ -1045,7 +1117,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         if (ACCESS != null)
             new HudSessionDisposer<HeadsUpDisplay, WurmComponent>(
                     LOGGER, ACCESS::hideComponent).hideAll(oldHud,
-                    captureWindow, conflictWindow, tileWindow, selectionWindow,
+                    queueMonitor, captureWindow, conflictWindow, tileWindow, selectionWindow,
                     multiSelectorWindow, mergeWindow, editorWindow, importWindow,
                     legacyWindow);
         captureWindow = null;
@@ -1059,6 +1131,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         legacyWindow = null;
         window = null;
         tagWindow = null;
+        queueMonitor = null;
         if (editorWorkflow != null) editorWorkflow.clear();
         toolbeltOpenedForSelection = false;
         equipmentOpenedForSelection = false;
@@ -1176,12 +1249,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             refreshCreationContext();
             WurmConsole console = ACCESS.console(currentHud);
-            int limit = LIMITS.readLimit(currentHud);
-            if (!registry.restoreAccountBindings(account, console, limit)) {
+            if (!registry.restoreAccountBindings(account, console)) {
                 ACCOUNT_ACTIVATION.failed(account, now, 5000L);
                 return false;
             }
-            registry.enforceLimit(limit, console);
+            registry.reconcileManagedBindings(console);
             ACCOUNT_ACTIVATION.applied(account);
             if (window != null) window.refresh();
             LOGGER.info("Applied Keybinder activation profile for " + account);
@@ -1254,6 +1326,60 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     @Override public int getQueueLimit() { return LIMITS.readLimit(hud); }
+    @Override public int getQueueMonitorSlots() {
+        int limit = LIMITS.readLimit(hud);
+        return limit > 0 ? Math.min(10, limit) : 10;
+    }
+    @Override public List<ActionQueueEntry> getMonitoredActions() {
+        ACTION_QUEUE.occupied(hudShowsAction(hud));
+        return ACTION_QUEUE.snapshot(10);
+    }
+    @Override public void cancelMonitoredAction(long sequence) {
+        HeadsUpDisplay currentHud = hud;
+        if (currentHud == null) return;
+        ACTION_QUEUE.occupied(hudShowsAction(currentHud));
+        ActionQueueEntry selected = null;
+        for (ActionQueueEntry entry : ACTION_QUEUE.snapshot(10))
+            if (entry.getSequence() == sequence) {
+                selected = entry;
+                break;
+            }
+        ActionQueueOccupancyTracker.CancellationRequest request =
+                ACTION_QUEUE.requestCancellation(sequence);
+        switch (request) {
+            case CURRENT:
+                sendStopForMonitoredAction(selected);
+                return;
+            case QUEUED_SCHEDULED:
+                EVENTS.info(Messages.text("event.queue_monitor_queued_cancel_scheduled",
+                        selected == null ? Messages.text("editor.action")
+                                : selected.getAction()));
+                return;
+            case ALREADY_REQUESTED:
+                EVENTS.warning(Messages.text("event.queue_monitor_stop_pending"));
+                return;
+            case NOT_FOUND:
+            default:
+                return;
+        }
+    }
+
+    private static boolean sendStopForMonitoredAction(ActionQueueEntry selected) {
+        if (selected == null) return false;
+        HeadsUpDisplay currentHud = hud;
+        if (currentHud == null) {
+            ACTION_QUEUE.cancellationFailed(selected.getSequence());
+            return false;
+        }
+        try {
+            currentHud.sendAction(PlayerAction.STOP, selected.getTargetId());
+            return true;
+        } catch (Throwable failure) {
+            ACTION_QUEUE.cancellationFailed(selected.getSequence());
+            EVENTS.error(Messages.text("error.queue_monitor_stop"), failure);
+            return false;
+        }
+    }
     @Override public QueueCost getKeybindCost(KeybindRecord record) { return COSTS.keybindCost(record); }
     @Override public List<KeybindRecord> getRecords() { return registry == null ? Collections.<KeybindRecord>emptyList() : registry.snapshot(); }
     @Override public void addNewKeybind() {

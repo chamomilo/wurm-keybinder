@@ -15,9 +15,9 @@ public final class ActionQueueCostCalculator {
     /**
      * Returns the design-time cost used by editor, save, enable and status checks.
      * Automatic and filtered nearby/hover targets deliberately contribute zero here
-     * because their actual target count is known only during execution. ActionExecutor
-     * performs that runtime resolution before QueueCapacityPreflight permits the first
-     * action to be sent.
+     * because their actual target count is known only during execution. The runtime
+     * executor resolves and budgets each step against the currently free queue just
+     * before that step is dispatched.
      */
     public QueueCost stepCost(ActionStep step) {
         TargetKind target = step.getTarget().getKind();

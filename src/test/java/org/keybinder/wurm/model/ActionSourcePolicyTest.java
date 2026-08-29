@@ -45,6 +45,22 @@ public class ActionSourcePolicyTest {
     }
 
     @Test
+    public void embarkAndDisembarkNeverCarryAnItemTool() {
+        short[] actionIds = {
+                PlayerAction.EMBARK_DRIVER.getId(),
+                PlayerAction.EMBARK_PASSENGER.getId(),
+                PlayerAction.DISEMBARK.getId()
+        };
+        for (short actionId : actionIds) {
+            assertFalse(ActionSourcePolicy.acceptsSelectableTool(actionId));
+            ActionStep step = new ActionStep(actionId,
+                    ItemSelector.currentActive(), TargetSpec.simple(TargetKind.HOVER),
+                    "Vehicle action");
+            assertEquals(ItemSelectorKind.EMPTY_HAND, step.getSource().getKind());
+        }
+    }
+
+    @Test
     public void ordinaryActionsKeepTheirSelectedTool() {
         assertTrue(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.IMPROVE.getId()));
         ActionStep improve = new ActionStep(PlayerAction.IMPROVE.getId(),

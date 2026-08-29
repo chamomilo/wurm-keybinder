@@ -5,6 +5,7 @@
 /.idea
 /eclipse
 /.gradle
+/.gradle-user
 /*.iml
 /*.ipr
 /libs

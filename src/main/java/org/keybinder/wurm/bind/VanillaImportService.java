@@ -21,7 +21,6 @@ public final class VanillaImportService {
         List<KeybindRecord> records();
         String commandFor(KeybindRecord record);
         void stamp(KeybindRecord record);
-        void applyLimit(KeybindRecord record, int limit);
         void save() throws IOException;
     }
 
@@ -76,7 +75,7 @@ public final class VanillaImportService {
             List<VanillaImportCandidate> inspectedRows = review.review(
                     Collections.singletonList(candidate), context.records());
             if (inspectedRows.isEmpty() || !inspectedRows.get(0).isImportable()) continue;
-            KeybindRecord record = record(candidate, inspectedRows.get(0), limit, context);
+            KeybindRecord record = record(candidate, inspectedRows.get(0), context);
             context.records().add(record);
             try {
                 context.save();
@@ -100,17 +99,15 @@ public final class VanillaImportService {
     }
 
     private KeybindRecord record(BindSnapshot candidate, VanillaImportCandidate inspected,
-                                 int limit, Context context) {
+                                 Context context) {
         String name = Messages.text("registry.imported_name", candidate.getKey());
         KeybindRecord record;
         if (inspected.getType() == VanillaImportCandidate.Type.ACTION_CHAIN) {
             record = new KeybindRecord(null, name, candidate.getKey(),
                     customActions.importCommand(candidate.getCommand()));
-            context.applyLimit(record, limit);
         } else if (inspected.getType() == VanillaImportCandidate.Type.SMART_IMPROVE) {
             record = new KeybindRecord(null, name, candidate.getKey(),
                     improvedImprove.importCommand(candidate.getCommand()));
-            context.applyLimit(record, limit);
         } else {
             RecordType type = inspected.getType() == VanillaImportCandidate.Type.VANILLA_COMMAND
                     ? RecordType.VANILLA_COMMAND : RecordType.RAW_VANILLA_COMMAND;
