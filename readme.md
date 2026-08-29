@@ -2,64 +2,55 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.7.4 for Wurm Unlimited
+# Keybinder 0.7.5 for Wurm Unlimited
 
-## See your action queue and cancel queued actions before they start
+## Put the action queue on either side of the screen
 
 Hello, SKLOTOPOLIS!
 
-Keybinder 0.7.4 is ready for testing.
+Keybinder 0.7.5 is ready for testing.
 
-This update adds a compact Wurm-styled action queue monitor, safer target
-validation, and German localization. It also lets you mark a later queued
-action for cancellation: Keybinder remembers the request and stops that action
-as soon as Wurm starts it.
+This small interface update lets you place the compact Queue Monitor on either
+the right or left edge of the screen. Its complete layout mirrors automatically,
+including the drawer direction, lamps, text, border, and header arrow.
 
-- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.4)
+- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.5)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-## What is new in 0.7.4?
+## What is new in 0.7.5?
 
-### Compact action queue monitor
+### Left or right screen edge
 
-The new monitor sits against the right edge of the screen. In its compact mode
-it shows up to ten native Build Menu queue lamps and nothing else. Click its
-left arrow above the first lamp to slide it open and see each action together
-with its Tool and Target. The arrow then points right to close the panel. The
-expanded width follows the displayed text instead of wasting screen space.
+Open the Keybinder window and use **Queue monitor → Right edge / Left edge**
+beside the action queue limit. The choice takes effect immediately and is saved
+in `keybinder.properties` for the next launch.
 
-Click a lit lamp to cancel that action. Wurm can cancel only the action currently
-in progress, so when you click a later queue entry Keybinder remembers it and
-automatically sends Stop when that action becomes current. Reconnects and HUD
-replacement clear stale queue state and pending cancellation requests.
+On the left edge the monitor is fully mirrored:
 
-### Safer action execution
+- the panel opens toward the center of the screen;
+- the lamp and arrow column moves to the panel's right side;
+- the arrow reverses its open and close directions;
+- action, Tool, and Target text is right-aligned beside the lamps;
+- the inner border moves to the correct side.
 
-Keybinder now validates the source and target against Wurm's action rules before
-sending each action. Impossible combinations are skipped with a clear Event
-message instead of being sent silently. Hovered, selected, inventory, creature,
-ride, and tile targets use their actual target capabilities; unknown server-mod
-actions remain permissive.
+### Expanded header
 
-The queue budget is checked step by step against the slots currently available.
-Long saved chains are no longer disabled merely because their total theoretical
-cost exceeds the character's queue limit.
+When the panel is open, the space above the action rows now displays the
+localized **Queue monitor** title. The collapsed strip remains minimal and shows
+only its direction arrow and Build Menu-style queue lamps.
 
-### Localization and compatibility
+### Compatibility
 
-- Added complete German localization alongside English and Brazilian
-  Portuguese.
-- Corrected Embark and Disembark source handling.
-- Improved hover matching, nearby resolution, batch queue costs, and managed
-  bind restoration.
-- Saved keybinds remain compatible with 0.7.3.
+- The new setting is localized in English, Brazilian Portuguese, and German.
+- Existing installations default to the original right-edge layout.
+- Saved keybinds remain compatible with 0.7.4.
 
 ## Core features
 
 - Wurm-styled keybind manager available through **HUD Settings**.
 - One-shot capture of ordinary, server-mod, and client-mod actions.
 - Action chains and Multi-keybinds that respect the character's action queue.
-- Compact right-edge action queue monitor with deferred cancellation.
+- Compact left- or right-edge action queue monitor with deferred cancellation.
 - Hovered, selected, filtered, nearby, tile, area, inventory, equipment,
   toolbelt, and current-ride targets.
 - Custom actions can resolve their Tool through a portable inventory filter,
@@ -77,8 +68,8 @@ cost exceeds the character's queue limit.
 1. Disable the old **Custom Actions**, **Improved Improve**, and **i2improve**
    client mods.
 2. Download
-   [Keybinder 0.7.4 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.4).
-3. Extract `keybinder-0.7.4.zip` into your Wurm Unlimited client directory, as
+   [Keybinder 0.7.5 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.5).
+3. Extract `keybinder-0.7.5.zip` into your Wurm Unlimited client directory, as
    usual for Ago's Client Mod Launcher.
 4. When upgrading, simply overwrite the existing Keybinder files. Your managed
    keybinds are stored separately and are not replaced by the archive.

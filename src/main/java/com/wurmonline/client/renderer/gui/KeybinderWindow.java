@@ -10,6 +10,7 @@ import org.keybinder.wurm.model.KeybindNamePrefixes;
 import org.keybinder.wurm.ui.KeybinderWindowController;
 import org.keybinder.wurm.ui.KeybindListViewModel;
 import org.keybinder.wurm.ui.LocalizedLayout;
+import org.keybinder.wurm.ui.QueueMonitorSide;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
 import org.keybinder.wurm.ui.DropZoneClassifier;
 import org.keybinder.wurm.model.KeybindLimits;
@@ -49,6 +50,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private final WButton exportAllButton;
     private final WButton restoreButton;
     private int displayedQueueLimit = -1;
+    private WurmDropDown queueMonitorSide;
+    private int previousQueueMonitorSide;
     private WButton enableFiltered;
     private WButton disableFiltered;
     private WurmDropDown userFilter;
@@ -284,6 +287,15 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         displayedQueueLimit = controller.getQueueLimit();
         runtimeControls.addComponent(new WurmLabel(
                 Messages.text("list.queue_limit", displayedQueueLimit)));
+        runtimeControls.addComponent(new WurmLabel(
+                Messages.text("queue.monitor.side.label")));
+        QueueMonitorSide selectedSide = controller.getQueueMonitorSide();
+        queueMonitorSide = new WurmDropDown("keybinder.queue.monitor.side",
+                selectedSide.ordinal(), new String[]{
+                Messages.text("queue.monitor.side.right"),
+                Messages.text("queue.monitor.side.left")});
+        previousQueueMonitorSide = selectedSide.ordinal();
+        runtimeControls.addComponent(queueMonitorSide);
         listTop.addComponent(runtimeControls);
         listTop.addComponent(new WurmLabel(Messages.text("list.instructions")));
         listTop.addComponent(new WurmLabel(Messages.text("list.instructions.merge")));
@@ -575,6 +587,14 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         }
         if (mode == Mode.EDITOR) {
             if (editor != null) editor.embeddedTick(width, height);
+            return;
+        }
+        if (queueMonitorSide != null
+                && queueMonitorSide.getValue() != previousQueueMonitorSide) {
+            previousQueueMonitorSide = queueMonitorSide.getValue();
+            QueueMonitorSide[] sides = QueueMonitorSide.values();
+            if (previousQueueMonitorSide >= 0 && previousQueueMonitorSide < sides.length)
+                controller.setQueueMonitorSide(sides[previousQueueMonitorSide]);
             return;
         }
         int currentLimit = controller.getQueueLimit();

@@ -28,6 +28,8 @@ public interface KeybinderWindowController {
     void setSkipIntro(boolean skip);
     String getLanguage();
     void setLanguage(String language);
+    QueueMonitorSide getQueueMonitorSide();
+    void setQueueMonitorSide(QueueMonitorSide side);
     void openOriginalProject();
     void openImproveProject();
     void openInniriaImproveProject();

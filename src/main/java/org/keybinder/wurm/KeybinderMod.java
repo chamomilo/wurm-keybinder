@@ -88,6 +88,7 @@ import org.keybinder.wurm.transfer.KeybindTransferWorkflow;
 import org.keybinder.wurm.ui.KeybinderUiController;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.ui.EditorWorkflow;
+import org.keybinder.wurm.ui.QueueMonitorSide;
 import org.gotti.wurmunlimited.modloader.interfaces.Configurable;
 import org.gotti.wurmunlimited.modloader.interfaces.Initable;
 import org.gotti.wurmunlimited.modloader.interfaces.PreInitable;
@@ -111,7 +112,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.7.4";
+    public static final String VERSION = "0.7.5";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -262,6 +263,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private volatile boolean skipIntro;
     private volatile boolean centerViewAfterEmbark = true;
     private volatile String language = Language.ENGLISH.getCode();
+    private volatile QueueMonitorSide queueMonitorSide = QueueMonitorSide.RIGHT;
     private volatile String pendingLanguage;
     private volatile boolean vanillaImportPromptDismissed;
     private volatile boolean importPromptOfferedThisSession;
@@ -276,6 +278,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         centerViewAfterEmbark = Boolean.parseBoolean(
                 this.properties.getProperty("centerViewAfterEmbark", "true"));
         language = LocalizationSettings.load(this.properties);
+        queueMonitorSide = QueueMonitorSide.fromSetting(
+                this.properties.getProperty("queueMonitorSide"));
         vanillaImportPromptDismissed = Boolean.parseBoolean(
                 this.properties.getProperty("vanillaImportPromptDismissed", "false"));
         Messages.select(language);
@@ -1740,6 +1744,21 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
     @Override public String getLanguage() { return language; }
+    @Override public QueueMonitorSide getQueueMonitorSide() {
+        return queueMonitorSide;
+    }
+    @Override public void setQueueMonitorSide(QueueMonitorSide requested) {
+        QueueMonitorSide selected = requested == null ? QueueMonitorSide.RIGHT : requested;
+        if (queueMonitorSide == selected && selected.getSetting().equals(
+                properties.getProperty("queueMonitorSide"))) return;
+        queueMonitorSide = selected;
+        properties.setProperty("queueMonitorSide", selected.getSetting());
+        try {
+            MOD_PROPERTIES.save(properties);
+        } catch (Exception e) {
+            EVENTS.error(Messages.text("error.save_queue_monitor_side"), e);
+        }
+    }
     @Override public void setLanguage(String requested) {
         String selected = Language.fromCode(requested).getCode();
         LanguageChangePolicy.Decision decision = LanguageChangePolicy.decide(

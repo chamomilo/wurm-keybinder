@@ -9,4 +9,5 @@ public interface ActionQueueMonitorController {
     int getQueueMonitorSlots();
     List<ActionQueueEntry> getMonitoredActions();
     void cancelMonitoredAction(long sequence);
+    QueueMonitorSide getQueueMonitorSide();
 }
