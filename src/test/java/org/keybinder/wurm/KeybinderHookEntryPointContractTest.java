@@ -35,7 +35,10 @@ public class KeybinderHookEntryPointContractTest {
         assertCallback("observeCapturedAction", void.class, PlayerAction.class);
         assertCallback("withCapturedTarget", Object.class,
                 String.class, Object.class, Method.class, Object[].class);
-        assertCallback("observeWorldImproveEvent", void.class, String.class, String.class);
+        assertCallback("observeWorldImproveEvent", boolean.class, String.class, String.class);
+        assertCallback("beginWorldImproveEvent", void.class, String.class, String.class);
+        assertCallback("endWorldImproveEvent", void.class);
+        assertCallback("suppressWorldImproveEvent", boolean.class);
         assertCallback("observeWorldImproveAction", void.class,
                 long[].class, PlayerAction.class);
         assertCallback("observeWorldImproveSelection", void.class, PickableUnit.class);

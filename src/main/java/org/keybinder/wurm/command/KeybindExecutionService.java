@@ -27,8 +27,10 @@ import org.keybinder.wurm.queue.QueueCapacityPreflight;
 
 import java.util.List;
 import java.util.function.IntSupplier;
+import java.util.function.LongPredicate;
 
 public final class KeybindExecutionService {
+    private static final long WORLD_EXAMINE_TIMEOUT_MILLIS = 15_000L;
     private final ActionExecutor actions;
     private final SmartImproveExecutor improve;
     private final ArcheologyIdentifyExecutor archeologyIdentify;
@@ -36,6 +38,7 @@ public final class KeybindExecutionService {
     private final EventLogger log;
     private final BulkTransferExecutor bulk;
     private String activeRecordId;
+    private ExecutionSequence activeSequence;
 
     public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log) {
         this(actions, access, log, new WorldImproveTracker());
@@ -49,8 +52,16 @@ public final class KeybindExecutionService {
     public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log,
                                    WorldImproveTracker worldImprove,
                                    BulkTransferCoordinator bulkCoordinator) {
+        this(actions, access, log, worldImprove, bulkCoordinator, targetId -> false);
+    }
+
+    public KeybindExecutionService(ActionExecutor actions, ClientAccess access, EventLogger log,
+                                   WorldImproveTracker worldImprove,
+                                   BulkTransferCoordinator bulkCoordinator,
+                                   LongPredicate smartImproveQueued) {
         this.actions = actions;
-        this.improve = new SmartImproveExecutor(access, log, worldImprove);
+        this.improve = new SmartImproveExecutor(access, log, worldImprove,
+                smartImproveQueued);
         this.archeologyIdentify = new ArcheologyIdentifyExecutor(access, log);
         this.access = access;
         this.log = log;
@@ -76,10 +87,12 @@ public final class KeybindExecutionService {
             throw new IllegalStateException(
                     Messages.text("execution.sequence_pending", record.getName()));
         boolean waitingForBulk = false;
+        ExecutionSequence sequence = new ExecutionSequence(
+                record.getId(), hud, record.getKeybindSteps(), hoverSnapshot,
+                queueLimit, occupiedQueueSlots);
+        setActiveSequence(record.getId(), sequence);
         try {
-            waitingForBulk = new ExecutionSequence(
-                    record.getId(), hud, record.getKeybindSteps(), hoverSnapshot,
-                    queueLimit, occupiedQueueSlots).runFrom(0);
+            waitingForBulk = sequence.runFrom(0);
         } finally {
             if (!waitingForBulk) finishExecution(record.getId());
         }
@@ -97,10 +110,40 @@ public final class KeybindExecutionService {
         improve.clearPrepared();
         archeologyIdentify.clearPrepared();
         bulk.clearPrepared();
+        activeSequence = null;
         activeRecordId = null;
     }
 
-    /** Executes until the next asynchronous bulk handshake, then resumes in-order. */
+    private synchronized void setActiveSequence(String recordId,
+                                                ExecutionSequence sequence) {
+        if (recordId.equals(activeRecordId)) activeSequence = sequence;
+    }
+
+    private synchronized boolean isActive(ExecutionSequence sequence) {
+        return sequence != null && sequence == activeSequence;
+    }
+
+    /** Polls an automatic external-object Examine without blocking the HUD. */
+    public void tick() {
+        ExecutionSequence sequence;
+        synchronized (this) { sequence = activeSequence; }
+        if (sequence == null) return;
+        try {
+            sequence.pollWorldPreparation();
+        } catch (Throwable failure) {
+            if (log != null)
+                log.error(Messages.text("error.improve_continuation"), failure);
+            finishExecution(sequence.recordId);
+        }
+    }
+
+    public void cancelPending() {
+        String recordId;
+        synchronized (this) { recordId = activeRecordId; }
+        if (recordId != null) finishExecution(recordId);
+    }
+
+    /** Executes until an asynchronous bulk or external-Examine step, then resumes in-order. */
     private final class ExecutionSequence {
         private final String recordId;
         private final HeadsUpDisplay hud;
@@ -110,6 +153,9 @@ public final class KeybindExecutionService {
         private final IntSupplier occupiedQueueSlots;
         private int occupiedBaseline;
         private int locallyReserved;
+        private int pendingWorldPosition = -1;
+        private long pendingWorldTargetId = -1L;
+        private long pendingWorldDeadline;
 
         private ExecutionSequence(String recordId, HeadsUpDisplay hud,
                                   List<KeybindStep> steps,
@@ -132,6 +178,20 @@ public final class KeybindExecutionService {
                 for (int current = position; current < steps.size(); current++) {
                     KeybindStep step = steps.get(current);
                     try {
+                        if (step instanceof SmartImproveStep) {
+                            int free = QueueCapacityPreflight.remaining(
+                                    queueLimit, effectiveOccupied());
+                            SmartImproveExecutor.WorldPreparation preparation =
+                                    improve.prepareWorldMetadataIfNeeded(
+                                            (SmartImproveStep) step, hud, free > 0);
+                            if (preparation.isWaiting()) {
+                                pendingWorldPosition = current;
+                                pendingWorldTargetId = preparation.getTargetId();
+                                pendingWorldDeadline = System.currentTimeMillis()
+                                        + WORLD_EXAMINE_TIMEOUT_MILLIS;
+                                return true;
+                            }
+                        }
                         int plannedQueueCost = prepareWithinCurrentQueue(step);
                         if (step instanceof BulkTransferStep) {
                             final int resumeAt = current + 1;
@@ -158,6 +218,7 @@ public final class KeybindExecutionService {
         }
 
         private void continueAfterBulk(int position, boolean proceed) {
+            if (!isActive(this)) return;
             boolean waitingAgain = false;
             try {
                 if (proceed) {
@@ -169,6 +230,34 @@ public final class KeybindExecutionService {
             } finally {
                 if (!waitingAgain) finishExecution(recordId);
             }
+        }
+
+        private void pollWorldPreparation() {
+            if (pendingWorldPosition < 0 || !isActive(this)) return;
+            if (improve.worldMetadataReady(pendingWorldTargetId)) {
+                int resumeAt = pendingWorldPosition;
+                clearWorldWait();
+                rebaseQueueEstimate();
+                boolean waitingAgain = runFrom(resumeAt);
+                if (!waitingAgain) finishExecution(recordId);
+                return;
+            }
+            if (System.currentTimeMillis() < pendingWorldDeadline) return;
+
+            int continueAt = pendingWorldPosition + 1;
+            KeybindStep timedOut = steps.get(pendingWorldPosition);
+            clearWorldWait();
+            log.warning(skipMessage(continueAt - 1, timedOut,
+                    Messages.text("improve.world_examine_timeout")));
+            rebaseQueueEstimate();
+            boolean waitingAgain = runFrom(continueAt);
+            if (!waitingAgain) finishExecution(recordId);
+        }
+
+        private void clearWorldWait() {
+            pendingWorldPosition = -1;
+            pendingWorldTargetId = -1L;
+            pendingWorldDeadline = 0L;
         }
 
         private int prepareWithinCurrentQueue(KeybindStep step)

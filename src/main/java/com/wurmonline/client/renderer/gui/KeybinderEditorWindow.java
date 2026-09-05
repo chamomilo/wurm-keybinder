@@ -5,6 +5,7 @@ import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.catalog.VanillaCatalogStepFactory;
 import org.keybinder.wurm.catalog.VanillaKeybindCatalog;
 import org.keybinder.wurm.catalog.InputKeyCatalog;
+import org.keybinder.wurm.catalog.ThirdPersonViewCommandCatalog;
 import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.ActionStep;
@@ -76,7 +77,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private static final VanillaKeybindCatalog VANILLA_CATALOG = new VanillaKeybindCatalog();
     private static final VanillaCatalogStepFactory VANILLA_STEPS =
             new VanillaCatalogStepFactory();
-    private static final int VANILLA_TYPE_OFFSET = 6;
+    private static final ThirdPersonViewCommandCatalog THIRD_PERSON_CATALOG =
+            ThirdPersonViewCommandCatalog.detect();
+    private static final int BASE_TYPE_COUNT = 6;
     private static final String[] ACTIVATE_TARGET_OPTIONS = {
             "hand", "hover", "toolbelt", "equipment", "exact object"
     };
@@ -94,17 +97,27 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     private static String[] stepTypeOptions() {
         List<VanillaKeybindCatalog.Category> categories = VANILLA_CATALOG.getCategories();
-        String[] options = new String[VANILLA_TYPE_OFFSET + categories.size()];
+        int vanillaOffset = vanillaTypeOffset();
+        String[] options = new String[vanillaOffset + categories.size()];
         options[0] = Messages.text("editor.step_type.activate");
         options[1] = Messages.text("editor.step_type.improve");
         options[2] = Messages.text("editor.step_type.archeology_identify");
         options[3] = Messages.text("editor.step_type.console");
         options[4] = Messages.text("editor.step_type.custom");
         options[5] = Messages.text("editor.step_type.bulk_transfer");
+        if (THIRD_PERSON_CATALOG.isVisible())
+            options[thirdPersonTypeIndex()] = Messages.text("editor.step_type.vanilla",
+                    ThirdPersonViewCommandCatalog.DISPLAY_NAME);
         for (int i = 0; i < categories.size(); i++)
-            options[VANILLA_TYPE_OFFSET + i] =
+            options[vanillaOffset + i] =
                     Messages.text("editor.step_type.vanilla", categories.get(i).getDisplayName());
         return options;
+    }
+
+    private static int thirdPersonTypeIndex() { return BASE_TYPE_COUNT; }
+
+    private static int vanillaTypeOffset() {
+        return BASE_TYPE_COUNT + (THIRD_PERSON_CATALOG.isVisible() ? 1 : 0);
     }
 
     static int stepTypeWidth() { return maximumOptionWidth(stepTypeOptions()); }
@@ -490,6 +503,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private void updateRowState(ActionRow row) {
         updateStepType(row);
         row.updateActionName();
+        if (row.isThirdPersonCatalog()) return;
         if (row.kind() == StepKind.BULK_TRANSFER) {
             updateBulkDestination(row);
             return;
@@ -1268,6 +1282,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private ItemSelector selectedSource;
         private int lastSourceValue;
         private boolean hasConcreteSource;
+        private WurmDropDown thirdPersonAction;
         private WurmDropDown vanillaAction;
         private final VerticalSeparator targetSeparator = new VerticalSeparator();
         private SelectableTargetDropDown target;
@@ -1284,9 +1299,14 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             actionName = new SelectableActionLabel(this);
             String selectedVanillaCommand = step instanceof VanillaActionStep
                     ? ((VanillaActionStep) step).getCommand() : null;
+            String selectedConsoleCommand = step instanceof ConsoleCommandStep
+                    ? ((ConsoleCommandStep) step).getCommand() : null;
             int initialType = EditorStepType.initialIndex(step);
-            if (initialType < 0) initialType = selectedVanillaCommand != null
-                    ? vanillaTypeFor(selectedVanillaCommand) : 4;
+            if (selectedConsoleCommand != null
+                    && THIRD_PERSON_CATALOG.find(selectedConsoleCommand) != null)
+                initialType = thirdPersonTypeIndex();
+            else if (initialType < 0) initialType = selectedVanillaCommand != null
+                        ? vanillaTypeFor(selectedVanillaCommand) : 4;
             type = new WurmDropDown("keybinder.step.type", initialType, stepTypeOptions());
             lastTypeValue = initialType;
             controls.componentWidthOffset = 1;
@@ -1328,6 +1348,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             }
             refreshBulkSourceLabel();
             createBulkDestination();
+            createThirdPersonAction(selectedConsoleCommand);
             createVanillaAction(selectedVanillaCommand);
             selectedTarget = step instanceof ActionStep
                     ? TargetCodec.encode(((ActionStep) step).getTarget())
@@ -1347,17 +1368,23 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private int vanillaTypeFor(String command) {
             VanillaKeybindCatalog.Category category = VANILLA_CATALOG.categoryFor(command);
-            if (category == null) return VANILLA_TYPE_OFFSET;
+            if (category == null) return vanillaTypeOffset();
             int index = VANILLA_CATALOG.getCategories().indexOf(category);
-            return VANILLA_TYPE_OFFSET + Math.max(0, index);
+            return vanillaTypeOffset() + Math.max(0, index);
+        }
+
+        private boolean isThirdPersonCatalog() {
+            return THIRD_PERSON_CATALOG.isVisible()
+                    && type.getValue() == thirdPersonTypeIndex();
         }
 
         private boolean isVanilla() {
-            return type.getValue() >= VANILLA_TYPE_OFFSET;
+            int index = type.getValue() - vanillaTypeOffset();
+            return index >= 0 && index < VANILLA_CATALOG.getCategories().size();
         }
 
         private VanillaKeybindCatalog.Category vanillaCategory() {
-            int index = type.getValue() - VANILLA_TYPE_OFFSET;
+            int index = type.getValue() - vanillaTypeOffset();
             List<VanillaKeybindCatalog.Category> categories = VANILLA_CATALOG.getCategories();
             if (index < 0 || index >= categories.size()) return null;
             return categories.get(index);
@@ -1370,6 +1397,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             int selected = vanillaAction.getValue();
             return selected < 0 || selected >= category.getEntries().size()
                     ? null : category.getEntries().get(selected);
+        }
+
+        private ThirdPersonViewCommandCatalog.Entry thirdPersonEntry() {
+            List<ThirdPersonViewCommandCatalog.Entry> entries =
+                    THIRD_PERSON_CATALOG.getEntries();
+            if (!isThirdPersonCatalog() || entries.isEmpty() || thirdPersonAction == null)
+                return null;
+            int selected = thirdPersonAction.getValue();
+            return selected < 0 || selected >= entries.size() ? null : entries.get(selected);
         }
 
         private boolean vanillaUsesTarget() {
@@ -1407,6 +1443,26 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             } catch (NumberFormatException invalid) {
                 return true;
             }
+        }
+
+        private void createThirdPersonAction(String selectedCommand) {
+            List<ThirdPersonViewCommandCatalog.Entry> entries =
+                    THIRD_PERSON_CATALOG.getEntries();
+            if (entries.isEmpty()) {
+                thirdPersonAction = new WurmDropDown(
+                        "keybinder.third_person.action", 0, new String[]{""});
+                return;
+            }
+            String[] options = new String[entries.size()];
+            int selected = 0;
+            for (int i = 0; i < entries.size(); i++) {
+                ThirdPersonViewCommandCatalog.Entry entry = entries.get(i);
+                options[i] = entry.getDisplayName();
+                if (selectedCommand != null
+                        && entry.getCommand().equalsIgnoreCase(selectedCommand)) selected = i;
+            }
+            thirdPersonAction = new WurmDropDown(
+                    "keybinder.third_person.action", selected, options);
         }
 
         private void createVanillaAction(String selectedCommand) {
@@ -1551,6 +1607,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             panel.addComponent(type);
             panel.addComponent(help);
             panel.addComponent(EditorStepType.supportsCapture(kind()) ? capture : captureGap);
+            if (isThirdPersonCatalog()) {
+                panel.addComponent(thirdPersonAction);
+                return;
+            }
             if (kind() == StepKind.CONSOLE_COMMAND) {
                 panel.addComponent(command);
                 return;
@@ -1678,6 +1738,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     ACTION_NAME_MIN_WIDTH, SOURCE_MIN_WIDTH);
             type.setSize(stepTypeWidth(), type.height);
             help.setSize(HELP_WIDTH, help.height);
+            if (isThirdPersonCatalog()) {
+                controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
+                captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
+                thirdPersonAction.setSize(layout.getActionWidth(), thirdPersonAction.height);
+                capture.setEnabled(layout.isCaptureEnabled());
+                updateControlStates();
+                panel.componentResized();
+                return;
+            }
             if (kind() == StepKind.CONSOLE_COMMAND) {
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
@@ -1768,6 +1837,12 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private KeybindStep toStep() {
+            if (isThirdPersonCatalog()) {
+                ThirdPersonViewCommandCatalog.Entry entry = thirdPersonEntry();
+                if (entry == null)
+                    throw new IllegalStateException("No 3rd Person View command is selected");
+                return new ConsoleCommandStep(entry.getCommand());
+            }
             EditorStepDraft draft = new EditorStepDraft(kind(), actionIdValue,
                     command.getText(), selectedSource, selectedTarget,
                     vanillaCategory(), vanillaEntry(), selectedBulkSource,
@@ -1795,6 +1870,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private StepKind kind() {
+            if (isThirdPersonCatalog()) return StepKind.CONSOLE_COMMAND;
             switch (type.getValue()) {
                 case 0: return StepKind.ACTIVATE_TOOL;
                 case 1: return StepKind.SMART_IMPROVE;
@@ -1834,6 +1910,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             capturedBulkDestination = null;
             bulkQuantity.setText("1");
             lastIdText = null;
+            createThirdPersonAction(null);
             createVanillaAction(null);
             createTarget();
             createSource();
@@ -1853,6 +1930,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 text = Messages.text("editor.help.improve");
             } else if (kind() == StepKind.ARCHEOLOGY_IDENTIFY) {
                 text = Messages.text("editor.help.archeology_identify");
+            } else if (isThirdPersonCatalog()) {
+                text = Messages.text("editor.help.third_person_view");
             } else if (kind() == StepKind.CONSOLE_COMMAND) {
                 text = Messages.text("editor.help.console");
             } else if (kind() == StepKind.BULK_TRANSFER) {

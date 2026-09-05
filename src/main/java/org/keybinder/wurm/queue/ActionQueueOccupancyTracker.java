@@ -43,15 +43,22 @@ public final class ActionQueueOccupancyTracker {
         if (count <= 0) return;
         reconcileIdle(clock.getAsLong());
         for (int i = 0; i < count && actions.size() < MAX_TRACKED_ACTIONS; i++)
-            actions.addLast(new TrackedAction(nextSequence++, "", "", "", -1L));
+            actions.addLast(new TrackedAction(nextSequence++, "", "", "", -1L,
+                    false));
         if (!actionActive && idleSince < 0L) idleSince = clock.getAsLong();
     }
 
     public synchronized void actionSent(String action, String source, String target,
                                         long targetId) {
+        actionSent(action, source, target, targetId, false);
+    }
+
+    public synchronized void actionSent(String action, String source, String target,
+                                        long targetId, boolean smartImprove) {
         reconcileIdle(clock.getAsLong());
         if (actions.size() < MAX_TRACKED_ACTIONS)
-            actions.addLast(new TrackedAction(nextSequence++, action, source, target, targetId));
+            actions.addLast(new TrackedAction(nextSequence++, action, source, target,
+                    targetId, smartImprove));
         if (!actionActive && idleSince < 0L) idleSince = clock.getAsLong();
     }
 
@@ -63,7 +70,8 @@ public final class ActionQueueOccupancyTracker {
             actionActive = true;
             idleSince = -1L;
             if (actions.isEmpty())
-                actions.addLast(new TrackedAction(nextSequence++, actionText, "", "", -1L));
+                actions.addLast(new TrackedAction(nextSequence++, actionText, "", "", -1L,
+                        false));
             TrackedAction current = actions.peekFirst();
             if (current != null) {
                 current.active = true;
@@ -82,7 +90,8 @@ public final class ActionQueueOccupancyTracker {
             actionActive = true;
             idleSince = -1L;
             if (actions.isEmpty())
-                actions.addLast(new TrackedAction(nextSequence++, "", "", "", -1L));
+                actions.addLast(new TrackedAction(nextSequence++, "", "", "", -1L,
+                        false));
             TrackedAction current = actions.peekFirst();
             if (current != null) current.active = true;
         } else if (actionActive) {
@@ -104,6 +113,14 @@ public final class ActionQueueOccupancyTracker {
             result.add(action.snapshot());
         }
         return result;
+    }
+
+    /** True only for a Smart Improve action targeting this same world object. */
+    public synchronized boolean hasSmartImproveActions(long targetId) {
+        reconcileIdle(clock.getAsLong());
+        for (TrackedAction action : actions)
+            if (action.smartImprove && action.targetId == targetId) return true;
+        return false;
     }
 
     /**
@@ -168,22 +185,24 @@ public final class ActionQueueOccupancyTracker {
         private final String source;
         private final String target;
         private final long targetId;
+        private final boolean smartImprove;
         private boolean active;
         private boolean cancellationRequested;
         private boolean stopDispatched;
 
         private TrackedAction(long sequence, String action, String source,
-                              String target, long targetId) {
+                              String target, long targetId, boolean smartImprove) {
             this.sequence = sequence;
             this.action = safe(action);
             this.source = safe(source);
             this.target = safe(target);
             this.targetId = targetId;
+            this.smartImprove = smartImprove;
         }
 
         private ActionQueueEntry snapshot() {
             return new ActionQueueEntry(sequence, action, source, target, targetId,
-                    active, cancellationRequested);
+                    smartImprove, active, cancellationRequested);
         }
 
         private static String safe(String value) {

@@ -187,6 +187,20 @@ public class SmartImproveExecutorTest {
     }
 
     @Test
+    public void externalPreparationSkipsSelectAndExamineOnlyForQueuedSmartPipeline() {
+        assertEquals(SmartImproveExecutor.PreparationDecision.SELECT_AND_EXAMINE,
+                SmartImproveExecutor.preparationDecision(false, false, false));
+        assertEquals(SmartImproveExecutor.PreparationDecision.SELECT_AND_EXAMINE,
+                SmartImproveExecutor.preparationDecision(false, false, true));
+        assertEquals(SmartImproveExecutor.PreparationDecision.SELECT_ONLY,
+                SmartImproveExecutor.preparationDecision(false, true, true));
+        assertEquals(SmartImproveExecutor.PreparationDecision.WAIT,
+                SmartImproveExecutor.preparationDecision(true, false, false));
+        assertEquals(SmartImproveExecutor.PreparationDecision.READY,
+                SmartImproveExecutor.preparationDecision(true, false, true));
+    }
+
+    @Test
     public void compositeVehiclePickIsUnwrappedToItsGroundItem() throws Exception {
         sun.misc.Unsafe unsafe = unsafe();
         GroundItemCellRenderable wagon = (GroundItemCellRenderable)

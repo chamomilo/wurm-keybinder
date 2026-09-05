@@ -7,16 +7,19 @@ public final class ActionQueueEntry {
     private final String source;
     private final String target;
     private final long targetId;
+    private final boolean smartImprove;
     private final boolean active;
     private final boolean cancellationRequested;
 
     ActionQueueEntry(long sequence, String action, String source, String target,
-                     long targetId, boolean active, boolean cancellationRequested) {
+                     long targetId, boolean smartImprove, boolean active,
+                     boolean cancellationRequested) {
         this.sequence = sequence;
         this.action = safe(action);
         this.source = safe(source);
         this.target = safe(target);
         this.targetId = targetId;
+        this.smartImprove = smartImprove;
         this.active = active;
         this.cancellationRequested = cancellationRequested;
     }
@@ -26,6 +29,7 @@ public final class ActionQueueEntry {
     public String getSource() { return source; }
     public String getTarget() { return target; }
     public long getTargetId() { return targetId; }
+    public boolean isSmartImprove() { return smartImprove; }
     public boolean isActive() { return active; }
     public boolean isCancellationRequested() { return cancellationRequested; }
 

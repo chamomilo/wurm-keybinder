@@ -171,10 +171,21 @@ public final class KeybinderClientHooks {
     }
 
     private static void hookWorldImprove(ClassPool pool) throws Exception {
+        // Observe at the inbound connection boundary. A replacement SelectBar
+        // may intentionally consume silent Examine text in HUD.textMessage,
+        // before ChatPanelComponent is ever reached.
+        CtClass listener = pool.getCtClass(
+                "com.wurmonline.client.comm.ServerConnectionListenerClass");
+        javassist.CtMethod inbound = listener.getMethod("textMessage",
+                "(Ljava/lang/String;FFFLjava/lang/String;B)V");
+        inbound.insertBefore(
+                "org.keybinder.wurm.KeybinderMod.beginWorldImproveEvent($1, $5);");
+        inbound.insertAfter(
+                "org.keybinder.wurm.KeybinderMod.endWorldImproveEvent();", true);
         pool.getCtClass("com.wurmonline.client.renderer.gui.ChatPanelComponent")
                 .getMethod("addText", "(Ljava/lang/String;Ljava/lang/String;FFFZ)V")
                 .insertBefore(
-                        "org.keybinder.wurm.KeybinderMod.observeWorldImproveEvent($1, $2);");
+                        "if (org.keybinder.wurm.KeybinderMod.suppressWorldImproveEvent()) return;");
         CtClass selectBar = pool.getCtClass(
                 "com.wurmonline.client.renderer.gui.SelectBar");
         selectBar.getDeclaredMethod("setSelected").insertAfter(

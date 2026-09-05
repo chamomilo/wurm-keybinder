@@ -5,8 +5,8 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * One selected world item's Examine-derived state. This is metadata capture,
- * not an execution lock: Improve requests never wait for or reserve this state.
+ * One world item's Examine-derived state, including freshness and silent
+ * automatic-Examine state used by the Smart Improve continuation.
  */
 public final class WorldImproveTracker {
     private static final long NONE = Long.MIN_VALUE;
@@ -19,8 +19,14 @@ public final class WorldImproveTracker {
     private float rarityRuneModifier;
     private final Set<String> rarityRuneMessages = new HashSet<String>();
     private boolean descriptionConfirmed;
+    private boolean stale = true;
+    private boolean silentExamine;
 
     public synchronized void examineSent(long id) {
+        examineSent(id, false);
+    }
+
+    public synchronized void examineSent(long id, boolean silent) {
         if (id <= 0) {
             clear();
             return;
@@ -37,6 +43,8 @@ public final class WorldImproveTracker {
         rarityRuneModifier = 0.0f;
         rarityRuneMessages.clear();
         descriptionConfirmed = false;
+        stale = true;
+        silentExamine = silent;
     }
 
     public synchronized void selectionChanged(long selectedId) {
@@ -45,21 +53,25 @@ public final class WorldImproveTracker {
         // Examine target remains authoritative; execution validates that exact ID.
     }
 
-    public synchronized void event(long selectedId, String context, String message) {
-        event(context, message);
+    public synchronized boolean event(long selectedId, String context, String message) {
+        return event(context, message);
     }
 
-    public synchronized void event(String context, String message) {
-        if (context == null || !":event".equalsIgnoreCase(context.trim())) return;
-        if (targetId == NONE) return;
+    public synchronized boolean event(String context, String message) {
+        if (context == null || !":event".equalsIgnoreCase(context.trim())) return false;
+        if (targetId == NONE) return false;
         WorldImproveEventParser.Parsed parsed = WorldImproveEventParser.parse(message);
+        boolean recognized = WorldImproveEventParser.isExamineDescription(message)
+                || parsed.getRequirement() != null || parsed.getDamaged() != null
+                || parsed.getQuality() != null || parsed.getRarity() != null
+                || parsed.getRarityRuneModifier() != null;
         if (!descriptionConfirmed) {
             // DEFAULT_ACTION is only a possible Examine. Most world-object
             // descriptions carry Ql/Dam, but portable items placed in the
             // world can omit both and report only their standard Improve
             // requirement (for example a butchering knife needing water).
             if (!WorldImproveEventParser.isExamineDescription(message)
-                    && parsed.getRequirement() == null) return;
+                    && parsed.getRequirement() == null) return false;
             descriptionConfirmed = true;
             examineText = message;
         }
@@ -72,20 +84,40 @@ public final class WorldImproveTracker {
             if (rarityRuneMessages.add(key))
                 rarityRuneModifier += parsed.getRarityRuneModifier();
         }
+        if (descriptionConfirmed && requirement != null) stale = false;
+        boolean suppress = silentExamine && recognized;
+        if (descriptionConfirmed && requirement != null) silentExamine = false;
+        return suppress;
     }
 
     public synchronized Snapshot snapshot(long selectedId) {
-        if (!descriptionConfirmed || targetId == NONE || selectedId != targetId
+        if (stale || !descriptionConfirmed || targetId == NONE || selectedId != targetId
                 || requirement == null) return null;
         return new Snapshot(targetId, requirement, damaged, quality, examineText,
                 rarity, rarityRuneModifier);
     }
 
     public synchronized Snapshot currentSnapshot() {
-        if (!descriptionConfirmed || targetId == NONE || requirement == null)
+        if (stale || !descriptionConfirmed || targetId == NONE || requirement == null)
             return null;
         return new Snapshot(targetId, requirement, damaged, quality, examineText,
                 rarity, rarityRuneModifier);
+    }
+
+    public synchronized Snapshot snapshotIncludingStale(long requestedId) {
+        if (!descriptionConfirmed || targetId == NONE || requestedId != targetId
+                || requirement == null) return null;
+        return new Snapshot(targetId, requirement, damaged, quality, examineText,
+                rarity, rarityRuneModifier);
+    }
+
+    public synchronized boolean isFresh(long requestedId) {
+        return snapshot(requestedId) != null;
+    }
+
+    /** Any queued Repair or Improve can change damage, QL, and the next resource. */
+    public synchronized void invalidate(long id) {
+        if (targetId == id) stale = true;
     }
 
     /** Repair is deterministic in WU; update local state when it is sent. */
@@ -103,6 +135,8 @@ public final class WorldImproveTracker {
         rarityRuneModifier = 0.0f;
         rarityRuneMessages.clear();
         descriptionConfirmed = false;
+        stale = true;
+        silentExamine = false;
     }
 
     public static final class Snapshot {

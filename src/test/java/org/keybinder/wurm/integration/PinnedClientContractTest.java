@@ -1,10 +1,13 @@
 package org.keybinder.wurm.integration;
 
 import javassist.ClassPool;
+import javassist.ClassClassPath;
 import javassist.CtClass;
 import org.junit.Test;
+import org.keybinder.wurm.KeybinderMod;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /** Fails early when a pinned Wurm client update changes a required hook signature. */
@@ -81,12 +84,41 @@ public class PinnedClientContractTest {
 
     @Test public void worldImproveExamineHooksRemainAvailable() throws Exception {
         ClassPool pool = clientPool();
+        assertMethod(pool,
+                "com.wurmonline.client.comm.ServerConnectionListenerClass",
+                "textMessage", "(Ljava/lang/String;FFFLjava/lang/String;B)V");
         assertMethod(pool, "com.wurmonline.client.renderer.gui.ChatPanelComponent",
                 "addText", "(Ljava/lang/String;Ljava/lang/String;FFFZ)V");
         CtClass selectBar = pool.getCtClass(
                 "com.wurmonline.client.renderer.gui.SelectBar");
         assertNotNull(selectBar.getDeclaredMethod("setSelected"));
         assertNotNull(selectBar.getDeclaredMethod("clearSelectedItem"));
+    }
+
+    @Test public void silentExamineObservationAndSuppressionCompileAgainstPinnedClient()
+            throws Exception {
+        ClassPool pool = clientPool();
+        pool.insertClassPath(new ClassClassPath(KeybinderMod.class));
+        CtClass listener = pool.getCtClass(
+                "com.wurmonline.client.comm.ServerConnectionListenerClass");
+        listener.getMethod("textMessage",
+                "(Ljava/lang/String;FFFLjava/lang/String;B)V")
+                .insertBefore("org.keybinder.wurm.KeybinderMod."
+                        + "beginWorldImproveEvent($1, $5);");
+        listener.getMethod("textMessage",
+                "(Ljava/lang/String;FFFLjava/lang/String;B)V")
+                .insertAfter("org.keybinder.wurm.KeybinderMod."
+                        + "endWorldImproveEvent();", true);
+        CtClass chat = pool.getCtClass(
+                "com.wurmonline.client.renderer.gui.ChatPanelComponent");
+        chat.getMethod("addText", "(Ljava/lang/String;Ljava/lang/String;FFFZ)V")
+                .insertBefore("if (org.keybinder.wurm.KeybinderMod."
+                        + "suppressWorldImproveEvent()) return;");
+
+        assertTrue(listener.toBytecode().length > 0);
+        assertTrue(chat.toBytecode().length > 0);
+        listener.detach();
+        chat.detach();
     }
 
     private static ClassPool clientPool() throws Exception {

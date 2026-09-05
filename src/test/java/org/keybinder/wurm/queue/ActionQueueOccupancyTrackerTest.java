@@ -155,4 +155,16 @@ public class ActionQueueOccupancyTrackerTest {
         assertEquals(12L, remaining.get(0).getTargetId());
         assertFalse(remaining.get(0).isActive());
     }
+
+    @Test
+    public void smartImproveQueueDetectionIsOriginAndTargetSpecific() {
+        ActionQueueOccupancyTracker tracker = new ActionQueueOccupancyTracker();
+        tracker.actionSent("Improve", "hammer", "forge", 51L, true);
+        tracker.actionSent("Improve", "hammer", "altar", 52L, false);
+
+        assertTrue(tracker.hasSmartImproveActions(51L));
+        assertFalse(tracker.hasSmartImproveActions(52L));
+        assertTrue(tracker.snapshot(10).get(0).isSmartImprove());
+        assertFalse(tracker.snapshot(10).get(1).isSmartImprove());
+    }
 }

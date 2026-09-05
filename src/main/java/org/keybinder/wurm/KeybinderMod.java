@@ -49,6 +49,8 @@ import org.keybinder.wurm.integration.CurrentServerTracker;
 import org.keybinder.wurm.integration.HudSessionController;
 import org.keybinder.wurm.integration.HudSessionDisposer;
 import org.keybinder.wurm.integration.ServerNameResolver;
+import org.keybinder.wurm.integration.SmartImproveOriginGuard;
+import org.keybinder.wurm.integration.WorldImproveEventScope;
 import org.keybinder.wurm.integration.TransferFileChooser;
 import org.keybinder.wurm.integration.BulkStorageSourceResolver;
 import org.keybinder.wurm.integration.BulkInventoryDestinationPolicy;
@@ -112,7 +114,7 @@ import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.7.5";
+    public static final String VERSION = "0.7.6";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -375,6 +377,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     public static void onHudTick(HeadsUpDisplay currentHud) {
         applyAccountBindingsIfReady(currentHud);
         ensureCreationSkillCatalog(currentHud);
+        if (KEYBIND_EXECUTOR != null) KEYBIND_EXECUTOR.tick();
         drainUiQueue();
     }
 
@@ -597,13 +600,19 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         try {
             if (action == null || targets == null || targets.length != 1) return;
             short actionId = action.getId();
+            if (actionId == PlayerAction.REPAIR.getId()
+                    || actionId == PlayerAction.IMPROVE.getId()) {
+                WORLD_IMPROVE.invalidate(targets[0]);
+                return;
+            }
             // Wurm's context-menu Examine sends EXAMINE, while an ordinary
             // double click goes through sendDefaultAction and sends
             // DEFAULT_ACTION. The tracker confirms either candidate only when
             // the server returns an item description containing Ql and Dam.
             if (actionId != PlayerAction.EXAMINE.getId()
                     && actionId != PlayerAction.DEFAULT_ACTION.getId()) return;
-            WORLD_IMPROVE.examineSent(targets[0]);
+            WORLD_IMPROVE.examineSent(targets[0],
+                    SmartImproveOriginGuard.isActive());
         } catch (Throwable failure) {
             WORLD_IMPROVE.clear();
             LOGGER.log(Level.FINE, "Unable to capture world Examine target", failure);
@@ -620,17 +629,18 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
 
-    public static void observeWorldImproveEvent(String context, String message) {
+    public static boolean observeWorldImproveEvent(String context, String message) {
         try {
             BULK_TRANSFERS.observeEvent(context, message);
         } catch (Throwable failure) {
             LOGGER.log(Level.FINE, "Unable to observe bulk-transfer rejection", failure);
         }
         try {
-            WORLD_IMPROVE.event(context, message);
+            return WORLD_IMPROVE.event(context, message);
         } catch (Throwable failure) {
             WORLD_IMPROVE.clear();
             LOGGER.log(Level.FINE, "Unable to capture world Improve Event metadata", failure);
+            return false;
         }
     }
 
@@ -639,23 +649,46 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         if (isStopAction(action)) return;
         String actionName = queueActionName(action);
         String sourceName = queueObjectName(sourceId, true);
+        boolean smartImprove = SmartImproveOriginGuard.isActive()
+                && isSmartImproveMutation(action);
         if (action != null && action.isAtomic()) {
             String targetName = targets.length == 1
                     ? queueObjectName(targets[0], false)
                     : Messages.text("queue.monitor.targets", targets.length);
-            ACTION_QUEUE.actionSent(actionName, sourceName, targetName, targets[0]);
+            ACTION_QUEUE.actionSent(actionName, sourceName, targetName, targets[0],
+                    smartImprove);
             return;
         }
         for (int index = 0; index < Math.min(10, targets.length); index++)
             ACTION_QUEUE.actionSent(actionName, sourceName,
-                    queueObjectName(targets[index], false), targets[index]);
+                    queueObjectName(targets[index], false), targets[index], smartImprove);
+    }
+
+    /**
+     * Observe inbound Event text before HUD replacements can consume it, then
+     * keep the quiet-Examine decision alive through the native render path.
+     */
+    public static void beginWorldImproveEvent(String context, String message) {
+        WorldImproveEventScope.enter(observeWorldImproveEvent(context, message));
+    }
+
+    public static void endWorldImproveEvent() {
+        WorldImproveEventScope.exit();
+    }
+
+    public static boolean suppressWorldImproveEvent() {
+        return WorldImproveEventScope.shouldSuppress();
     }
 
     public static void observeSingleActionSent(long sourceId, long targetId,
                                                PlayerAction action) {
         if (isStopAction(action)) return;
+        if (action != null && (action.getId() == PlayerAction.REPAIR.getId()
+                || action.getId() == PlayerAction.IMPROVE.getId()))
+            WORLD_IMPROVE.invalidate(targetId);
         ACTION_QUEUE.actionSent(queueActionName(action),
-                queueObjectName(sourceId, true), queueObjectName(targetId, false), targetId);
+                queueObjectName(sourceId, true), queueObjectName(targetId, false), targetId,
+                SmartImproveOriginGuard.isActive() && isSmartImproveMutation(action));
     }
 
     public static void observeActionState(String actionText, float durationSeconds) {
@@ -674,6 +707,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     private static boolean isStopAction(PlayerAction action) {
         return action != null && action.getId() == PlayerAction.STOP.getId();
+    }
+
+    private static boolean isSmartImproveMutation(PlayerAction action) {
+        return action != null && (action.getId() == PlayerAction.REPAIR.getId()
+                || action.getId() == PlayerAction.IMPROVE.getId());
     }
 
     private static String queueActionName(PlayerAction action) {
@@ -1109,6 +1147,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     private static void disposeHudSession(HeadsUpDisplay oldHud) {
+        if (KEYBIND_EXECUTOR != null) KEYBIND_EXECUTOR.cancelPending();
         ACTION_CAPTURE.cancel();
         SELECTION.cancel();
         ACTION_QUEUE.clear();
@@ -1151,7 +1190,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                                 + "until the next HUD initialization", failure));
         EXECUTOR = new ActionExecutor(ACCESS, INSTANCE::getActionName, PUSH_SELECTION);
         KEYBIND_EXECUTOR = new KeybindExecutionService(
-                EXECUTOR, ACCESS, EVENTS, WORLD_IMPROVE, BULK_TRANSFERS);
+                EXECUTOR, ACCESS, EVENTS, WORLD_IMPROVE, BULK_TRANSFERS,
+                targetId -> ACTION_QUEUE.hasSmartImproveActions(targetId));
     }
 
     public static void onConnectionEnded() {
@@ -1199,6 +1239,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static void clearConnectionState() {
         try {
             if (registry != null) registry.persistAccountBindings();
+            if (KEYBIND_EXECUTOR != null) KEYBIND_EXECUTOR.cancelPending();
             ACTION_QUEUE.clear();
             WORLD_IMPROVE.clear();
             CreationSkillRegistry.clear();

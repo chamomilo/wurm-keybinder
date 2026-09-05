@@ -171,6 +171,35 @@ public class ImproveMaterialCompatibilityTableTest {
     }
 
     @Test
+    public void materialShardTemplateNamesRemainUsableAfterPartialConsumption()
+            throws Exception {
+        ResourceRequirement marble = rule((short) 610,
+                ItemMaterials.MATERIAL_MARBLE, "marble slab");
+        ResourceRequirement slate = rule((short) 610,
+                ItemMaterials.MATERIAL_SLATE, "slate slab");
+        ResourceRequirement sandstone = rule((short) 1449,
+                ItemMaterials.MATERIAL_SANDSTONE, "sandstone slab");
+
+        assertTrue(marble.match(item(10, "marble shards", "marble shards",
+                ItemMaterials.MATERIAL_MARBLE, (short) 610, (byte) 0)).isAccepted());
+        assertTrue(marble.match(item(11, "shards", "marble shards",
+                ItemMaterials.MATERIAL_MARBLE, (short) 610, (byte) 0)).isAccepted());
+        assertTrue(slate.match(item(12, "slate shards", "slate shards",
+                ItemMaterials.MATERIAL_SLATE, (short) 610, (byte) 0)).isAccepted());
+        assertTrue(slate.match(item(13, "shards", "slate shards",
+                ItemMaterials.MATERIAL_SLATE, (short) 610, (byte) 0)).isAccepted());
+        assertTrue(sandstone.match(item(14, "sandstone shards", "sandstone shards",
+                ItemMaterials.MATERIAL_SANDSTONE, (short) 1449,
+                (byte) 0)).isAccepted());
+        assertTrue(sandstone.match(item(15, "shards", "sandstone shards",
+                ItemMaterials.MATERIAL_SANDSTONE, (short) 1449,
+                (byte) 0)).isAccepted());
+
+        assertFalse(marble.match(item(16, "shards", "slate shards",
+                ItemMaterials.MATERIAL_SLATE, (short) 610, (byte) 0)).isAccepted());
+    }
+
+    @Test
     public void ambiguousLeatherPeltIndicatorsAreDisambiguatedByTargetMaterial()
             throws Exception {
         ResourceRequirement metalPelt = rule((short) 602,

@@ -221,14 +221,15 @@ public final class ImproveMaterialCompatibilityTable {
                         "rock shards");
             case ItemMaterials.MATERIAL_SLATE:
                 return material(RequirementFamily.SHARD, material, IMAGE_SHARDS,
-                        "slate shard");
+                        "slate shard", "slate shards", "shards");
             case ItemMaterials.MATERIAL_MARBLE:
                 return material(RequirementFamily.SHARD, material, IMAGE_SHARDS,
-                        "marble shard");
+                        "marble shard", "marble shards", "shards");
             case ItemMaterials.MATERIAL_SANDSTONE:
                 return material(RequirementFamily.SHARD, material,
                         IMAGE_SANDSTONE_SHARDS,
-                        "sandstone shard", "sandstone");
+                        "sandstone shard", "sandstone shards", "sandstone",
+                        "shards");
             default:
                 throw unsupported(icon, material, targetType);
         }

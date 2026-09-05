@@ -16,6 +16,7 @@ import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.integration.CreationSkillRegistry;
 import org.keybinder.wurm.integration.ExecutionOriginGuard;
 import org.keybinder.wurm.integration.ExecutionHoverOverride;
+import org.keybinder.wurm.integration.SmartImproveOriginGuard;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.SmartImproveSourceMode;
 import org.keybinder.wurm.model.TargetKind;
@@ -28,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.LongPredicate;
 
 import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.isImprovable;
 import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.isTargetTemperatureReady;
@@ -36,14 +38,15 @@ import static org.keybinder.wurm.command.SmartImproveInventoryPolicy.orderedTarg
 
 /**
  * Smart Improve executor. Inventory targets use their live metadata directly;
- * one selected world item may use metadata captured from the player's ordinary
- * Examine. Both paths resolve resources through the same strict table and never
- * lock or wait for an Improve response.
+ * external world items are selected and quietly Examined when their cached
+ * pipeline is missing or stale. Both paths resolve resources through the same
+ * strict table and never wait for an Improve response.
  */
 public final class SmartImproveExecutor {
     private final ClientAccess access;
     private final EventLogger log;
     private final WorldImproveTracker world;
+    private final LongPredicate smartImproveQueued;
     private final ImproveSourceResolver resources = new ImproveSourceResolver();
     private final ImproveMaterialCompatibilityTable table =
             new ImproveMaterialCompatibilityTable();
@@ -60,6 +63,12 @@ public final class SmartImproveExecutor {
                     return new IdentityHashMap<SmartImproveStep, PreparedBatch>();
                 }
             };
+    private final ThreadLocal<Map<SmartImproveStep, Long>> externalTargets =
+            new ThreadLocal<Map<SmartImproveStep, Long>>() {
+                @Override protected Map<SmartImproveStep, Long> initialValue() {
+                    return new IdentityHashMap<SmartImproveStep, Long>();
+                }
+            };
 
     public SmartImproveExecutor(ClientAccess access, EventLogger log) {
         this(access, log, new WorldImproveTracker());
@@ -67,9 +76,17 @@ public final class SmartImproveExecutor {
 
     public SmartImproveExecutor(ClientAccess access, EventLogger log,
                                 WorldImproveTracker world) {
+        this(access, log, world, targetId -> false);
+    }
+
+    public SmartImproveExecutor(ClientAccess access, EventLogger log,
+                                WorldImproveTracker world,
+                                LongPredicate smartImproveQueued) {
         this.access = access;
         this.log = log;
         this.world = world;
+        this.smartImproveQueued = smartImproveQueued == null
+                ? targetId -> false : smartImproveQueued;
     }
 
     public int runtimeCost(SmartImproveStep step, HeadsUpDisplay hud)
@@ -97,6 +114,7 @@ public final class SmartImproveExecutor {
         PreparedBatch batch = prepared.get().remove(step);
         if (batch == null) batch = prepare(step, hud, Integer.MAX_VALUE);
         ExecutionOriginGuard.enterInternal();
+        SmartImproveOriginGuard.enter();
         try {
             for (PreparedItem item : batch.items) {
                 if (item.repair) {
@@ -115,11 +133,83 @@ public final class SmartImproveExecutor {
                         new long[]{item.targetId}, PlayerAction.IMPROVE);
             }
         } finally {
+            externalTargets.get().remove(step);
+            SmartImproveOriginGuard.exit();
             ExecutionOriginGuard.exitInternal();
         }
     }
 
-    void clearPrepared() { prepared.remove(); }
+    void clearPrepared() {
+        prepared.remove();
+        externalTargets.remove();
+    }
+
+    WorldPreparation prepareWorldMetadataIfNeeded(SmartImproveStep step,
+                                                   HeadsUpDisplay hud,
+                                                   boolean examineFits)
+            throws ReflectiveOperationException {
+        List<InventoryMetaItem> targets = inventoryTargets(step.getTarget(), hud);
+        boolean inventoryMetadata = !targets.isEmpty();
+        for (InventoryMetaItem target : targets)
+            inventoryMetadata &= hasLocalImproveMetadata(target);
+        if (inventoryMetadata) return WorldPreparation.ready();
+
+        WorldTarget target = requestedWorldTarget(step.getTarget(), hud);
+        if (target == null)
+            throw new StepUnavailableException(
+                    Messages.text("improve.world_target_required"));
+        externalTargets.get().put(step, target.targetId);
+
+        boolean queued = smartImproveQueued.test(target.targetId);
+        WorldImproveTracker.Snapshot any =
+                world.snapshotIncludingStale(target.targetId);
+        PreparationDecision decision = preparationDecision(
+                queued, world.isFresh(target.targetId), any != null);
+        if (decision == PreparationDecision.READY) return WorldPreparation.ready();
+        if (decision == PreparationDecision.WAIT)
+            return WorldPreparation.waiting(target.targetId);
+
+        PickableUnit selected = access.selected(hud.getSelectBar());
+        if (!sameSelectedObject(selected, target.selectionUnit, target.targetId))
+            access.select(hud.getSelectBar(), target.selectionUnit);
+        if (decision == PreparationDecision.SELECT_ONLY)
+            return WorldPreparation.ready();
+        if (!examineFits)
+            throw new org.keybinder.wurm.queue.QueueCapacityException(
+                    Messages.text("improve.world_examine_queue_full"));
+
+        // Register before sending so an immediate Event response cannot outrun
+        // the continuation. The outgoing hook repeats this registration and
+        // preserves the silent flag through SmartImproveOriginGuard.
+        world.examineSent(target.targetId, true);
+        SmartImproveOriginGuard.enter();
+        try {
+            hud.sendAction(PlayerAction.EXAMINE, target.targetId);
+        } catch (RuntimeException failure) {
+            world.clear();
+            throw failure;
+        } finally {
+            SmartImproveOriginGuard.exit();
+        }
+        log.debug("Smart Improve selected external target " + target.targetId
+                + " and sent a silent Examine");
+        return WorldPreparation.waiting(target.targetId);
+    }
+
+    boolean worldMetadataReady(long targetId) {
+        if (world.isFresh(targetId)) return true;
+        return smartImproveQueued.test(targetId)
+                && world.snapshotIncludingStale(targetId) != null;
+    }
+
+    static PreparationDecision preparationDecision(boolean smartQueued,
+                                                     boolean freshSnapshot,
+                                                     boolean anySnapshot) {
+        if (smartQueued) return anySnapshot
+                ? PreparationDecision.READY : PreparationDecision.WAIT;
+        return freshSnapshot ? PreparationDecision.SELECT_ONLY
+                : PreparationDecision.SELECT_AND_EXAMINE;
+    }
 
     private PreparedBatch prepare(SmartImproveStep step, HeadsUpDisplay hud, int budget)
             throws ReflectiveOperationException {
@@ -196,12 +286,24 @@ public final class SmartImproveExecutor {
                                        int budget)
             throws ReflectiveOperationException {
         TargetSpec requested = step.getTarget();
-        WorldImproveTracker.Snapshot state = world.currentSnapshot();
+        Long pinnedTarget = externalTargets.get().get(step);
+        WorldImproveTracker.Snapshot state;
+        if (pinnedTarget == null) {
+            state = world.currentSnapshot();
+        } else {
+            state = world.snapshot(pinnedTarget);
+            if (state == null && smartImproveQueued.test(pinnedTarget))
+                state = world.snapshotIncludingStale(pinnedTarget);
+        }
         if (state == null)
             throw new StepUnavailableException(
                     Messages.text("improve.world_examine_required"));
-        PickableUnit target = examinedWorldTarget(
-                requested, hud, state.getTargetId());
+        boolean queuedSmartPipeline = smartImproveQueued.test(state.getTargetId());
+        PickableUnit selected = access.selected(hud.getSelectBar());
+        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+        PickableUnit target = queuedSmartPipeline
+                ? worldObject(state.getTargetId(), selected, hovered, hud)
+                : examinedWorldTarget(requested, hud, state.getTargetId());
         if (target == null) {
             logWorldResolutionFailure(requested, hud, state.getTargetId());
             throw new StepUnavailableException(
@@ -256,6 +358,73 @@ public final class SmartImproveExecutor {
                 rarityChance, rarityLabel(state.getRarity()),
                 unavailableReason, true));
         return new PreparedBatch(result, cost);
+    }
+
+    private WorldTarget requestedWorldTarget(TargetSpec requested,
+                                             HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        PickableUnit selected = access.selected(hud.getSelectBar());
+        PickableUnit hovered = hud.getWorld().getCurrentHoveredObject();
+        if (requested.getKind() == TargetKind.SELECTED)
+            return worldTarget(selected == null ? -1L : selected.getId(),
+                    selected);
+        if (requested.getKind() == TargetKind.EXACT_OBJECT) {
+            PickableUnit exact = worldObject(requested.getObjectId(), selected, hovered, hud);
+            return worldTarget(requested.getObjectId(), exact);
+        }
+        if (requested.getKind() != TargetKind.HOVER) return null;
+
+        ExecutionHoverOverride.Snapshot override = ExecutionHoverOverride.current();
+        if (override != null && override.getWorldObjectId() > 0L) {
+            PickableUnit overridden = override.getHoveredTarget();
+            if (overridden == null)
+                overridden = worldObject(override.getWorldObjectId(), selected, hovered, hud);
+            WorldTarget result = worldTarget(override.getWorldObjectId(), overridden);
+            if (result != null) return result;
+        }
+
+        com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
+        long[] commandTargets = hud.getCommandTargetsFrom(
+                client.getXMouse(), client.getYMouse());
+        GroundItemCellRenderable hoveredGround = unwrapGround(hovered);
+        if (hoveredGround != null && containsId(commandTargets, hoveredGround.getId()))
+            return new WorldTarget(hoveredGround.getId(), hoveredGround);
+        if (hovered != null && containsId(commandTargets, hovered.getId()))
+            return new WorldTarget(hovered.getId(), hovered);
+        if (commandTargets != null) {
+            for (long id : commandTargets) {
+                PickableUnit resolved = worldObject(id, selected, hovered, hud);
+                if (resolved != null) return new WorldTarget(id, resolved);
+            }
+        }
+        if (hovered != null)
+            return new WorldTarget(canonicalWorldId(hovered),
+                    hoveredGround == null ? hovered : hoveredGround);
+
+        WorldImproveTracker.Snapshot remembered = selected == null ? null
+                : world.snapshotIncludingStale(canonicalWorldId(selected));
+        return remembered == null ? null
+                : new WorldTarget(remembered.getTargetId(), selected);
+    }
+
+    private static WorldTarget worldTarget(long targetId, PickableUnit unit) {
+        return targetId > 0L && unit != null ? new WorldTarget(targetId, unit) : null;
+    }
+
+    private static long canonicalWorldId(PickableUnit unit) {
+        GroundItemCellRenderable ground = unwrapGround(unit);
+        return ground == null ? unit.getId() : ground.getId();
+    }
+
+    private static boolean sameSelectedObject(PickableUnit selected,
+                                              PickableUnit target,
+                                              long targetId) {
+        if (selected == null) return false;
+        if (selected == target || selected.getId() == targetId) return true;
+        GroundItemCellRenderable selectedGround = unwrapGround(selected);
+        GroundItemCellRenderable targetGround = unwrapGround(target);
+        return sameGround(selectedGround, targetGround)
+                || selectedGround != null && selectedGround.getId() == targetId;
     }
 
     private PickableUnit examinedWorldTarget(TargetSpec requested,
@@ -697,6 +866,41 @@ public final class SmartImproveExecutor {
         private PreparedBatch(List<PreparedItem> items, int queueCost) {
             this.items = items;
             this.queueCost = queueCost;
+        }
+    }
+
+    enum PreparationDecision {
+        READY,
+        WAIT,
+        SELECT_ONLY,
+        SELECT_AND_EXAMINE
+    }
+
+    static final class WorldPreparation {
+        private final boolean waiting;
+        private final long targetId;
+
+        private WorldPreparation(boolean waiting, long targetId) {
+            this.waiting = waiting;
+            this.targetId = targetId;
+        }
+
+        static WorldPreparation ready() { return new WorldPreparation(false, -1L); }
+        static WorldPreparation waiting(long targetId) {
+            return new WorldPreparation(true, targetId);
+        }
+
+        boolean isWaiting() { return waiting; }
+        long getTargetId() { return targetId; }
+    }
+
+    private static final class WorldTarget {
+        private final long targetId;
+        private final PickableUnit selectionUnit;
+
+        private WorldTarget(long targetId, PickableUnit selectionUnit) {
+            this.targetId = targetId;
+            this.selectionUnit = selectionUnit;
         }
     }
 

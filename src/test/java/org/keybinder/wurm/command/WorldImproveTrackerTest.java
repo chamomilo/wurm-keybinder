@@ -171,6 +171,46 @@ public class WorldImproveTrackerTest {
         assertEquals(0.15f, state.getRarityRuneModifier(), 0.0001f);
     }
 
+    @Test public void automaticExamineIsHiddenAndRefreshesInvalidatedPipelineData() {
+        WorldImproveTracker tracker = new WorldImproveTracker();
+        tracker.examineSent(46L, true);
+
+        assertTrue(tracker.event(":Event", "A forge must be flattened by a hammer. "
+                + "Ql: 80.0, Dam: 4.0."));
+        assertTrue(tracker.isFresh(46L));
+
+        tracker.invalidate(46L);
+        assertFalse(tracker.isFresh(46L));
+        assertNull(tracker.snapshot(46L));
+        assertEquals(RequirementFamily.HAMMER,
+                tracker.snapshotIncludingStale(46L).getRequirement());
+
+        tracker.examineSent(46L, true);
+        assertTrue(tracker.event(":Event", "A forge has irregularities removed with "
+                + "a stone chisel. Ql: 81.0, Dam: 0.0."));
+        assertEquals(RequirementFamily.STONE_CHISEL,
+                tracker.snapshot(46L).getRequirement());
+    }
+
+    @Test public void ordinaryPlayerExamineRemainsVisible() {
+        WorldImproveTracker tracker = new WorldImproveTracker();
+        tracker.examineSent(47L);
+
+        assertFalse(tracker.event(":Event", "A forge must be flattened by a hammer. "
+                + "Ql: 80.0, Dam: 0.0."));
+    }
+
+    @Test public void splitAutomaticExamineStaysSilentUntilRequirementArrives() {
+        WorldImproveTracker tracker = new WorldImproveTracker();
+        tracker.examineSent(48L, true);
+
+        assertTrue(tracker.event(":Event", "A forge. Ql: 80.0, Dam: 0.0."));
+        assertFalse(tracker.isFresh(48L));
+        assertFalse(tracker.event(":Event", "You hear a raven in the distance."));
+        assertTrue(tracker.event(":Event", "It must be flattened by a hammer."));
+        assertTrue(tracker.isFresh(48L));
+    }
+
     private static void assertObject(long id, String ignoredName, String phrase,
                                      RequirementFamily expected) {
         WorldImproveTracker tracker = new WorldImproveTracker();

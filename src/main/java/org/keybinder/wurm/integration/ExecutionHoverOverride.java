@@ -39,6 +39,7 @@ public final class ExecutionHoverOverride {
 
         public long getWorldObjectId() { return worldObjectId; }
         public boolean isGroundItem() { return groundItem; }
+        public PickableUnit getHoveredTarget() { return hoveredTarget; }
         public boolean targetMatches(int targetMask) {
             // The ID-only constructor remains for compatibility with existing
             // callers. Production hover capture retains the native PickableUnit
