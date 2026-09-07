@@ -18,6 +18,7 @@ import com.wurmonline.client.renderer.gui.KeybinderSelectionWindow;
 import com.wurmonline.client.renderer.gui.KeybinderSelectionBridge;
 import com.wurmonline.client.renderer.gui.KeybinderInventorySelectionBridge;
 import com.wurmonline.client.renderer.gui.KeybinderTileWindow;
+import com.wurmonline.client.renderer.gui.ChamomiloUpdateWindow;
 import com.wurmonline.client.renderer.gui.KeybinderWindow;
 import com.wurmonline.client.renderer.gui.KeybinderTagWindow;
 import com.wurmonline.client.renderer.gui.SelectBar;
@@ -91,8 +92,12 @@ import org.keybinder.wurm.ui.KeybinderUiController;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.ui.EditorWorkflow;
 import org.keybinder.wurm.ui.QueueMonitorSide;
+import org.chamomilo.wurm.update.ModUpdate;
+import org.chamomilo.wurm.update.SharedUpdateCoordinator;
 import org.gotti.wurmunlimited.modloader.interfaces.Configurable;
 import org.gotti.wurmunlimited.modloader.interfaces.Initable;
+import org.gotti.wurmunlimited.modloader.interfaces.ModEntry;
+import org.gotti.wurmunlimited.modloader.interfaces.ModListener;
 import org.gotti.wurmunlimited.modloader.interfaces.PreInitable;
 import org.gotti.wurmunlimited.modloader.interfaces.WurmClientMod;
 
@@ -113,8 +118,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
+        ModListener,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.7.6";
+    public static final String VERSION = "0.9.0";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -155,6 +161,18 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static final DeferredUiQueue UI_AFTER_TICK = new DeferredUiQueue(
             64, failure -> EVENTS.error(Messages.text("error.deferred_hud"), failure));
     private static final FailOpenHookInstaller HOOKS = new FailOpenHookInstaller(LOGGER);
+    private static final SharedUpdateCoordinator.Host UPDATE_HOST =
+            new SharedUpdateCoordinator.Host() {
+                @Override public void updatesReady(List<ModUpdate> updates) {
+                    availableUpdates = updates;
+                    deferUi(KeybinderMod::showAvailableUpdates);
+                }
+
+                @Override public void checkFailed(String repository, Throwable failure) {
+                    LOGGER.log(Level.FINE, "GitHub update check failed for " + repository
+                            + "; continuing without a notification for that repository", failure);
+                }
+            };
     private static final Map<Short, String> ACTION_NAMES = new ConcurrentHashMap<>();
     private static final Map<Short, String> ACTION_PATHS = new ConcurrentHashMap<>();
     private static final Map<Object, String> POPUP_PATHS =
@@ -178,6 +196,9 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private static volatile KeybinderMultiSelectorWindow multiSelectorWindow;
     private static volatile ExecutionHoverOverride.Snapshot multiSelectorHoverSnapshot;
     private static volatile KeybinderMergeWindow mergeWindow;
+    private static volatile ChamomiloUpdateWindow updateWindow;
+    private static volatile List<ModUpdate> availableUpdates = Collections.emptyList();
+    private static volatile boolean updateNotificationShown;
     private static final KeybindTransferStore TRANSFER = new KeybindTransferStore();
     private static final ValuePackProvider VALUE_PACK = new ValuePackProvider();
     private static final VanillaImportReviewService IMPORT_REVIEW =
@@ -295,6 +316,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     @Override
     public void init() {
         try {
+            SharedUpdateCoordinator.registerHost("keybinder", UPDATE_HOST);
             String path = properties.getProperty("dataFile", "mods/keybinder/keybinds.properties");
             java.nio.file.Path dataPath = Paths.get(path);
             java.nio.file.Path accountStatePath = dataPath.resolveSibling(
@@ -702,6 +724,15 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         } catch (Throwable failure) {
             LOGGER.log(Level.WARNING, "Unable to process a remembered queue cancellation",
                     failure);
+        }
+    }
+
+    @Override
+    public void modInitialized(ModEntry<?> entry) {
+        try {
+            SharedUpdateCoordinator.modInitialized(entry);
+        } catch (Throwable failure) {
+            LOGGER.log(Level.WARNING, "Unable to collect mod update metadata", failure);
         }
     }
 
@@ -1124,10 +1155,42 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 }
             }
             EVENTS.info(Messages.text("event.ready", VERSION, LIMITS.readLimit(newHud)));
+            showAvailableUpdates();
+            SharedUpdateCoordinator.startOnce();
         } catch (Throwable e) {
             EVENTS.error(Messages.text("error.attach_hud",
                     e.getClass().getSimpleName(), safeMessage(e)), e);
         }
+    }
+
+    private static synchronized void showAvailableUpdates() {
+        final List<ModUpdate> updates = availableUpdates;
+        final HeadsUpDisplay currentHud = hud;
+        if (updates == null || updates.isEmpty()
+                || currentHud == null || updateNotificationShown) return;
+        for (ModUpdate update : updates) EVENTS.warning(update.getNotificationText());
+        try {
+            updateWindow = new ChamomiloUpdateWindow(currentHud, updates,
+                    Messages.text("update.title"), Messages.text("update.message"),
+                    Messages.text("update.download"),
+                    Messages.text("update.download.tip", "{0}"),
+                    Messages.text("update.later"), Messages.text("update.later.tip"),
+                    update -> openProject(update.getDownloadUrl(),
+                            update.getDisplayName() + " release"),
+                    KeybinderMod::dismissUpdateNotification);
+            new HudIntegration(ACCESS).add(currentHud, updateWindow);
+            updateNotificationShown = true;
+        } catch (Throwable failure) {
+            updateWindow = null;
+            LOGGER.log(Level.WARNING, "Unable to show the aggregate update notification",
+                    failure);
+        }
+    }
+
+    private static void dismissUpdateNotification() {
+        final ChamomiloUpdateWindow notification = updateWindow;
+        updateWindow = null;
+        deferUi(() -> hideSafely(notification));
     }
 
     private static void provideValuePackIfNeeded() {
@@ -1162,7 +1225,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                     LOGGER, ACCESS::hideComponent).hideAll(oldHud,
                     queueMonitor, captureWindow, conflictWindow, tileWindow, selectionWindow,
                     multiSelectorWindow, mergeWindow, editorWindow, importWindow,
-                    legacyWindow);
+                    legacyWindow, updateWindow);
         captureWindow = null;
         conflictWindow = null;
         tileWindow = null;
@@ -1175,6 +1238,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         window = null;
         tagWindow = null;
         queueMonitor = null;
+        updateWindow = null;
         if (editorWorkflow != null) editorWorkflow.clear();
         toolbeltOpenedForSelection = false;
         equipmentOpenedForSelection = false;

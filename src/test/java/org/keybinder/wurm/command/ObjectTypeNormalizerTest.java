@@ -31,6 +31,10 @@ public class ObjectTypeNormalizerTest {
                 {"rare iron pickaxe (glowing)", "pickaxe"},
                 {"a supreme steel pickaxe (searing hot)", "pickaxe"},
                 {"rare\u00a0iron\u202fpickaxe", "pickaxe"},
+                {"empty bee hive, oakenwood", "bee hive"},
+                {"active bee hive, cedarwood", "bee hive"},
+                {"dormant bee hive, pinewood", "bee hive"},
+                {"noisy bee hive, birchwood", "bee hive"},
                 {"  THE   LARGE   RAT PELT  ", "large rat pelt"}
         });
     }

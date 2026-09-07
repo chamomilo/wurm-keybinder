@@ -32,7 +32,7 @@ public final class ActionSourceResolver {
                 InventoryMetaItem item = hud.getToolBelt().getItemInSlot(selector.getSlot() - 1);
                 if (item == null)
                     throw unavailable(Messages.text("source.toolbelt_empty", selector.getSlot()));
-                return ResolvedSource.override(item.getId());
+                return ResolvedSource.concreteTool(item);
             }
             case EQUIPMENT_SLOT: {
                 PaperDollSlot frame = access.equipmentSlot(
@@ -41,7 +41,7 @@ public final class ActionSourceResolver {
                         ? null : frame.getEquippedItem().getItem();
                 if (item == null)
                     throw unavailable(Messages.text("source.equipment_empty", selector.getSlot()));
-                return ResolvedSource.override(item.getId());
+                return ResolvedSource.concreteTool(item);
             }
             case INVENTORY_FILTER: {
                 InventoryMetaItem item = inventoryFilters.resolve(selector.getText(), hud,
@@ -49,13 +49,13 @@ public final class ActionSourceResolver {
                 if (item == null)
                     throw unavailable(Messages.text(
                             "unavailable.inventory_filter", selector.getText()));
-                return ResolvedSource.override(item.getId());
+                return ResolvedSource.concreteTool(item);
             }
             case EXACT_OBJECT: {
                 InventoryMetaItem item = access.inventoryItem(hud, selector.getObjectId());
                 if (item == null)
                     throw unavailable(Messages.text("source.exact_unavailable", selector.getText()));
-                return ResolvedSource.override(item.getId());
+                return ResolvedSource.concreteTool(item);
             }
             default:
                 throw unavailable(Messages.text("source.unsupported",
@@ -72,7 +72,7 @@ public final class ActionSourceResolver {
         InventoryMetaItem item = access.inventoryItem(hud, ids[0]);
         if (item == null)
             throw unavailable(Messages.text("source.hovered_inventory_required"));
-        return ResolvedSource.override(item.getId());
+        return ResolvedSource.concreteTool(item);
     }
 
     private static StepUnavailableException unavailable(String reason) {
@@ -82,15 +82,30 @@ public final class ActionSourceResolver {
     public static final class ResolvedSource {
         private final boolean override;
         private final long sourceId;
+        private final InventoryMetaItem concreteTool;
 
-        private ResolvedSource(boolean override, long sourceId) {
+        private ResolvedSource(boolean override, long sourceId,
+                               InventoryMetaItem concreteTool) {
             this.override = override;
             this.sourceId = sourceId;
+            this.concreteTool = concreteTool;
         }
 
-        public static ResolvedSource ordinary() { return new ResolvedSource(false, 0L); }
-        public static ResolvedSource override(long id) { return new ResolvedSource(true, id); }
+        public static ResolvedSource ordinary() {
+            return new ResolvedSource(false, 0L, null);
+        }
+
+        public static ResolvedSource override(long id) {
+            return new ResolvedSource(true, id, null);
+        }
+
+        public static ResolvedSource concreteTool(InventoryMetaItem item) {
+            if (item == null) throw new IllegalArgumentException("Concrete tool is missing");
+            return new ResolvedSource(true, item.getId(), item);
+        }
+
         public boolean hasOverride() { return override; }
         public long getSourceId() { return sourceId; }
+        public InventoryMetaItem getConcreteTool() { return concreteTool; }
     }
 }

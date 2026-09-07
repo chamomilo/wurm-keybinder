@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.7.6"
+version "0.9.0"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -71,6 +71,15 @@ task verifyJarNamespace(dependsOn: jar) {
         if (tree.matching { include 'org/keybinder/wurm/KeybinderMod.class' }.files.empty) {
             throw new GradleException("Keybinder main class is missing from keybinder.jar")
         }
+        ['org/chamomilo/wurm/update/SharedUpdateCoordinator.class',
+         'org/chamomilo/wurm/update/GitHubReleaseClient.class',
+         'org/chamomilo/wurm/update/ModUpdate.class',
+         'com/wurmonline/client/renderer/gui/ChamomiloUpdateWindow.class'].each { updateClass ->
+            if (tree.matching { include updateClass }.files.empty) {
+                throw new GradleException(
+                        "Shared update coordinator class is missing: ${updateClass}")
+            }
+        }
         ['keybinder/i18n/messages_en.properties',
          'keybinder/i18n/messages_pt-BR.properties',
          'keybinder/i18n/messages_de.properties',
@@ -82,7 +91,40 @@ task verifyJarNamespace(dependsOn: jar) {
     }
 }
 
-task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace]) {
+task verifyUpdaterIntegration(dependsOn: jar) {
+    doLast {
+        def properties = new Properties()
+        file('mods/keybinder.properties').withInputStream { properties.load(it) }
+        def expected = [
+                updateProvider: 'chamomilo',
+                updateCoordinatorProtocol: '1',
+                updateId: 'keybinder',
+                updateName: 'Keybinder',
+                updateRepo: 'chamomilo/wurm-keybinder',
+                updateAsset: 'keybinder-{version}.zip'
+        ]
+        expected.each { key, value ->
+            if (properties.getProperty(key) != value) {
+                throw new GradleException(
+                        "Required shared-updater metadata ${key}=${value} is missing")
+            }
+        }
+        def mainSource = file('src/main/java/org/keybinder/wurm/KeybinderMod.java')
+                .getText('UTF-8')
+        ['ModListener',
+         'SharedUpdateCoordinator.registerHost',
+         'SharedUpdateCoordinator.modInitialized',
+         'SharedUpdateCoordinator.startOnce'].each { integration ->
+            if (!mainSource.contains(integration)) {
+                throw new GradleException(
+                        "Required shared-updater integration is missing: ${integration}")
+            }
+        }
+    }
+}
+
+task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace,
+                                verifyUpdaterIntegration]) {
 
     into("mods", {
         into(project.name, {
@@ -125,7 +167,7 @@ task verifyDistArchive(dependsOn: dist) {
     }
 }
 
-build.dependsOn verifyJarNamespace, verifyDistArchive
+build.dependsOn verifyJarNamespace, verifyUpdaterIntegration, verifyDistArchive
 
 test {
     testLogging {

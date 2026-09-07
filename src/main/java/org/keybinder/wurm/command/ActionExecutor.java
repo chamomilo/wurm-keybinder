@@ -252,6 +252,11 @@ public final class ActionExecutor {
             dispatch(plan, hud, plannedQueueCost);
             return;
         }
+        // Sending a scoped source-ID override is enough for the server, but Wurm's
+        // action animation also reads the HUD's active tool. Keep both views in
+        // sync whenever this step resolved a concrete portable tool.
+        if (source.getConcreteTool() != null)
+            access.setActiveTool(hud, source.getConcreteTool());
         try (ActionSourceOverride.Scope ignored = ActionSourceOverride.push(source.getSourceId())) {
             dispatch(plan, hud, plannedQueueCost);
         }

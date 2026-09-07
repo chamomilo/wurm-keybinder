@@ -22,6 +22,21 @@ public class ImproveSkillCatalogTest {
     }
 
     @Test
+    public void resolvesEveryLiveBeeHiveStateToItsRecipeSkill() {
+        ImproveSkillCatalog catalog = new ImproveSkillCatalog(Arrays.asList(
+                new CreationSkillEntry("bee hive", "Fine carpentry")));
+
+        assertEquals("Fine carpentry",
+                catalog.skillFor("empty bee hive, oakenwood"));
+        assertEquals("Fine carpentry",
+                catalog.skillFor("active bee hive, cedarwood"));
+        assertEquals("Fine carpentry",
+                catalog.skillFor("dormant bee hive, pinewood"));
+        assertEquals("Fine carpentry",
+                catalog.skillFor("noisy bee hive, birchwood"));
+    }
+
+    @Test
     public void refusesAnItemNameThatMapsToDifferentSkills() {
         ImproveSkillCatalog catalog = new ImproveSkillCatalog(Arrays.asList(
                 new CreationSkillEntry("special tool", "Carpentry"),

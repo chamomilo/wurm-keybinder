@@ -2,23 +2,54 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.7.6 for Wurm Unlimited
+# Keybinder 0.9.0 for Wurm Unlimited
 
-## Smarter preparation for Improve
+## One update window for every Chamomilo mod
 
 Hello, SKLOTOPOLIS!
 
-Keybinder 0.7.6 is ready for testing.
+Keybinder 0.9.0 is ready for testing.
 
-Smart Improve can now prepare an external world object automatically: it selects
-the exact target, sends a quiet Examine, waits for the server response without
-freezing the client, and then continues the keybind. This release also fixes
-partially used marble, slate, and sandstone shards not being found.
+Keybinder now embeds the shared Chamomilo update coordinator. The first installed
+Chamomilo mod to initialize owns the updater, gathers metadata for every other
+installed Chamomilo mod, checks their latest stable GitHub Releases in the
+background, and shows all available versions and download links in one window.
 
-- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.6)
+- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.0)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-## What is new in 0.7.6?
+## What is new in 0.9.0?
+
+### Shared multi-mod update coordinator
+
+Every participating mod contributes standardized repository, installed-version,
+and release-asset metadata through Mod Launcher. The first coordinator instance
+collects the complete list through `ModListener`, makes one request per unique
+GitHub repository after the HUD is ready, and presents every update together.
+Duplicate updater windows and duplicate checks are suppressed for the whole game
+process.
+
+Each row uses the explicit form `Wurm <name> Mod. Installed version: <installed>.
+Available version: <latest>. You can download here: <URL>`. GitHub is opened only
+after the player presses that row's **Download** button.
+
+The reusable protocol and mandatory metadata for future mods are documented in
+[SHARED_UPDATER.md](https://github.com/chamomilo/wurm-keybinder/blob/main/SHARED_UPDATER.md);
+release builds fail if Keybinder loses its embedded coordinator or metadata.
+
+### Correct action animations for selected tools
+
+When an ordinary action step uses a concrete Tool selected from the toolbelt,
+equipment, inventory filter, hovered inventory item, or an exact captured item,
+Keybinder now makes that item Wurm's active tool immediately before dispatch.
+`Current active` and `Empty hand` retain their existing behavior.
+
+### Bee-hive state normalization
+
+Smart Improve now resolves `empty`, `active`, `dormant`, and `noisy` bee hives
+against the stable `bee hive` creation recipe and reports the correct skill.
+
+## What was new in 0.7.6?
 
 ### Automatic external-object preparation
 
@@ -78,8 +109,8 @@ integration and does not add a hard dependency on that mod.
 1. Disable the old **Custom Actions**, **Improved Improve**, and **i2improve**
    client mods.
 2. Download
-   [Keybinder 0.7.6 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.7.6).
-3. Extract `keybinder-0.7.6.zip` into your Wurm Unlimited client directory, as
+   [Keybinder 0.9.0 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.0).
+3. Extract `keybinder-0.9.0.zip` into your Wurm Unlimited client directory, as
    usual for Ago's Client Mod Launcher.
 4. When upgrading, simply overwrite the existing Keybinder files. Your managed
    keybinds are stored separately and are not replaced by the archive.

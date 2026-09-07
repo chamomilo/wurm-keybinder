@@ -32,10 +32,15 @@ public final class ObjectTypeNormalizer {
             new HashSet<String>(Arrays.asList(
                     "salty", "fresh", "frozen", "warm", "hot", "boiling", "searing",
                     "glowing", "burning", "lit", "unlit", "open", "closed", "locked",
-                    "unlocked", "unfinished", "damaged"));
+                    "unlocked", "unfinished", "damaged",
+                    // Item.getName(boolean) prefixes both ordinary and wild bee
+                    // hives with one of these live colony states. Creation-list
+                    // recipes retain the stable template name ("bee hive").
+                    "empty", "active", "dormant", "noisy"));
     private static final String STATE_PATTERN =
             "frozen|very warm|warm|hot|boiling|searing(?: hot)?|glowing(?: from heat)?"
-                    + "|burning|lit|unlit|open|closed|locked|unlocked|unfinished|damaged";
+                    + "|burning|lit|unlit|open|closed|locked|unlocked|unfinished|damaged"
+                    + "|empty|active|dormant|noisy";
 
     private ObjectTypeNormalizer() { }
 

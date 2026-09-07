@@ -1,11 +1,14 @@
 package org.keybinder.wurm.integration;
 
+import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import static org.junit.Assert.*;
 import org.junit.After;
 import org.junit.Test;
 import org.keybinder.wurm.command.ActionSourceResolver;
 import org.keybinder.wurm.command.StepUnavailableException;
 import org.keybinder.wurm.model.ItemSelector;
+
+import java.lang.reflect.Field;
 
 public class ActionSourceResolverTest {
     @After public void reset() { ActionSourceOverride.resetForTests(); }
@@ -31,5 +34,29 @@ public class ActionSourceResolverTest {
                 new ActionSourceResolver(null).resolve(ItemSelector.emptyHand(), null);
         assertTrue(source.hasOverride());
         assertEquals(-1L, source.getSourceId());
+        assertNull(source.getConcreteTool());
+    }
+
+    @Test public void concreteSourceRetainsTheToolThatMustBecomeActive() throws Exception {
+        InventoryMetaItem item = item(42L);
+
+        ActionSourceResolver.ResolvedSource source =
+                ActionSourceResolver.ResolvedSource.concreteTool(item);
+
+        assertTrue(source.hasOverride());
+        assertEquals(42L, source.getSourceId());
+        assertSame(item, source.getConcreteTool());
+    }
+
+    private static InventoryMetaItem item(long id) throws Exception {
+        Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+        InventoryMetaItem item = (InventoryMetaItem) unsafe.allocateInstance(
+                InventoryMetaItem.class);
+        Field idField = InventoryMetaItem.class.getDeclaredField("id");
+        idField.setAccessible(true);
+        idField.set(item, id);
+        return item;
     }
 }
