@@ -23,6 +23,23 @@ public class WorldImproveTrackerTest {
                 RequirementFamily.MALLET);
     }
 
+    @Test public void genericShardsExamineMakesGroundTargetReady() {
+        for (String phrase : new String[] {
+                "It could be improved with a shards.",
+                "It could be improved with shards." }) {
+            WorldImproveTracker tracker = new WorldImproveTracker();
+            tracker.examineSent(123L, true);
+            assertTrue(phrase, tracker.event(":Event", phrase));
+            assertTrue(phrase, tracker.isFresh(123L));
+            assertEquals(RequirementFamily.SHARD,
+                    tracker.snapshot(123L).getRequirement());
+        }
+        assertObject(124L, "marble ground item",
+                "A marble item. Ql: 70.0, Dam: 0.0. "
+                        + "It could be improved with a shards.",
+                RequirementFamily.SHARD);
+    }
+
     @Test public void parsesEveryVanillaRequirementFamily() {
         assertRequirement("improve it with a log", RequirementFamily.LOG);
         assertRequirement("improve it with a lump", RequirementFamily.LUMP);

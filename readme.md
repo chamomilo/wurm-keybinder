@@ -2,23 +2,30 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.9.0 for Wurm Unlimited
+# Keybinder 0.9.1 for Wurm Unlimited
 
 ## One update window for every Chamomilo mod
 
 Hello, SKLOTOPOLIS!
 
-Keybinder 0.9.0 is ready for testing.
+Keybinder 0.9.1 is ready for testing.
 
 Keybinder now embeds the shared Chamomilo update coordinator. The first installed
 Chamomilo mod to initialize owns the updater, gathers metadata for every other
 installed Chamomilo mod, checks their latest stable GitHub Releases in the
 background, and shows all available versions and download links in one window.
 
-- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.0)
+- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.1)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-## What is new in 0.9.0?
+## What is new in 0.9.1?
+
+Smart Improve recognizes the generic Examine messages `It could be improved
+with a shards.` and `It could be improved with shards.` for ground objects.
+It selects the shard material from the improved target, allowing marble shards
+in the inventory to be found after automatic Examine.
+
+## What was new in 0.9.0?
 
 ### Shared multi-mod update coordinator
 
@@ -109,8 +116,8 @@ integration and does not add a hard dependency on that mod.
 1. Disable the old **Custom Actions**, **Improved Improve**, and **i2improve**
    client mods.
 2. Download
-   [Keybinder 0.9.0 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.0).
-3. Extract `keybinder-0.9.0.zip` into your Wurm Unlimited client directory, as
+   [Keybinder 0.9.1 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.1).
+3. Extract `keybinder-0.9.1.zip` into your Wurm Unlimited client directory, as
    usual for Ago's Client Mod Launcher.
 4. When upgrading, simply overwrite the existing Keybinder files. Your managed
    keybinds are stored separately and are not replaced by the archive.

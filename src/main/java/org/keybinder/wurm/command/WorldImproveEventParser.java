@@ -107,7 +107,8 @@ final class WorldImproveEventParser {
         if (containsAny(value, "pelt", "want to polish", "need to polish"))
             return RequirementFamily.PELT;
         if (containsAny(value, "rock shards", "stone shards", "slate shard",
-                "marble shard", "sandstone shard", "more shards"))
+                "marble shard", "sandstone shard", "more shards",
+                "with a shards", "with shards"))
             return RequirementFamily.SHARD;
         if (containsAny(value, "with a lump", "with more lump", "more lump"))
             return RequirementFamily.LUMP;
