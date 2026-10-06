@@ -7,7 +7,7 @@ Maintain this file when adding a public mod; clients need no new binary release.
 An unauthenticated public-repository listing filters out private or foreign
 repositories. A validated catalogue is cached in
 `~/.chamomilo/mod-catalog.properties`; the last verified copy, then the initial
-six published mods, provides offline fallback.
+initial published mods, provides offline fallback.
 
 Mod discovery reads properties and checks implementation JAR presence regardless
 of enabled/load state. Runtime versions win over disk metadata; disk versions
@@ -56,6 +56,10 @@ list to the winning host.
 - Embed `org.chamomilo.wurm.update`, `ChamomiloUpdateWindow`,
   `com.wurmonline.client.resources.ChamomiloResourceUrl`, and the canonical
   `org/chamomilo/wurm/update/update-frame.png` JAR resource in every release.
+- Mods without their own HUD bridge call `SharedUpdateHooks.install()` in
+  preInit, `SharedUpdateHooks.registerHost(id)` in init, and delegate their
+  ModListener callbacks. The shared hooks resolve `ChamomiloUpdateBridge` only
+  after HUD init and deliver its window on the HUD thread.
 - Keep protocol-1 public interfaces binary compatible across all participating
   JARs. Whichever JAR is first on the shared classpath supplies the runtime copy.
 - Use numeric `vX.Y.Z` GitHub release tags and attach the ZIP named by

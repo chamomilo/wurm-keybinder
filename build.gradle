@@ -75,6 +75,8 @@ task verifyJarNamespace(dependsOn: jar) {
          'org/chamomilo/wurm/update/GitHubReleaseClient.class',
          'org/chamomilo/wurm/update/ModUpdate.class',
          'org/chamomilo/wurm/update/ModCatalog.class',
+         'org/chamomilo/wurm/update/SharedUpdateHooks.class',
+         'com/wurmonline/client/renderer/gui/ChamomiloUpdateBridge.class',
          'com/wurmonline/client/resources/ChamomiloResourceUrl.class',
          'org/chamomilo/wurm/update/update-frame.png',
          'com/wurmonline/client/renderer/gui/ChamomiloUpdateWindow.class'].each { updateClass ->
