@@ -2,23 +2,29 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.9.1 for Wurm Unlimited
+# Keybinder 0.10.0 for Wurm Unlimited
 
 ## One update window for every Chamomilo mod
 
 Hello, SKLOTOPOLIS!
 
-Keybinder 0.9.1 is ready for testing.
+Keybinder 0.10.0 is ready for testing.
 
 Keybinder now embeds the shared Chamomilo update coordinator. The first installed
 Chamomilo mod to initialize owns the updater, gathers metadata for every other
 installed Chamomilo mod, checks their latest stable GitHub Releases in the
 background, and shows all available versions and download links in one window.
 
-- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.1)
+- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.10.0)
 - [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-## What is new in 0.9.1?
+## What is new in 0.10.0?
+
+The Chamomilo versions window appears at every game launch. Its public GitHub catalogue includes installed, disabled and absent mods, with installed/latest versions and UPDATE or INSTALL buttons that open manual ZIP downloads. Current versions and failed checks remain visible. A thin high-resolution wood-and-metal frame matches Waypointer's map artwork.
+
+The catalogue is maintained in chamomilo-mods.properties in this repository. Clients refresh it without needing another mod release, filter it against Chamomilo's public GitHub repositories, and keep a verified offline copy. Install Keybinder 0.10.0 to replace the older shared updater when Keybinder is present.
+
+## What was new in 0.9.1?
 
 Smart Improve recognizes the generic Examine messages `It could be improved
 with a shards.` and `It could be improved with shards.` for ground objects.
@@ -116,8 +122,8 @@ integration and does not add a hard dependency on that mod.
 1. Disable the old **Custom Actions**, **Improved Improve**, and **i2improve**
    client mods.
 2. Download
-   [Keybinder 0.9.1 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.1).
-3. Extract `keybinder-0.9.1.zip` into your Wurm Unlimited client directory, as
+   [Keybinder 0.10.0 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.10.0).
+3. Extract `keybinder-0.10.0.zip` into your Wurm Unlimited client directory, as
    usual for Ago's Client Mod Launcher.
 4. When upgrading, simply overwrite the existing Keybinder files. Your managed
    keybinds are stored separately and are not replaced by the archive.

@@ -120,7 +120,7 @@ import java.util.logging.Logger;
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         ModListener,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.9.1";
+    public static final String VERSION = "0.10.0";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -1168,7 +1168,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         final HeadsUpDisplay currentHud = hud;
         if (updates == null || updates.isEmpty()
                 || currentHud == null || updateNotificationShown) return;
-        for (ModUpdate update : updates) EVENTS.warning(update.getNotificationText());
+        LOGGER.info("Showing Chamomilo versions: " + updates.size() + " mods");
         try {
             updateWindow = new ChamomiloUpdateWindow(currentHud, updates,
                     Messages.text("update.title"), Messages.text("update.message"),

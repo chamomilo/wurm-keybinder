@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.9.1"
+version "0.10.0"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -74,6 +74,9 @@ task verifyJarNamespace(dependsOn: jar) {
         ['org/chamomilo/wurm/update/SharedUpdateCoordinator.class',
          'org/chamomilo/wurm/update/GitHubReleaseClient.class',
          'org/chamomilo/wurm/update/ModUpdate.class',
+         'org/chamomilo/wurm/update/ModCatalog.class',
+         'com/wurmonline/client/resources/ChamomiloResourceUrl.class',
+         'org/chamomilo/wurm/update/update-frame.png',
          'com/wurmonline/client/renderer/gui/ChamomiloUpdateWindow.class'].each { updateClass ->
             if (tree.matching { include updateClass }.files.empty) {
                 throw new GradleException(
