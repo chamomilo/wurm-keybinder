@@ -22,3 +22,13 @@
 /RESEARCH_REPORT.md
 /WURM_CLIENT_DEVELOPMENT_NOTES.md
 /WU_RUNES_AND_ENCHANTS.md
+
+# Local release preparation and working files
+/*.log
+/*.bbcode
+/build-local.bat
+/CHANGELOG.md
+/SHARED_UPDATER.md
+/docs/
+/tools/
+/.release-notes-*.md

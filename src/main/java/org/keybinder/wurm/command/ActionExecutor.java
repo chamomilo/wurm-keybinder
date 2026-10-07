@@ -31,6 +31,18 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 public final class ActionExecutor {
+    interface ActionSender {
+        void send(HeadsUpDisplay hud, PlayerAction action, long targetId);
+        void send(HeadsUpDisplay hud, PlayerAction action, long[] targetIds);
+    }
+    private ActionSender sender = new ActionSender() {
+        @Override public void send(HeadsUpDisplay hud, PlayerAction action, long targetId) {
+            hud.sendAction(action, targetId);
+        }
+        @Override public void send(HeadsUpDisplay hud, PlayerAction action, long[] targetIds) {
+            hud.sendAction(action, targetIds);
+        }
+    };
     private final ClientAccess access;
     private final ActionRangeResolver ranges;
     private final ActionNameResolver names;
@@ -52,6 +64,11 @@ public final class ActionExecutor {
 
     public ActionExecutor(ClientAccess access, ActionNameResolver names) {
         this(access, names, new PushSelectionRetention());
+    }
+
+    ActionExecutor(ClientAccess access, ActionNameResolver names, ActionSender sender) {
+        this(access, names);
+        this.sender = java.util.Objects.requireNonNull(sender, "sender");
     }
 
     public ActionExecutor(ClientAccess access, ActionNameResolver names,
@@ -89,6 +106,13 @@ public final class ActionExecutor {
         return plan.getQueueCost();
     }
 
+    int runtimeQueueCost(ActionStep step, HeadsUpDisplay hud,
+                         InventoryMetaItem activeTool) throws ReflectiveOperationException {
+        ResolvedActionPlan plan = prepare(step, hud, activeTool);
+        prepared.get().put(step, plan);
+        return plan.getQueueCost();
+    }
+
     public void executeStep(ActionStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
         executeStep(step, hud, Integer.MAX_VALUE);
     }
@@ -104,13 +128,24 @@ public final class ActionExecutor {
 
     private ResolvedActionPlan prepare(ActionStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
+        return prepare(step, hud, needsActiveTool(step) ? access.activeTool(hud) : null);
+    }
+
+    static boolean needsActiveTool(ActionStep step) {
+        return step.getTarget().getKind() == TargetKind.ACTIVE_TOOL
+                || step.getSource().getKind() == ItemSelectorKind.CURRENT_ACTIVE;
+    }
+
+    private ResolvedActionPlan prepare(ActionStep step, HeadsUpDisplay hud,
+                                       InventoryMetaItem activeTool)
+            throws ReflectiveOperationException {
         short id = step.getActionId();
         TargetSpec target = step.getTarget();
         // A numeric ID that exactly matches a built-in vanilla PlayerAction inherits
         // its real mask/flags. Unknown and mod-provided IDs retain the permissive
         // legacy Custom Actions behavior.
         PlayerAction action = vanillaActions.resolveOrGeneric(id);
-        ActionSourceResolver.ResolvedSource source = resolveSource(step, hud);
+        ActionSourceResolver.ResolvedSource source = resolveSource(step, hud, activeTool);
 
         switch (target.getKind()) {
             case HOVER: {
@@ -138,7 +173,7 @@ public final class ActionExecutor {
                 return object(source, action, body.getId());
             }
             case ACTIVE_TOOL: {
-                InventoryMetaItem tool = access.activeTool(hud);
+                InventoryMetaItem tool = activeTool;
                 if (tool == null) throw unavailable(Messages.text("unavailable.active_tool"));
                 requireInventoryTarget(action);
                 return object(source, action, tool.getId());
@@ -237,11 +272,16 @@ public final class ActionExecutor {
     }
 
     private ActionSourceResolver.ResolvedSource resolveSource(
-            ActionStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
+            ActionStep step, HeadsUpDisplay hud, InventoryMetaItem activeTool)
+            throws ReflectiveOperationException {
         if (ActionSourcePolicy.acceptsSelectableTool(step.getActionId())
                 && step.getSource().getKind() == ItemSelectorKind.CURRENT_ACTIVE
-                && access.activeTool(hud) == null)
+                && activeTool == null)
             throw unavailable(Messages.text("source.current_active_missing"));
+        if (step.getSource().getKind() == ItemSelectorKind.CURRENT_ACTIVE
+                && ActionSourceOverride.isHookAvailable())
+            return activeTool == null ? ActionSourceResolver.ResolvedSource.override(-1L)
+                    : ActionSourceResolver.ResolvedSource.concreteTool(activeTool);
         return sources.resolve(step.getSource(), hud);
     }
 
@@ -269,12 +309,12 @@ public final class ActionExecutor {
         if (plan.getSelectBeforeDispatch() != null)
             access.select(hud.getSelectBar(), plan.getSelectBeforeDispatch());
         if (plan.isBatchDispatch()) {
-            hud.sendAction(plan.getAction(), targets);
+            sender.send(hud, plan.getAction(), targets);
             return;
         }
         for (long targetId : targets) {
             if (plan.hasObjectTargets()) sendObjectAction(plan.getAction(), targetId, hud);
-            else hud.sendAction(plan.getAction(), targetId);
+            else sender.send(hud, plan.getAction(), targetId);
         }
     }
 
@@ -342,7 +382,7 @@ public final class ActionExecutor {
             pushSelection.arm(targetId);
             hud.getSelectBar().keepSelectedItem(targetId);
         }
-        hud.sendAction(action, targetId);
+        sender.send(hud, action, targetId);
     }
 
     static boolean keepsSelectedTarget(short actionId) {

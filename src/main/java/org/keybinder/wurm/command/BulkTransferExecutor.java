@@ -36,26 +36,19 @@ final class BulkTransferExecutor {
         this.coordinator = coordinator;
     }
 
-    int prepare(BulkTransferStep step, HeadsUpDisplay hud) {
+    int prepare(BulkTransferStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {
         validate(step);
         coordinator.requireIdle();
         long destinationId = resolveDestination(step, hud);
-        prepared.put(step, destinationId);
-        String sourceVisibility = "unknown";
+        String sourceVisibility;
         int liveMaximum = 0;
-        try {
-            InventoryMetaItem visibleSource = access.inventoryItem(
-                    hud, step.getSource().getItem().getId());
-            sourceVisibility = Boolean.toString(visibleSource != null);
-            if (visibleSource != null) {
-                liveMaximum = BulkQuantityLimit.fromName(
-                        preferredName(visibleSource));
-            }
-        } catch (ReflectiveOperationException | RuntimeException failure) {
-            log.diagnostic("bulk-transfer source visibility check failed open: "
-                    + failure.getClass().getSimpleName() + ": "
-                    + String.valueOf(failure.getMessage()));
-        }
+        InventoryMetaItem visibleSource = access.inventoryItem(
+                hud, step.getSource().getItem().getId());
+        if (visibleSource == null)
+            throw new StepUnavailableException(Messages.text(
+                    "source.exact_unavailable", step.getSource().getItem().getName()));
+        sourceVisibility = "true";
+        liveMaximum = BulkQuantityLimit.fromName(preferredName(visibleSource));
         if (liveMaximum > 0 && step.getQuantity() > liveMaximum)
             throw new StepUnavailableException(Messages.text(
                     "unavailable.bulk_quantity_changed", step.getQuantity(), liveMaximum,
@@ -73,6 +66,7 @@ final class BulkTransferExecutor {
                 : step.getCapturedDestination().getId())
                 + ", destinationId=" + destinationId + ", quantity="
                 + step.getQuantity());
+        prepared.put(step, destinationId);
         return 0;
     }
 

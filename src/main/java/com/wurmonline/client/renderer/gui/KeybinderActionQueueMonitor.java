@@ -293,9 +293,9 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     private static String detailText(ActionQueueEntry entry) {
         if (entry == null) return "";
         String source = entry.getSource().isEmpty()
-                ? Messages.text("source.empty_hand") : entry.getSource();
+                ? Messages.text("list.unknown") : entry.getSource();
         String target = entry.getTarget().isEmpty()
-                ? Messages.text("queue.monitor.no_target") : entry.getTarget();
+                ? Messages.text("list.unknown") : entry.getTarget();
         return Messages.text("queue.monitor.details",
                 Messages.text("editor.tool"), source,
                 Messages.text("editor.target"), target);

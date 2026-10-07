@@ -26,6 +26,10 @@ import org.keybinder.wurm.queue.QueueCapacityException;
 import org.keybinder.wurm.queue.QueueCapacityPreflight;
 
 import java.util.List;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.IntSupplier;
 import java.util.function.LongPredicate;
 
@@ -92,6 +96,7 @@ public final class KeybindExecutionService {
                 queueLimit, occupiedQueueSlots);
         setActiveSequence(record.getId(), sequence);
         try {
+            sequence.preflight();
             waitingForBulk = sequence.runFrom(0);
         } finally {
             if (!waitingForBulk) finishExecution(record.getId());
@@ -151,6 +156,10 @@ public final class KeybindExecutionService {
         private final ExecutionHoverOverride.Snapshot hoverSnapshot;
         private final int queueLimit;
         private final IntSupplier occupiedQueueSlots;
+        private ExecutionPlan plan;
+        private final Map<ActivateToolStep, InventoryMetaItem> activationItems =
+                new IdentityHashMap<ActivateToolStep, InventoryMetaItem>();
+        private final Set<KeybindStep> awaitingMetadata = new HashSet<KeybindStep>();
         private int occupiedBaseline;
         private int locallyReserved;
         private int pendingWorldPosition = -1;
@@ -171,6 +180,49 @@ public final class KeybindExecutionService {
             this.occupiedBaseline = reportedOccupied();
         }
 
+        private void preflight() throws ReflectiveOperationException {
+            // Simulate local activations without changing HUD state or sending actions.
+            final InventoryMetaItem[] activeTool = {null};
+            final boolean[] activeToolResolved = {false};
+            try (ExecutionHoverOverride.Scope ignored =
+                         ExecutionHoverOverride.push(hoverSnapshot)) {
+                plan = new ExecutionPlanner().plan(steps, step -> {
+                    if (step instanceof ActivateToolStep) {
+                        ActivateToolStep activation = (ActivateToolStep) step;
+                        InventoryMetaItem item = resolveActivateItem(activation, hud);
+                        activationItems.put(activation, item);
+                        activeTool[0] = item;
+                        activeToolResolved[0] = true;
+                        return 0;
+                    }
+                    if (step instanceof ActionStep) {
+                        if (!activeToolResolved[0] && ActionExecutor.needsActiveTool((ActionStep) step)) {
+                            activeTool[0] = access.activeTool(hud);
+                            activeToolResolved[0] = true;
+                        }
+                        return actions.runtimeQueueCost((ActionStep) step, hud, activeTool[0]);
+                    }
+                    if (step instanceof SmartImproveStep) {
+                        int cost = improve.preflightCost((SmartImproveStep) step, hud);
+                        if (cost < 0) {
+                            awaitingMetadata.add(step);
+                            return 0; // Only metadata acquisition is deferred; Improve is not sent.
+                        }
+                        return cost;
+                    }
+                    return runtimeStepCost(step, hud);
+                });
+            }
+            for (ExecutionPlan.Entry entry : plan.getEntries()) {
+                if (!entry.isSkipped()) continue;
+                String message = skipMessage(entry.getIndex(), entry.getStep(),
+                        safeMessage(entry.getSkippedBy()));
+                if (entry.getSkippedBy() instanceof StepUnavailableException)
+                    log.warning(message);
+                else log.error(message, entry.getSkippedBy());
+            }
+        }
+
         private boolean runFrom(int position) {
             ExecutionOriginGuard.enterInternal();
             try (ExecutionHoverOverride.Scope ignored =
@@ -178,7 +230,9 @@ public final class KeybindExecutionService {
                 for (int current = position; current < steps.size(); current++) {
                     KeybindStep step = steps.get(current);
                     try {
-                        if (step instanceof SmartImproveStep) {
+                        ExecutionPlan.Entry entry = plan.getEntries().get(current);
+                        if (entry.isSkipped()) continue;
+                        if (awaitingMetadata.contains(step)) {
                             int free = QueueCapacityPreflight.remaining(
                                     queueLimit, effectiveOccupied());
                             SmartImproveExecutor.WorldPreparation preparation =
@@ -192,14 +246,18 @@ public final class KeybindExecutionService {
                                 return true;
                             }
                         }
-                        int plannedQueueCost = prepareWithinCurrentQueue(step);
+                        int required = awaitingMetadata.remove(step)
+                                ? runtimeStepCost(step, hud) : entry.getQueueCost();
+                        int plannedQueueCost = prepareWithinCurrentQueue(step, required);
                         if (step instanceof BulkTransferStep) {
                             final int resumeAt = current + 1;
                             bulk.execute((BulkTransferStep) step, hud,
                                     proceed -> continueAfterBulk(resumeAt, proceed));
                             return true;
                         }
-                        executeStep(step, hud, plannedQueueCost);
+                        if (step instanceof ActivateToolStep)
+                            access.setActiveTool(hud, activationItems.get((ActivateToolStep) step));
+                        else executeStep(step, hud, plannedQueueCost);
                         reserveLocally(plannedQueueCost);
                     } catch (StepUnavailableException unavailable) {
                         log.warning(skipMessage(current, step, unavailable.getMessage()));
@@ -260,9 +318,8 @@ public final class KeybindExecutionService {
             pendingWorldDeadline = 0L;
         }
 
-        private int prepareWithinCurrentQueue(KeybindStep step)
+        private int prepareWithinCurrentQueue(KeybindStep step, int required)
                 throws ReflectiveOperationException {
-            int required = runtimeStepCost(step, hud);
             if (required < 0) throw new IllegalStateException("Negative queue cost");
             int occupied = effectiveOccupied();
             int free = QueueCapacityPreflight.remaining(queueLimit, occupied);
@@ -274,11 +331,10 @@ public final class KeybindExecutionService {
             if (allowed < required) {
                 int prepared = allowed;
                 if (step instanceof SmartImproveStep)
-                    prepared = improve.prepareWithinBudget((SmartImproveStep) step, hud,
-                            allowed, queueLimit, occupiedQueueSlots);
+                    prepared = improve.limitPrepared((SmartImproveStep) step, allowed);
                 else if (step instanceof ArcheologyIdentifyStep)
-                    prepared = archeologyIdentify.prepareWithinBudget(
-                            (ArcheologyIdentifyStep) step, hud, allowed);
+                    prepared = archeologyIdentify.limitPrepared(
+                            (ArcheologyIdentifyStep) step, allowed);
                 if (prepared <= 0 && required > 0)
                     throw new QueueCapacityException(Messages.text(
                             "execution.step_queue_remaining", required, free,
@@ -409,7 +465,11 @@ public final class KeybindExecutionService {
         TargetSpec target = step.getTarget();
         if (target.getKind() == TargetKind.EMPTY_HAND) return null;
         InventoryMetaItem item;
-        if (target.getKind() == TargetKind.TOOLBELT_SLOT) {
+        if (target.getKind() == TargetKind.HOVER) {
+            com.wurmonline.client.WurmClientBase client = hud.getWorld().getClient();
+            long[] ids = hud.getCommandTargetsFrom(client.getXMouse(), client.getYMouse());
+            item = ids == null || ids.length != 1 ? null : access.inventoryItem(hud, ids[0]);
+        } else if (target.getKind() == TargetKind.TOOLBELT_SLOT) {
             item = hud.getToolBelt().getItemInSlot(target.getSlot() - 1);
         } else if (target.getKind() == TargetKind.EQUIPMENT_SLOT) {
             PaperDollSlot frame = access.equipmentSlot(

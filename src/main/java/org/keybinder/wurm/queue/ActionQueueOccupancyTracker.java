@@ -22,6 +22,10 @@ public final class ActionQueueOccupancyTracker {
     private long nextSequence = 1L;
     private boolean actionActive;
     private long idleSince = -1L;
+    // Keep descriptions briefly after releasing estimated capacity: server
+    // acknowledgement can arrive after the HUD idle reconciliation deadline.
+    private final Deque<TrackedAction> awaitingAcknowledgement = new ArrayDeque<TrackedAction>();
+    private long descriptionsExpireAt;
 
     public enum CancellationRequest {
         CURRENT,
@@ -67,6 +71,13 @@ public final class ActionQueueOccupancyTracker {
         boolean active = actionText != null && !actionText.trim().isEmpty()
                 && durationSeconds > 0.0f;
         if (active) {
+            if (actions.isEmpty() && now <= descriptionsExpireAt) {
+                TrackedAction pending = awaitingAcknowledgement.peekFirst();
+                if (pending != null && pending.action.equalsIgnoreCase(actionText.trim())) {
+                    actions.addAll(awaitingAcknowledgement);
+                }
+            }
+            awaitingAcknowledgement.clear();
             actionActive = true;
             idleSince = -1L;
             if (actions.isEmpty())
@@ -171,12 +182,19 @@ public final class ActionQueueOccupancyTracker {
         actions.clear();
         actionActive = false;
         idleSince = -1L;
+        awaitingAcknowledgement.clear();
     }
 
     private void reconcileIdle(long now) {
         if (!actionActive && !actions.isEmpty() && idleSince >= 0L
                 && now - idleSince >= idleReconcileMillis)
-            clear();
+        {
+            awaitingAcknowledgement.clear();
+            awaitingAcknowledgement.addAll(actions);
+            descriptionsExpireAt = now + 30_000L;
+            actions.clear();
+            idleSince = -1L;
+        }
     }
 
     private static final class TrackedAction {

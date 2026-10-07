@@ -2,154 +2,95 @@
   <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.9.1 for Wurm Unlimited
+# Keybinder 0.10.2 for Wurm Unlimited
 
-## One update window for every Chamomilo mod
+Keybinder is a Wurm Unlimited client mod for creating, editing and sharing keybinds through a Wurm-styled window. It supports action chains, context-specific targets, Smart Improve and Archaeology Identify.
 
-Hello, SKLOTOPOLIS!
+- [Download Keybinder 0.10.2](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.10.2)
+- [Discuss Keybinder on the SKLOTOPOLIS forum](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-Keybinder 0.9.1 is ready for testing.
+## New in 0.10.2
 
-Keybinder now embeds the shared Chamomilo update coordinator. The first installed
-Chamomilo mod to initialize owns the updater, gathers metadata for every other
-installed Chamomilo mod, checks their latest stable GitHub Releases in the
-background, and shows all available versions and download links in one window.
+Action chains now resolve their available tools and targets before the first action is sent. A step with a missing item, missing target or incompatible target type is reported in Event and skipped without consuming queue capacity. The remaining valid steps retain their original order.
 
-- [Download Keybinder from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.1)
-- [Read and discuss the SKLOTOPOLIS forum thread](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
+Resolved sources and targets are captured during preflight. Earlier actions cannot redirect later steps by changing the active item or selection. Tool activation is simulated during validation and applied only when execution reaches that step.
 
-## What is new in 0.9.1?
+Smart Improve and Archaeology Identify keep their prepared batches when fitting actions into the remaining queue space. Bulk transfers check that the captured source item is still visible before sending a request.
 
-Smart Improve recognizes the generic Examine messages `It could be improved
-with a shards.` and `It could be improved with shards.` for ground objects.
-It selects the shard material from the improved target, allowing marble shards
-in the inventory to be found after automatic Examine.
+For world objects without improvement metadata, Smart Improve still selects the object and sends a quiet Examine. Improve is sent only after the response supplies enough information to validate the required resource. Validation uses data visible to the client; permissions, hidden server conditions and changes after preflight remain under server control.
 
-## What was new in 0.9.0?
+## Features
 
-### Shared multi-mod update coordinator
+- Native HUD keybind manager with create, edit, duplicate, merge, import and export controls.
+- Action chains, vanilla commands and Multi-keybinds with selectable variants.
+- Hovered, selected, inventory-filter, nearby, tile, area, toolbelt, equipment and current-ride targets.
+- Portable tool selectors for the active item, empty hand, toolbelt, equipment, inventory filters and captured items.
+- Action queue monitor on either screen edge, with deferred cancellation of queued actions.
+- Smart Improve with automatic tool/resource selection and client-side chance estimates.
+- Archaeology Identify with automatic brush or stone-chisel selection.
+- Mouse-wheel bindings and optional integration with WU-third_person_view.
+- One-shot shadow recording of actions you perform yourself.
+- Import of predecessor bindings into native Keybinder records.
+- Per-character enabled state, Event logging and English, Brazilian Portuguese and German localization.
 
-Every participating mod contributes standardized repository, installed-version,
-and release-asset metadata through Mod Launcher. The first coordinator instance
-collects the complete list through `ModListener`, makes one request per unique
-GitHub repository after the HUD is ready, and presents every update together.
-Duplicate updater windows and duplicate checks are suppressed for the whole game
-process.
-
-Each row uses the explicit form `Wurm <name> Mod. Installed version: <installed>.
-Available version: <latest>. You can download here: <URL>`. GitHub is opened only
-after the player presses that row's **Download** button.
-
-The reusable protocol and mandatory metadata for future mods are documented in
-[SHARED_UPDATER.md](https://github.com/chamomilo/wurm-keybinder/blob/main/SHARED_UPDATER.md);
-release builds fail if Keybinder loses its embedded coordinator or metadata.
-
-### Correct action animations for selected tools
-
-When an ordinary action step uses a concrete Tool selected from the toolbelt,
-equipment, inventory filter, hovered inventory item, or an exact captured item,
-Keybinder now makes that item Wurm's active tool immediately before dispatch.
-`Current active` and `Empty hand` retain their existing behavior.
-
-### Bee-hive state normalization
-
-Smart Improve now resolves `empty`, `active`, `dormant`, and `noisy` bee hives
-against the stable `bee hive` creation recipe and reports the correct skill.
-
-## What was new in 0.7.6?
-
-### Automatic external-object preparation
-
-Smart Improve no longer requires the player to double-click Examine before
-improving a forge, altar, fence, or another external object. For Hover, Selected,
-and exact-object targets, Keybinder now:
-
-- pins the exact target ID and selects it in Wurm's native Select Bar;
-- sends a quiet Examine and waits asynchronously for its improvement data;
-- resumes the remaining keybind steps once the matching response arrives;
-- times out safely instead of acting on a different or stale target.
-
-Queued Smart Improve actions for the same target can reuse their known
-requirement while still respecting the live action queue.
-
-### Partially used stone shards
-
-Marble, slate, and sandstone shards remain valid improvement resources after
-their first use, including when the Wurm client reports the shortened generic
-name `shards`. Material and icon checks remain exact, so unrelated shards are
-not selected.
-
-### 3rd Person View commands
-
-When WU-third_person_view is installed and exposes its Keybinder command
-catalog, the editor adds a **3rd Person View** category. This is an optional
-integration and does not add a hard dependency on that mod.
-
-### Compatibility
-
-- The new messages are localized in English, Brazilian Portuguese, and German.
-- Saved keybinds remain compatible with 0.7.5.
-- Existing queue-monitor settings and layouts are unchanged.
-
-## Core features
-
-- Wurm-styled keybind manager available through **HUD Settings**.
-- One-shot capture of ordinary, server-mod, and client-mod actions.
-- Action chains and Multi-keybinds that respect the character's action queue.
-- Compact left- or right-edge action queue monitor with deferred cancellation.
-- Hovered, selected, filtered, nearby, tile, area, inventory, equipment,
-  toolbelt, and current-ride targets.
-- Custom actions can resolve their Tool through a portable inventory filter,
-  using toolbelt, direct inventory, and nested containers in that order.
-- Mouse-wheel bindings for actions such as push, pull, and turn.
-- Conditional `3rd Person View` command catalog when WU-third_person_view is installed.
-- Duplicate, merge, extract, import, and export tools for managed keybinds.
-- Smart Improve with automatic resource selection, client-side chance
-  estimates, and automatic Select/quiet Examine preparation for external
-  objects.
-- Archaeology Identify with automatic brush or chisel selection.
-- Per-character enabled state across a shared Keybinder installation.
-- English, Brazilian Portuguese, and German localization.
+Keybinder sends ordinary Wurm actions. It is a keybind manager, not an unattended automation system.
 
 ## Installation and upgrade
 
-1. Disable the old **Custom Actions**, **Improved Improve**, and **i2improve**
-   client mods.
-2. Download
-   [Keybinder 0.9.1 from GitHub](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.9.1).
-3. Extract `keybinder-0.9.1.zip` into your Wurm Unlimited client directory, as
-   usual for Ago's Client Mod Launcher.
-4. When upgrading, simply overwrite the existing Keybinder files. Your managed
-   keybinds are stored separately and are not replaced by the archive.
-5. Start the game. If the **KB** icon is not visible, enable **Keybinder** in
-   **HUD Settings**.
+Keybinder requires Wurm Unlimited and Ago's Client Mod Launcher.
 
-Keybinder is a keybind manager, not an unattended automation or scripting
-system. It sends ordinary Wurm actions while respecting your character's action
-queue.
+1. Download `keybinder-0.10.2.zip` from the release page.
+2. Extract the ZIP into your Wurm Unlimited client directory. It contains `mods/keybinder.properties` and `mods/keybinder/`.
+3. When upgrading, overwrite the existing Keybinder distribution files. Managed keybinds are stored separately and are not included in the ZIP.
+4. Start the client and enable **Keybinder** in **HUD Settings** if its window is hidden.
 
-Thank you to everyone who tested the new functions and sent detailed Event
-logs. They made these fixes possible.
+Keybinder replaces Custom Actions, Improved Improve and i2improve. Import predecessor bindings through Keybinder's review workflow, then disable the predecessor mods for normal use.
 
-If you find a bug or have another idea, please reply in the forum thread and
-include the relevant Event log. Enable **Debug logging** when possible.
+## Getting started
+
+Open the **Keybinds** tab, create a record and choose its key or mouse-wheel chord. Add actions, select their tools and targets, then save. You can enter numeric action IDs or search the current client catalog.
+
+For inventory filters and nearby-type targets, choose a stable object type rather than a temporary runtime ID. Use the toolbelt and equipment selectors to capture portable slot references. Shadow recording observes your ordinary actions and asks you to resolve targets it cannot identify reliably.
+
+At execution, unavailable steps are explained in Event. Queue-consuming actions are checked against the remaining capacity; local tool activation costs no queue slots. Nearby and multi-target actions are resolved at runtime.
+
+Use **Print all keybinds to Event** or `keybinder_list` to inspect managed bindings. Import and restore operations respect bind ownership and report conflicts instead of silently replacing another binding.
+
+## Shared Chamomilo updates
+
+Keybinder includes the shared Chamomilo Mods Registry. Participating mods use one update window and one coordinator. The window opens after HUD startup and is available from the native **Mod updates** menu. Its startup preference is saved between launches.
+
+The registry shows installed, disabled and available mods from [chamomilo-mods.properties](chamomilo-mods.properties). **UPDATE**, **INSTALL** and **DOWNLOAD** open the relevant GitHub release page after an explicit click. Installation of ZIP updates is manual.
+
+## Reporting issues
+
+Please include the relevant Event messages, Keybinder version and a description of the affected chain when reporting a problem in the forum. Enable **Debug logging** when additional diagnostics are needed.
+
+## Building from source
+
+Use JDK 8 and the included Gradle wrapper. Supply the pinned client libraries in the local, ignored `libs/` directory:
+
+- `client-patched.jar`
+- `common.jar`
+- `javassist.jar`
+- `modlauncher.jar`
+
+The updater UI check also needs the client's JavaFX runtime. Set `WURM_JAVAFX_JAR` to the existing `jfxrt.jar`, or pass `-PwurmJavaFxJar=/path/to/jfxrt.jar`.
+
+```text
+./gradlew clean build dist
+```
+
+On Windows, use `gradlew.bat`. The installable archive is written to `build/distributions/keybinder-0.10.2.zip`. The build checks tests, version consistency, namespaces and shared updater packaging. It does not install the mod into a game directory.
+
+Version 0.10.2 passed 541 automated tests and the updater layout/input checks. Manual in-game verification of this release is still required.
 
 ## Credits and license
 
-Keybinder began as derivative work based on
-[bdew's Custom Actions](https://github.com/bdew-wurm/action).
+Keybinder is derivative work based on [bdew's Custom Actions](https://github.com/bdew-wurm/action). Thanks to bdew for the original implementation. [Original Custom Actions releases](https://github.com/bdew-wurm/action/releases) remain available.
 
-Smart Improve is a clean-room reimplementation inspired by the work of:
+Smart Improve is a clean-room reimplementation inspired by **Munsta0** (Improved Improve), **inniria** (i2improve) and **Snidor** (continued i2improve). No source code from those Improved Improve mods is bundled.
 
-- **Munsta0**, creator of the original Improved Improve;
-- **inniria**, creator of i2improve;
-- **Snidor**, who continued i2improve.
-
-No source code from those Improved Improve mods is bundled.
-
-Keybinder is licensed under **GNU LGPL 3.0 or later**. See
-[`lgpl-3.0.txt`](lgpl-3.0.txt).
-
-Cheers!
+Keybinder is licensed under **GNU LGPL 3.0 or later**. See [LICENSE](LICENSE) and [lgpl-3.0.txt](lgpl-3.0.txt).
 
 **Chamomilo**

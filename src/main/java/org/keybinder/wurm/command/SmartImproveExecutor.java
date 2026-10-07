@@ -96,6 +96,38 @@ public final class SmartImproveExecutor {
         return batch.queueCost;
     }
 
+    /** Returns -1 only when a valid world target still needs an Examine response. */
+    int preflightCost(SmartImproveStep step, HeadsUpDisplay hud)
+            throws ReflectiveOperationException {
+        List<InventoryMetaItem> targets = inventoryTargets(step.getTarget(), hud);
+        boolean inventoryMetadata = !targets.isEmpty();
+        for (InventoryMetaItem target : targets)
+            inventoryMetadata &= hasLocalImproveMetadata(target);
+        if (!inventoryMetadata) {
+            WorldTarget target = requestedWorldTarget(step.getTarget(), hud);
+            if (target == null)
+                throw new StepUnavailableException(Messages.text("improve.world_target_required"));
+            externalTargets.get().put(step, target.targetId);
+            if (!worldMetadataReady(target.targetId)) return -1;
+        }
+        return runtimeCost(step, hud);
+    }
+
+    int limitPrepared(SmartImproveStep step, int budget) {
+        PreparedBatch batch = prepared.get().get(step);
+        if (batch == null) throw new IllegalStateException("Smart Improve was not prepared");
+        List<PreparedItem> fitted = new ArrayList<PreparedItem>();
+        int cost = 0;
+        for (PreparedItem item : batch.items) {
+            int itemCost = (item.repair ? 1 : 0) + (item.resource == null ? 0 : 1);
+            if (itemCost > Math.max(0, budget) - cost) break;
+            fitted.add(item);
+            cost += itemCost;
+        }
+        prepared.get().put(step, new PreparedBatch(fitted, cost));
+        return cost;
+    }
+
     int prepareWithinBudget(SmartImproveStep step, HeadsUpDisplay hud, int budget)
             throws ReflectiveOperationException {
         PreparedBatch batch = prepare(step, hud, budget);

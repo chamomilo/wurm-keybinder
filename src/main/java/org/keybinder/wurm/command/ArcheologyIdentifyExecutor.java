@@ -96,6 +96,15 @@ public final class ArcheologyIdentifyExecutor {
 
     void clearPrepared() { prepared.remove(); }
 
+    int limitPrepared(ArcheologyIdentifyStep step, int budget) {
+        PreparedBatch batch = prepared.get().get(step);
+        if (batch == null) throw new IllegalStateException("Identify was not prepared");
+        int count = Math.min(batch.items.size(), Math.max(0, budget));
+        prepared.get().put(step, new PreparedBatch(
+                new ArrayList<PreparedIdentify>(batch.items.subList(0, count))));
+        return count;
+    }
+
     private PreparedBatch prepare(ArcheologyIdentifyStep step, HeadsUpDisplay hud,
                                   int budget)
             throws ReflectiveOperationException {
