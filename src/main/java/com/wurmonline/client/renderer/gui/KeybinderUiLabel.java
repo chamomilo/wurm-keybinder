@@ -3,15 +3,17 @@ package com.wurmonline.client.renderer.gui;
 import com.wurmonline.client.renderer.backend.Queue;
 import com.wurmonline.client.renderer.PickData;
 import org.chamomilo.wurm.ui.v1.UiColor;
+import org.keybinder.wurm.i18n.LocalizedText;
 
 /** Native label input/tooltip semantics with the kit's shared body fonts. */
-class KeybinderUiLabel extends WurmLabel {
+class KeybinderUiLabel extends WurmLabel implements KeybinderLocalized {
     private String caption;
+    private LocalizedText captionSource, tipSource;
     KeybinderUiLabel(String label) { super(label); initialize(label); }
-    KeybinderUiLabel(String label, String tip) { super(label, tip); initialize(label); }
-    KeybinderUiLabel(String label, String tip, boolean filled) { super(label, tip, filled); initialize(label); }
+    KeybinderUiLabel(String label, String tip) { super(label, tip); initialize(label); tipSource = LocalizedText.capture(tip); }
+    KeybinderUiLabel(String label, String tip, boolean filled) { super(label, tip, filled); initialize(label); tipSource = LocalizedText.capture(tip); }
     private void initialize(String label) {
-        KeybinderUi.fonts(this); caption = label; super.setLabel(label);
+        KeybinderUi.fonts(this); caption = label; captionSource = LocalizedText.capture(label); super.setLabel(label);
         setSize(text.getWidth(label) + 8, text.getHeight() + 4);
     }
     static KeybinderUiLabel header(String caption) {
@@ -21,8 +23,15 @@ class KeybinderUiLabel extends WurmLabel {
         label.sizeFlags = FIXED_HEIGHT;
         return label;
     }
-    @Override void setLabel(String value) { caption = value; super.setLabel(value); }
-    @Override void setLabel(String value, String tip) { caption = value; super.setLabel(value, tip); }
+    @Override void setLabel(String value) { caption = value; captionSource = LocalizedText.capture(value); super.setLabel(value); }
+    @Override void setLabel(String value, String tip) { caption = value; captionSource = LocalizedText.capture(value); tipSource = LocalizedText.capture(tip); super.setLabel(value, tip); }
+    @Override public void relocalize() {
+        if (captionSource == null) return;
+        String value = captionSource.resolve();
+        if (tipSource == null) setLabel(value); else setLabel(value, tipSource.resolve());
+        setSize(text.getWidth(value) + 12, height);
+    }
+    int naturalWidth() { return text.getWidth(caption) + 12; }
     @Override protected void renderComponent(Queue queue, float ignoredAlpha) {
         String display = KeybinderUi.fit(text, caption, Math.max(0, width - 8));
         text.moveTo(x + 4, y + (height - text.getHeight()) / 2 + text.getAscent());

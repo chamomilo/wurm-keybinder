@@ -81,4 +81,21 @@ public class KeybindListViewModelTest {
                 Collections.singletonList(new ActionStep((short) 1,
                         TargetSpec.simple(TargetKind.HOVER))));
     }
+
+    @Test public void disabledDefaultPackReviewKeepsProvenanceAndItsTargetReviewHint() {
+        KeybindRecord record = record("Default", "F");
+        record.setEnabled(false);
+        record.setValuePack(true);
+        for (String reason : new String[]{"import_review", "nonportable_object_review"}) {
+            record.setDisabledReason(org.keybinder.wurm.i18n.DisableReason.value(reason));
+            KeybindListViewModel.Status status = KeybindListViewModel.status(record,
+                    Collections.singletonList(record), 10);
+            assertFalse(status.isError());
+            assertTrue(status.isWarning());
+            assertEquals(org.keybinder.wurm.i18n.DisableReason.display(record.getDisabledReason()),
+                    status.getHoverText());
+        }
+        KeybindRecord owner = record("Owner", "F");
+        assertTrue(KeybindListViewModel.status(record, Arrays.asList(record, owner), 10).isError());
+    }
 }

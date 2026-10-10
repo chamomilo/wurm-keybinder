@@ -19,7 +19,7 @@ public final class KeybinderMergeWindow extends KeybinderUiWindow implements But
         this.controller = controller;
         sourceId = source.getId();
         destinationId = destination.getId();
-        setTitle(Messages.text("merge.title"));
+        setLocalizedTitle(Messages.text("merge.title"));
         WurmArrayPanel<FlexComponent> root = new KeybinderUiArrayPanel<FlexComponent>(
                 "keybinder.merge.root", WurmArrayPanel.DIR_VERTICAL, true);
         root.componentWidthOffset = 3;
@@ -28,9 +28,11 @@ public final class KeybinderMergeWindow extends KeybinderUiWindow implements But
         root.addComponent(new KeybinderUiLabel(Messages.text("merge.calculation",
                 destination.getVariants().size(), source.getVariants().size(),
                 destination.getVariants().size() + source.getVariants().size())));
-        root.addComponent(new KeybinderUiLabel(Messages.text("merge.effects",
+        KeybinderUiLabel effects = new KeybinderUiLabel(Messages.text("merge.effects",
                 destination.getKey(), Messages.text(destination.isHudMulti()
-                        ? "multi.mode.hud" : "multi.mode.ordinary"))));
+                        ? "multi.mode.hud" : "multi.mode.ordinary")));
+        int effectsWidth = effects.width;
+        root.addComponent(effects);
         WurmArrayPanel<FlexComponent> buttons = new KeybinderUiArrayPanel<FlexComponent>(
                 "keybinder.merge.buttons", WurmArrayPanel.DIR_HORIZONTAL);
         buttons.componentWidthOffset = 8;
@@ -42,7 +44,7 @@ public final class KeybinderMergeWindow extends KeybinderUiWindow implements But
         buttons.addComponent(cancel);
         root.addComponent(buttons);
         setComponent(root);
-        setInitialSize(Math.max(450, root.width + 28), 170, false);
+        setInitialSize(Math.max(450, Math.max(root.width + 28, effectsWidth + 32)), 170, false);
     }
 
     @Override public void buttonPressed(WButton button) {}

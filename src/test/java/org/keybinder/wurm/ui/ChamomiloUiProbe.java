@@ -48,8 +48,11 @@ public final class ChamomiloUiProbe {
         if (renderer.getClassInitializer() != null) renderer.getClassInitializer().setBody("{}");
         for (CtMethod method : renderer.getDeclaredMethods("texturedQuadAlphaBlend"))
             if (method.getParameterTypes().length == 14) method.setBody("{}");
-        pool.get("org.keybinder.wurm.KeybinderMod").getDeclaredMethod("deferUi")
-                .setBody("{ $1.run(); }");
+        // Use real language persistence and registry logic in an isolated build directory.
+        pool.get("org.keybinder.wurm.storage.ModPropertiesStore")
+                .getDeclaredConstructor(new CtClass[0]).setBody("{ this.file = " + probe + ".settingsPath(); }");
+        pool.get("org.chamomilo.wurm.update.UpdatePreferences").getDeclaredMethod("shared")
+                .setBody("{ return " + probe + ".sharedPreferences; }");
         Loader loader = new Loader(pool);
         loader.run(probe, args);
     }

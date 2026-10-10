@@ -153,6 +153,10 @@ public final class KeybindRegistry implements ValuePackTarget {
         return store.wasValuePackProvided();
     }
 
+    @Override public synchronized int getValuePackRevision() {
+        return store.getValuePackRevision();
+    }
+
     /**
      * Applies the account-local desired activation list after Wurm has loaded
      * that player's keybindings, then repairs missing owned dispatcher binds.
@@ -636,6 +640,7 @@ public final class KeybindRegistry implements ValuePackTarget {
         List<KeybindRecord> before = new ArrayList<KeybindRecord>(records);
         List<KeybindRecord> newlyMarked = new ArrayList<KeybindRecord>();
         boolean markerBefore = store.wasValuePackProvided();
+        int revisionBefore = store.getValuePackRevision();
         int imported = 0;
         int skipped = 0;
         for (PortableKeybindDefinition definition : definitions) {
@@ -659,10 +664,14 @@ public final class KeybindRegistry implements ValuePackTarget {
             imported++;
         }
         try {
-            if (valuePack) store.setValuePackProvided(true);
+            if (valuePack) {
+                store.setValuePackProvided(true);
+                store.setValuePackRevision(org.keybinder.wurm.transfer.ValuePackProvider.CURRENT_REVISION);
+            }
             saveRecords();
         } catch (IOException | RuntimeException failure) {
             store.setValuePackProvided(markerBefore);
+            store.setValuePackRevision(revisionBefore);
             for (KeybindRecord record : newlyMarked) record.setValuePack(false);
             records.clear();
             records.addAll(before);

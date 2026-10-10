@@ -17,7 +17,7 @@ public final class KeybinderTileWindow extends KeybinderUiWindow implements Butt
     public KeybinderTileWindow(KeybindEditorController controller) {
         super("keybinder.tiles", false);
         this.controller = controller;
-        setTitle(Messages.text("tile.title"));
+        setLocalizedTitle(Messages.text("tile.title"));
 
         TileSelector selector = new TileSelector();
         selector.setSize(SELECTOR_SIZE, SELECTOR_SIZE);
@@ -47,13 +47,13 @@ public final class KeybinderTileWindow extends KeybinderUiWindow implements Butt
 
     @Override protected void closePressed() { KeybinderMod.deferUi(() -> hud.hideComponent(this)); }
 
-    private final class TileSelector extends FlexComponent {
+    private final class TileSelector extends FlexComponent implements KeybinderLocalized {
         private final KeybinderUiButton[] cells = new KeybinderUiButton[9];
 
         private TileSelector() {
             super("keybinder.tiles.grid");
             KeybinderUi.identify(this, "keybinder.tiles.grid");
-            String[] captions = {"NW", "N", "NE", "W", "C", "E", "SW", "S", "SE"};
+            String[] captions = Messages.text("tile.directions").split(",");
             for (int index = 0; index < cells.length; index++) {
                 final int target = index;
                 cells[index] = new KeybinderUiButton(captions[index], new ButtonListener() {
@@ -63,6 +63,12 @@ public final class KeybinderTileWindow extends KeybinderUiWindow implements Butt
                 cells[index].captionCeiling(32);
                 cells[index].parent = this;
             }
+        }
+
+        @Override public void relocalize() {
+            String[] captions = Messages.text("tile.directions").split(",");
+            for (int i = 0; i < cells.length; i++) cells[i].setLabel(captions[i]);
+            componentResized();
         }
 
         @Override

@@ -25,6 +25,7 @@ public final class KeybindStore {
     private volatile int loadedSchema = SCHEMA_VERSION;
     private volatile Path loadedSource;
     private volatile boolean valuePackProvided;
+    private volatile int valuePackRevision;
 
     public KeybindStore(Path file) {
         this.file = file;
@@ -43,6 +44,7 @@ public final class KeybindStore {
         loadedSchema = SCHEMA_VERSION;
         loadedSource = null;
         valuePackProvided = false;
+        valuePackRevision = 0;
         if (!Files.exists(file)) return new ArrayList<KeybindRecord>();
         try {
             return loadFrom(file, true);
@@ -73,10 +75,14 @@ public final class KeybindStore {
             props.load(in);
         }
         KeybindPropertiesCodec.Decoded decoded = codec.decode(props);
+        int revision = Integer.parseInt(props.getProperty("valuePackRevision",
+                decoded.wasValuePackProvided() ? "1" : "0"));
+        if (revision < 0) throw new IOException("Invalid Value Pack revision");
         if (rememberSource) {
             loadedSchema = decoded.getSchema();
             loadedSource = source;
             valuePackProvided = decoded.wasValuePackProvided();
+            valuePackRevision = revision;
         }
         return decoded.getRecords();
     }
@@ -87,10 +93,20 @@ public final class KeybindStore {
 
     public void setValuePackProvided(boolean value) {
         valuePackProvided = value;
+        if (!value) valuePackRevision = 0;
+        else if (valuePackRevision == 0) valuePackRevision = 1;
+    }
+
+    public int getValuePackRevision() { return valuePackRevision; }
+
+    public void setValuePackRevision(int revision) {
+        if (revision < 0) throw new IllegalArgumentException("Invalid Value Pack revision");
+        valuePackRevision = revision;
     }
 
     public void save(List<KeybindRecord> records) throws IOException {
         Properties props = codec.encode(records, valuePackProvided);
+        props.setProperty("valuePackRevision", Integer.toString(valuePackRevision));
         Path parent = file.toAbsolutePath().getParent();
         if (parent != null) Files.createDirectories(parent);
         createPreV8BackupIfNeeded();

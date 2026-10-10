@@ -32,7 +32,7 @@ public class MessagesTest {
         assertEquals("Tastenbelegung konnte nicht erstellt werden",
                 Messages.text("error.create_keybind"));
         assertArrayEquals(
-                new String[] {"Englisch", "Portugiesisch (Brasilien)", "Deutsch"},
+                new String[] {"Englisch", "Portugiesisch (Brasilien)", "Deutsch", "Russisch"},
                 Language.displayNames());
     }
 
@@ -120,6 +120,29 @@ public class MessagesTest {
         Properties properties = new Properties();
         LocalizationSettings.save(properties, "de");
         assertEquals("de", LocalizationSettings.load(properties));
+    }
+
+    @Test public void russianIsSelectableAndRoundTripsWithoutEnglishFallback() {
+        Messages.select("ru");
+        assertEquals(Language.RUSSIAN, Messages.language());
+        assertEquals("Язык", Messages.text("language.label"));
+        assertEquals("Готово", Messages.text("common.done"));
+        assertEquals("Не удалось создать кейбинд", Messages.text("error.create_keybind"));
+        assertEquals("Запись не найдена: запись", Messages.text("event.record_missing", "запись"));
+        assertArrayEquals(new String[]{"Английский", "Португальский (Бразилия)", "Немецкий", "Русский"},
+                Language.displayNames());
+        Properties properties = new Properties();
+        LocalizationSettings.save(properties, "ru");
+        assertEquals("ru", LocalizationSettings.load(properties));
+    }
+
+    @Test public void everyTileGridHasNineLocalizedDirections() {
+        for (Language language : Language.values()) {
+            Messages.select(language.getCode());
+            assertEquals(language.getCode(), 9, Messages.text("tile.directions").split(",").length);
+        }
+        Messages.select("ru");
+        assertEquals("СЗ,С,СВ,З,Ц,В,ЮЗ,Ю,ЮВ", Messages.text("tile.directions"));
     }
 
     private static java.util.Set<String> placeholders(java.util.regex.Pattern pattern,

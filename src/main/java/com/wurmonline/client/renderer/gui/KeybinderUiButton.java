@@ -6,9 +6,10 @@ import com.wurmonline.client.renderer.gui.text.TextFont;
 import org.chamomilo.wurm.ui.v1.*;
 import java.awt.Rectangle;
 import java.util.List;
+import org.keybinder.wurm.i18n.LocalizedText;
 
 /** Native completed clicks with SDK artwork, motion and explicitly coordinated caption groups. */
-class KeybinderUiButton extends WButton {
+class KeybinderUiButton extends WButton implements KeybinderLocalized {
     protected final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
     protected final UiButtonMotion motion = new UiButtonMotion();
     private boolean ready;
@@ -18,10 +19,12 @@ class KeybinderUiButton extends WButton {
     private String question, message;
     private String groupId;
     private List<KeybinderUiButton> peers;
+    private LocalizedText captionSource, tipSource, questionSource, messageSource;
 
     KeybinderUiButton(String caption, final ButtonListener listener) {
         super(caption);
         ready = true;
+        captionSource = LocalizedText.capture(caption);
         setButtonListener(new ButtonListener() {
             private boolean armed;
             @Override public void buttonPressed(WButton button) {
@@ -41,8 +44,23 @@ class KeybinderUiButton extends WButton {
         sizeFlags = FIXED_WIDTH | FIXED_HEIGHT;
     }
 
-    void confirmation(String question, String message) { this.question = question; this.message = message; }
+    void confirmation(String question, String message) {
+        this.question = question; this.message = message;
+        questionSource = LocalizedText.capture(question); messageSource = LocalizedText.capture(message);
+    }
+    @Override public void setHoverString(String value) { tipSource = LocalizedText.capture(value); super.setHoverString(value); }
+    @Override public void relocalize() {
+        if (captionSource != null) setLocalizedCaption(captionSource.resolve());
+        if (tipSource != null) setHoverString(tipSource.resolve());
+        if (questionSource != null) question = questionSource.resolve();
+        if (messageSource != null) message = messageSource.resolve();
+    }
     void captionCeiling(int pixels) { ceiling = pixels; refit(); }
+    /** Explicit locale changes may alter natural geometry; tick-time labels must not. */
+    void setLocalizedCaption(String caption) {
+        setLabel(caption);
+        setSize(Math.max(64, captionWidth(caption, ceiling) + 12), height);
+    }
     @Override void setSize(int width, int height) {
         int flags = sizeFlags;
         sizeFlags = 0; // Native fixed flags otherwise retain WButton's original padded size.
@@ -52,6 +70,7 @@ class KeybinderUiButton extends WButton {
     }
     @Override void setLabel(String value) { setLabel(value, false); }
     @Override void setLabel(String value, boolean resize) {
+        captionSource = LocalizedText.capture(value);
         if (value.equals(label)) return;
         super.setLabel(value, false);
         if (ready) refit();

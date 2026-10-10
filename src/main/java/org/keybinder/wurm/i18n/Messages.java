@@ -38,8 +38,9 @@ public final class Messages {
 
     public static String text(String key, Object... arguments) {
         String pattern = resolvePattern(active, ENGLISH, language.getCode(), key);
-        return arguments == null || arguments.length == 0
+        String value = arguments == null || arguments.length == 0
                 ? pattern : new MessageFormat(pattern).format(arguments);
+        return LocalizedText.remember(value, key, arguments);
     }
 
     static String resolvePattern(

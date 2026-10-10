@@ -15,7 +15,7 @@ public final class KeybinderConflictWindow extends KeybinderUiWindow implements 
     public KeybinderConflictWindow(KeybindEditorController controller, KeybindConflict conflict) {
         super("keybinder.conflict", false);
         this.controller = controller;
-        setTitle(Messages.text("conflict.title", conflict.getKey()));
+        setLocalizedTitle(Messages.text("conflict.title", conflict.getKey()));
 
         WurmArrayPanel<FlexComponent> root =
                 new KeybinderUiArrayPanel<>("keybinder.conflict.root", WurmArrayPanel.DIR_VERTICAL, true);

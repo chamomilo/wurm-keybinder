@@ -70,7 +70,7 @@ public class EditorWorkflowTest {
         assertFalse(saved.isMultiPurpose());
         assertTrue(saved.isHudMulti());
         assertTrue(saved.isSelectorKeybind());
-        assertEquals("(HUD) Open journal", saved.getName());
+        assertEquals("(Quick) Open journal", saved.getName());
     }
 
     private static List<KeybindVariant> variants() {

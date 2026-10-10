@@ -21,8 +21,6 @@ public interface KeybinderWindowController {
     void requestImportFile();
     void requestExportAll();
     void restoreOriginalBindings();
-    String getLanguage();
-    void setLanguage(String language);
     QueueMonitorSide getQueueMonitorSide();
     void setQueueMonitorSide(QueueMonitorSide side);
     void openOriginalProject();

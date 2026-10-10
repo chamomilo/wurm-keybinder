@@ -13,7 +13,7 @@ public final class KeybinderLegacyWindow extends KeybinderUiWindow implements Bu
     public KeybinderLegacyWindow(LegacyMigrationController controller) {
         super("keybinder.legacy", false);
         this.controller = controller;
-        setTitle(Messages.text("migration.title"));
+        setLocalizedTitle(Messages.text("migration.title"));
         WurmArrayPanel<FlexComponent> root = new KeybinderUiArrayPanel<>("keybinder.legacy.root", WurmArrayPanel.DIR_VERTICAL);
         root.addComponent(new KeybinderUiLabel(Messages.text("migration.installed")));
         root.addComponent(new KeybinderUiLabel(Messages.text("migration.replaced")));

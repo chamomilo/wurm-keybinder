@@ -5,6 +5,7 @@ import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindVariant;
 import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.i18n.LocalizedText;
 import org.keybinder.wurm.ui.CursorWarpCoordinates;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.Display;
@@ -12,7 +13,7 @@ import org.lwjgl.opengl.Display;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Small selector for ordinary multi-purpose and immediate HUD keybinds. */
+/** Small selector for remembered Multi actions and immediate Quick actions. */
 public final class KeybinderMultiSelectorWindow extends KeybinderUiWindow implements ButtonListener {
     private static final int WINDOW_HORIZONTAL_CHROME = 6;
     private static final int WINDOW_VERTICAL_CHROME = 25;
@@ -22,6 +23,7 @@ public final class KeybinderMultiSelectorWindow extends KeybinderUiWindow implem
     private final int originalMouseX;
     private final int originalMouseY;
     private WButton activeButton;
+    private final Map<WButton, LocalizedText> captions = new LinkedHashMap<>();
     private boolean centered;
     private boolean warpAttempted;
 
@@ -32,13 +34,14 @@ public final class KeybinderMultiSelectorWindow extends KeybinderUiWindow implem
         this.hudSelection = hudSelection;
         this.originalMouseX = originalMouseX;
         this.originalMouseY = originalMouseY;
-        setTitle(record.getName());
+        setLocalizedTitle(record.getName());
         resizable = false;
         WurmArrayPanel<FlexComponent> content =
                 new KeybinderUiArrayPanel<FlexComponent>("keybinder.multi.options",
                         WurmArrayPanel.DIR_VERTICAL, true);
         content.componentWidthOffset = 2;
-        WurmLabel prompt = new KeybinderUiLabel(Messages.text("multi.pick"));
+        WurmLabel prompt = new KeybinderUiLabel(Messages.text(
+                hudSelection ? "multi.pick.quick" : "multi.pick"));
         content.addComponent(prompt);
         int widest = Math.max(prompt.width, new KeybinderUiLabel(record.getName()).width + 30);
         int index = 0;
@@ -50,8 +53,10 @@ public final class KeybinderMultiSelectorWindow extends KeybinderUiWindow implem
                     : Messages.text("multi.alternative", index);
             boolean active = !hudSelection
                     && variant.getId().equals(record.getActiveVariantId());
+            LocalizedText source = LocalizedText.capture(label);
             if (active) label = "> " + label;
             WButton button = new KeybinderUiButton(label, this);
+            if (source != null) captions.put(button, source);
             if (active) activeButton = button;
             widest = Math.max(widest, button.width);
             variants.put(button, variant.getId());
@@ -67,6 +72,14 @@ public final class KeybinderMultiSelectorWindow extends KeybinderUiWindow implem
     }
 
     @Override public void buttonPressed(WButton button) { }
+
+    @Override public void relocalize() {
+        super.relocalize();
+        for (Map.Entry<WButton, LocalizedText> entry : captions.entrySet())
+            ((KeybinderUiButton) entry.getKey()).setLocalizedCaption(
+                    (entry.getKey() == activeButton ? "> " : "") + entry.getValue().resolve());
+        KeybinderUi.theme(this);
+    }
 
     @Override public void gameTick() {
         super.gameTick();

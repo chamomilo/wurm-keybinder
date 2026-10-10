@@ -4,8 +4,9 @@ import java.util.Locale;
 
 /** Stable, language-independent prefixes derived from a keybind's current mode. */
 public final class KeybindNamePrefixes {
-    public static final String HUD = "(HUD) ";
+    public static final String QUICK = "(Quick) ";
     public static final String MULTI = "(Multi) ";
+    private static final String OLD_HUD = "(HUD) ";
     private static final String LEGACY_HUD = "HUD ";
     private static final String LEGACY_MULTI = "Multi ";
 
@@ -15,7 +16,7 @@ public final class KeybindNamePrefixes {
         String base = baseName(name);
         if (base.isEmpty()) return "";
         boolean multi = variantCount > 1;
-        String prefix = (hudMulti ? HUD : "") + (multi ? MULTI : "");
+        String prefix = hudMulti ? QUICK : multi ? MULTI : "";
         int available = Math.max(0, KeybindLimits.MAX_RECORD_NAME_LENGTH - prefix.length());
         if (base.length() > available) base = base.substring(0, available).trim();
         return prefix + base;
@@ -27,8 +28,13 @@ public final class KeybindNamePrefixes {
         do {
             removed = false;
             String lower = result.toLowerCase(Locale.ENGLISH);
-            if (lower.startsWith(HUD.toLowerCase(Locale.ENGLISH))) {
-                result = result.substring(HUD.length()).trim();
+            if (lower.startsWith(QUICK.toLowerCase(Locale.ENGLISH))) {
+                result = result.substring(QUICK.length()).trim();
+                removed = true;
+            }
+            lower = result.toLowerCase(Locale.ENGLISH);
+            if (lower.startsWith(OLD_HUD.toLowerCase(Locale.ENGLISH))) {
+                result = result.substring(OLD_HUD.length()).trim();
                 removed = true;
             }
             lower = result.toLowerCase(Locale.ENGLISH);

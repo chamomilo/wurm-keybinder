@@ -3,6 +3,8 @@ package org.keybinder.wurm.catalog;
 import com.wurmonline.client.options.keybinding.PlayerKeybind;
 import com.wurmonline.client.options.keybinding.PlayerKeybindCategory;
 import org.keybinder.wurm.policy.VanillaActionPolicy;
+import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.i18n.Language;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,7 +30,11 @@ public final class VanillaKeybindCatalog {
         }
 
         public String getId() { return id; }
-        public String getDisplayName() { return displayName; }
+        public String getDisplayName() {
+            String key = "catalog.category." + id;
+            return Messages.language() == Language.ENGLISH || !Messages.englishKeys().contains(key)
+                    ? displayName : Messages.text(key);
+        }
         public List<Entry> getEntries() { return entries; }
         public boolean usesNativeCompatibility() {
             return PlayerKeybindCategory.HUD.name().equals(id)

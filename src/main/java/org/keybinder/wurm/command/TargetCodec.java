@@ -86,7 +86,8 @@ public final class TargetCodec {
             case BODY: return Messages.text("target.body");
             case ACTIVE_TOOL: return Messages.text("target.tool");
             case SELECTED: return Messages.text("target.selected");
-            case TILE: return Messages.text("target.tile", tileToken(target.getDx(), target.getDy()));
+            case TILE: return Messages.text("target.tile", Messages.text("tile.directions").split(",")
+                    [(target.getDy() + 1) * 3 + target.getDx() + 1]);
             case AREA: return Messages.text("target.area");
             case TOOLBELT_SLOT:
                 return Messages.text("target.slot.toolbelt", target.getSlot());

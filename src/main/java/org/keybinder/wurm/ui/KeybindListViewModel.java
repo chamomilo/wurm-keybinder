@@ -35,7 +35,9 @@ public final class KeybindListViewModel {
         if (managedBlocker != null)
             reasons.add(Messages.text("reason.key_used",
                     InputKeyCatalog.displayChord(record.getKey()), managedBlocker.getName()));
-        if (!record.isEnabled() && DisableReason.blocksEnable(record.getDisabledReason())
+        boolean defaultReview = record.isValuePack() && !record.isEnabled()
+                && DisableReason.isImportReview(record.getDisabledReason());
+        if (!defaultReview && !record.isEnabled() && DisableReason.blocksEnable(record.getDisabledReason())
                 && !DisableReason.isManagedKeyConflict(record.getDisabledReason()))
             reasons.add(DisableReason.display(record.getDisabledReason()));
         QueueCost cost = COSTS.keybindCost(record);
@@ -43,8 +45,11 @@ public final class KeybindListViewModel {
                 && cost.getValue() > queueLimit;
         String warningText = queueWarning ? Messages.text("status.queue_warning",
                 cost.getValue(), queueLimit) : "";
+        if (defaultReview) warningText = DisableReason.display(record.getDisabledReason())
+                + (warningText.isEmpty() ? "" : " " + warningText);
+        boolean warning = queueWarning || defaultReview;
         if (reasons.isEmpty())
-            return queueWarning ? new Status(false, true, warningText) : Status.OK;
+            return warning ? new Status(false, true, warningText) : Status.OK;
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < reasons.size(); i++) {
             if (i > 0) text.append(i + 1 == reasons.size()
@@ -52,8 +57,8 @@ public final class KeybindListViewModel {
             text.append(reasons.get(i));
         }
         String errorText = Messages.text("status.cannot_enable", text.toString());
-        if (queueWarning) errorText += " " + warningText;
-        return new Status(true, queueWarning, errorText);
+        if (warning) errorText += " " + warningText;
+        return new Status(true, warning, errorText);
     }
 
     public static List<KeybindRecord> filter(

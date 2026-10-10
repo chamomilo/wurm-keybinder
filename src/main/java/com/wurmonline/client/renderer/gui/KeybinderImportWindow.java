@@ -21,12 +21,13 @@ public final class KeybinderImportWindow extends KeybinderUiWindow implements Bu
     private final WButton importSelected;
     private final WButton later;
     private final WButton neverAsk;
+    private final List<FlexComponent[]> columnRows = new ArrayList<>();
 
     public KeybinderImportWindow(ImportReviewController controller,
                                  List<VanillaImportCandidate> candidates) {
         super("keybinder.import.review", false);
         this.controller = controller;
-        setTitle(Messages.text("import.title"));
+        setLocalizedTitle(Messages.text("import.title"));
 
         WurmArrayPanel<FlexComponent> content = new KeybinderUiArrayPanel<FlexComponent>(
                 "keybinder.import.content", WurmArrayPanel.DIR_VERTICAL);
@@ -50,8 +51,38 @@ public final class KeybinderImportWindow extends KeybinderUiWindow implements Bu
         buttons.addComponent(neverAsk);
         root.setComponent(buttons, WurmBorderPanel.SOUTH);
         setComponent(root);
-        setInitialSize(WIDTH, HEIGHT, false);
+        setInitialSize(tableWidth(), HEIGHT, false);
     }
+
+    @Override public void relocalize() {
+        super.relocalize();
+        for (FlexComponent[] row : columnRows) {
+            row[0].setSize(28, row[0].height); row[1].setSize(85, row[1].height);
+            row[2].setSize(250, row[2].height); row[3].setSize(typeWidth(), row[3].height);
+            row[4].setSize(conversionWidth(), row[4].height); row[5].setSize(150, row[5].height);
+        }
+        setInitialSize(tableWidth(), HEIGHT, false);
+        componentResized();
+    }
+
+    private static int messageWidth(String key, int minimum) {
+        String caption = Messages.text(key);
+        return Math.max(minimum, Math.max(KeybinderUi.heading().getWidth(caption),
+                KeybinderUi.strong().getWidth(caption)) + 16);
+    }
+    private static int typeWidth() {
+        int width = messageWidth("import.type", 125);
+        for (String key : new String[]{"action", "improve", "vanilla", "raw"})
+            width = messageWidth("import.type." + key, width);
+        return width;
+    }
+    private static int conversionWidth() {
+        int width = messageWidth("import.conversion", 150);
+        for (String key : new String[]{"action", "improve", "vanilla", "raw"})
+            width = messageWidth("import.convert." + key, width);
+        return width;
+    }
+    private static int tableWidth() { return Math.max(WIDTH, 28 + 85 + 250 + typeWidth() + conversionWidth() + 150 + 8 * 5 + 32); }
 
     private FlexComponent header() {
         return columns("keybinder.import.header", KeybinderUiLabel.header(""),
@@ -74,7 +105,7 @@ public final class KeybinderImportWindow extends KeybinderUiWindow implements Bu
                 new KeybinderUiLabel(conversion(candidate.getType())), status);
     }
 
-    private static FlexComponent columns(String id, FlexComponent selected,
+    private FlexComponent columns(String id, FlexComponent selected,
                                          FlexComponent key, FlexComponent command,
                                          FlexComponent type, FlexComponent conversion,
                                          FlexComponent status) {
@@ -84,8 +115,8 @@ public final class KeybinderImportWindow extends KeybinderUiWindow implements Bu
         selected.setSize(28, selected.height);
         key.setSize(85, key.height);
         command.setSize(250, command.height);
-        type.setSize(125, type.height);
-        conversion.setSize(150, conversion.height);
+        type.setSize(typeWidth(), type.height);
+        conversion.setSize(conversionWidth(), conversion.height);
         status.setSize(150, status.height);
         row.addComponent(selected);
         row.addComponent(key);
@@ -93,6 +124,7 @@ public final class KeybinderImportWindow extends KeybinderUiWindow implements Bu
         row.addComponent(type);
         row.addComponent(conversion);
         row.addComponent(status);
+        columnRows.add(new FlexComponent[]{selected, key, command, type, conversion, status});
         return row;
     }
 

@@ -34,6 +34,11 @@ public final class DisableReason {
                 && !isQueueExceeded(stored);
     }
 
+    public static boolean isImportReview(String stored) {
+        return value("import_review").equals(stored)
+                || value("nonportable_object_review").equals(stored);
+    }
+
     /** Legacy automatic queue-limit disables are warnings in current builds. */
     public static boolean isQueueExceeded(String stored) {
         if (stored == null || stored.trim().isEmpty()) return false;

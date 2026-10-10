@@ -9,6 +9,7 @@ import org.keybinder.wurm.model.ActivateToolStep;
 import org.keybinder.wurm.model.ArcheologyIdentifyStep;
 import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindStep;
+import org.keybinder.wurm.model.KeybindNamePrefixes;
 import org.keybinder.wurm.model.SmartImproveStep;
 import org.keybinder.wurm.model.VanillaActionStep;
 import org.keybinder.wurm.model.BulkTransferStep;
@@ -20,7 +21,10 @@ public final class SemanticFingerprint {
     public static String of(PortableKeybindDefinition definition) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            add(digest, definition.getName());
+            // Mode tags are presentation metadata; old HUD bundles and Quick
+            // records must still identify the same portable definition.
+            add(digest, KeybindNamePrefixes.apply(definition.getName(),
+                    definition.getVariants().size(), definition.isHudMulti()));
             add(digest, definition.getIntendedKey());
             add(digest, Boolean.toString(definition.isHudMulti()));
             add(digest, Integer.toString(definition.getActiveVariantIndex()));

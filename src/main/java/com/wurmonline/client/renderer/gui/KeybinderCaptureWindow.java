@@ -12,10 +12,11 @@ public final class KeybinderCaptureWindow extends KeybinderUiWindow {
         super("keybinder.capture", false);
         this.controller = controller;
         this.editor = editor;
-        setTitle(Messages.text("capture.title"));
+        setLocalizedTitle(Messages.text("capture.title"));
         WurmLabel label = new KeybinderUiLabel(Messages.text("capture.waiting"));
+        int messageWidth = label.width;
         setComponent(label);
-        setInitialSize(Math.max(510, label.width + 24), 90, false);
+        setInitialSize(Math.max(510, messageWidth + 24), 90, false);
     }
 
     @Override

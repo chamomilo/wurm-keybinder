@@ -95,6 +95,7 @@ import org.keybinder.wurm.ui.EditorWorkflow;
 import org.keybinder.wurm.ui.QueueMonitorSide;
 import org.chamomilo.wurm.update.SharedUpdateCoordinator;
 import org.chamomilo.wurm.update.SharedUpdateHooks;
+import org.chamomilo.wurm.update.SharedLanguageCoordinator;
 import org.gotti.wurmunlimited.modloader.interfaces.Configurable;
 import org.gotti.wurmunlimited.modloader.interfaces.Initable;
 import org.gotti.wurmunlimited.modloader.interfaces.ModEntry;
@@ -119,9 +120,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
-        ModListener,
+        ModListener, SharedLanguageCoordinator.Participant,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.11.1";
+    public static final String VERSION = "0.11.6";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -272,7 +273,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     private volatile boolean centerViewAfterEmbark = true;
     private volatile String language = Language.ENGLISH.getCode();
     private volatile QueueMonitorSide queueMonitorSide = QueueMonitorSide.RIGHT;
-    private volatile String pendingLanguage;
     private volatile boolean vanillaImportPromptDismissed;
     private volatile boolean importPromptOfferedThisSession;
 
@@ -543,8 +543,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             } catch (Exception e) {
                 EVENTS.error(Messages.text("error.execute_selected_action"), e);
             }
-            if (INSTANCE.pendingLanguage != null)
-                INSTANCE.applyLanguage(INSTANCE.pendingLanguage);
         });
     }
 
@@ -556,8 +554,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         multiSelectorWindow = null;
         deferUi(() -> {
             hideSafely(selector);
-            if (INSTANCE.pendingLanguage != null)
-                INSTANCE.applyLanguage(INSTANCE.pendingLanguage);
         });
     }
 
@@ -1100,8 +1096,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             ensureRuntimeServices();
             HeadsUpDisplay previousHud = HUD_SESSIONS.replace(newHud);
             if (previousHud != null) disposeHudSession(previousHud);
-            if (INSTANCE.pendingLanguage != null)
-                INSTANCE.activatePendingLanguageForHudReplacement();
             ACCESS.setup();
             hud = newHud;
             creationCatalogRequestAttempts = 0;
@@ -1770,7 +1764,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             EVENTS.error(Messages.text("error.restore_originals"), e);
         }
     }
-    @Override public String getLanguage() { return language; }
+    public String getLanguage() { return language; }
     @Override public QueueMonitorSide getQueueMonitorSide() {
         return queueMonitorSide;
     }
@@ -1786,12 +1780,24 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             EVENTS.error(Messages.text("error.save_queue_monitor_side"), e);
         }
     }
-    @Override public void setLanguage(String requested) {
+    /** Compatibility with updater hosts that discover conventional language setters. */
+    public void setLanguage(String requested) {
+        setUserLanguage(requested);
+    }
+
+    @Override public String[] supportedLanguageCodes() {
+        Language[] choices = Language.values();
+        String[] codes = new String[choices.length];
+        for (int i = 0; i < choices.length; i++) codes[i] = choices[i].getCode();
+        return codes;
+    }
+
+    public String[] getSupportedLanguages() { return supportedLanguageCodes(); }
+
+    @Override public void setUserLanguage(String requested) {
         String selected = Language.fromCode(requested).getCode();
         LanguageChangePolicy.Decision decision = LanguageChangePolicy.decide(
-                language, selected,
-                (window != null && window.isEditorOpen()) || multiSelectorWindow != null,
-                pendingLanguage);
+                language, selected);
         if (decision == LanguageChangePolicy.Decision.UNCHANGED) return;
         LocalizationSettings.save(properties, selected);
         try {
@@ -1799,35 +1805,18 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         } catch (Exception e) {
             EVENTS.error(Messages.text("error.save_language"), e);
         }
-        if (decision == LanguageChangePolicy.Decision.CANCEL_PENDING) {
-            pendingLanguage = null;
-            return;
-        }
-        if (decision == LanguageChangePolicy.Decision.DEFER) {
-            pendingLanguage = selected;
-            EVENTS.warning(Messages.text("event.language_deferred"));
-            return;
-        }
         applyLanguage(selected);
     }
 
     private void applyLanguage(String selected) {
-        com.wurmonline.client.renderer.gui.KeybinderInstructionWindow.closeActive();
         final String normalized = Language.fromCode(selected).getCode();
         String previous = language;
-        final KeybinderWindow currentWindow = window;
-        pendingLanguage = null;
         ExistingWindowRelocalizer.apply(previous, normalized, () -> {
             language = normalized;
             Messages.select(normalized);
-        }, currentWindow == null ? null : () -> deferUi(currentWindow::relocalize));
+        }, () -> deferUi(KeybinderWindow::relocalizeExistingWindows));
     }
 
-    private void activatePendingLanguageForHudReplacement() {
-        language = Language.fromCode(pendingLanguage).getCode();
-        pendingLanguage = null;
-        Messages.select(language);
-    }
     @Override public void disableLegacyAction() {
         try {
             java.nio.file.Path disabled = LEGACY_ACTION.disableForNextLaunch();
@@ -2136,7 +2125,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 if (hud != null && window != null) {
                     window.showKeybinds();
                     ACCESS.ensureComponentVisible(hud, window);
-                    if (pendingLanguage != null) applyLanguage(pendingLanguage);
                 }
             } catch (Exception e) {
                 EVENTS.error(Messages.text("error.window_restore"), e);

@@ -3,14 +3,26 @@ package com.wurmonline.client.renderer.gui;
 import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.i18n.LocalizedText;
 
 public final class KeybinderSelectionWindow extends KeybinderUiWindow {
     private final KeybindEditorController controller;
+    private final LocalizedText messageSource;
 
     public KeybinderSelectionWindow(KeybindEditorController controller, String message) {
         super("keybinder.slot.selection", false);
         this.controller = controller;
-        setTitle(Messages.text("selection.title"));
+        messageSource = LocalizedText.capture(message);
+        setLocalizedTitle(Messages.text("selection.title"));
+        rebuildMessage(message);
+    }
+
+    @Override public void relocalize() {
+        super.relocalize();
+        if (messageSource != null) rebuildMessage(messageSource.resolve());
+    }
+
+    private void rebuildMessage(String message) {
         WurmArrayPanel<FlexComponent> lines =
                 new KeybinderUiArrayPanel<>("keybinder.selection.message", WurmArrayPanel.DIR_VERTICAL, true);
         int widest = 0;

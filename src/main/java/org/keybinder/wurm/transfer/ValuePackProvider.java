@@ -5,8 +5,9 @@ import java.io.InputStream;
 import java.util.List;
 import java.util.Properties;
 
-/** Installs the bundled examples once, then persists the completion flag. */
+/** Installs each bundled default pack revision once, retaining the user's existing definitions. */
 public final class ValuePackProvider {
+    public static final int CURRENT_REVISION = 2;
     public static final String PROVIDED_SETTING = "valuePackProvided";
     public static final String RESOURCE = "/keybinder/value-pack.keybinder";
 
@@ -25,7 +26,8 @@ public final class ValuePackProvider {
                                            SettingsSaver settingsSaver) throws IOException {
         if (!registry.isLoadedSuccessfully())
             throw new IOException("Keybinder records were not loaded successfully");
-        if (registry.wasValuePackProvided()) {
+        if (registry.wasValuePackProvided()
+                && registry.getValuePackRevision() >= CURRENT_REVISION) {
             if (!Boolean.parseBoolean(settings.getProperty(PROVIDED_SETTING, "false")))
                 persistProvidedSetting(settings, settingsSaver);
             return ProvisionResult.alreadyProvided();

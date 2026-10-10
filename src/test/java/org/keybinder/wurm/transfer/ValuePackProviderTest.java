@@ -44,10 +44,11 @@ public class ValuePackProviderTest {
         }
 
         assertTrue(first.wasProvidedNow());
-        assertEquals(8, first.getImportResult().getImported());
+        assertEquals(11, first.getImportResult().getImported());
         assertEquals("true", settings.getProperty(ValuePackProvider.PROVIDED_SETTING));
         assertEquals(1, saves[0]);
-        assertEquals(8, registry.snapshot().size());
+        assertEquals(11, registry.snapshot().size());
+        assertEquals(ValuePackProvider.CURRENT_REVISION, registry.getValuePackRevision());
         for (KeybindRecord record : registry.snapshot()) {
             assertTrue(record.isValuePack());
             assertFalse(record.isEnabled());
@@ -57,7 +58,7 @@ public class ValuePackProviderTest {
                 .provideIfNeeded(settings, null, registry, value -> saves[0]++);
         assertFalse(second.wasProvidedNow());
         assertEquals(1, saves[0]);
-        assertEquals(8, registry.snapshot().size());
+        assertEquals(11, registry.snapshot().size());
 
         // Simulate an upgrade replacing the distributable mod properties with
         // its false default. The durable data marker repairs it without reimport.
@@ -67,12 +68,13 @@ public class ValuePackProviderTest {
         assertFalse(afterUpgrade.wasProvidedNow());
         assertEquals("true", settings.getProperty(ValuePackProvider.PROVIDED_SETTING));
         assertEquals(2, saves[0]);
-        assertEquals(8, registry.snapshot().size());
+        assertEquals(11, registry.snapshot().size());
 
         KeybindStore reloadedStore = new KeybindStore(file);
         List<KeybindRecord> reloaded = reloadedStore.load();
-        assertEquals(8, reloaded.size());
+        assertEquals(11, reloaded.size());
         assertTrue(reloadedStore.wasValuePackProvided());
+        assertEquals(ValuePackProvider.CURRENT_REVISION, reloadedStore.getValuePackRevision());
         for (KeybindRecord record : reloaded) assertTrue(record.isValuePack());
     }
 
@@ -95,7 +97,7 @@ public class ValuePackProviderTest {
         }
         assertFalse(Boolean.parseBoolean(settings.getProperty(
                 ValuePackProvider.PROVIDED_SETTING, "false")));
-        assertEquals(8, registry.snapshot().size());
+        assertEquals(11, registry.snapshot().size());
         assertTrue(registry.wasValuePackProvided());
 
         ValuePackProvider.ProvisionResult retry;
@@ -105,7 +107,7 @@ public class ValuePackProviderTest {
         assertFalse(retry.wasProvidedNow());
         assertEquals(0, retry.getImportResult().getImported());
         assertEquals(0, retry.getImportResult().getSkippedDuplicates());
-        assertEquals(8, registry.snapshot().size());
+        assertEquals(11, registry.snapshot().size());
         assertEquals("true", settings.getProperty(ValuePackProvider.PROVIDED_SETTING));
     }
 
@@ -124,8 +126,8 @@ public class ValuePackProviderTest {
         }
 
         assertTrue(result.wasProvidedNow());
-        assertEquals(8, result.getImportResult().getImported());
-        assertEquals(8, registry.snapshot().size());
+        assertEquals(11, result.getImportResult().getImported());
+        assertEquals(11, registry.snapshot().size());
         assertTrue(registry.wasValuePackProvided());
     }
 
@@ -146,7 +148,7 @@ public class ValuePackProviderTest {
             try (InputStream fallback = PackagedResourceLoader.openArchive(
                     archive, "keybinder/value-pack.keybinder")) {
                 assertNotNull(fallback);
-                assertEquals(8, new KeybindTransferStore().read(fallback).size());
+                assertEquals(11, new KeybindTransferStore().read(fallback).size());
             }
         } finally {
             Files.deleteIfExists(archive);
@@ -176,6 +178,123 @@ public class ValuePackProviderTest {
         assertTrue(registry.snapshot().isEmpty());
     }
 
+    @Test
+    public void bundledDefaultMatchesTheElevenCurrentKeybinds() throws Exception {
+        List<PortableKeybindDefinition> definitions;
+        try (InputStream pack = openPack()) { definitions = new KeybindTransferStore().read(pack); }
+        String[] names = {"embark/disembark", "Telekinetic Push", "Telekinetic Pull", "clockwise",
+                "counterclockwise", "Zoom in", "Zoom out", "orbit", "(Quick) Menu for HUD",
+                "(Multi) Multi-Key", "pick or plant sprout (from iinventory)"};
+        String[] keys = {"TAB", "CTRL+MOUSE_WHEEL_UP", "CTRL+MOUSE_WHEEL_DOWN",
+                "CTRL+SHIFT+MOUSE_WHEEL_UP", "CTRL+SHIFT+MOUSE_WHEEL_DOWN", "MOUSE_WHEEL_UP",
+                "MOUSE_WHEEL_DOWN", "MOUSE2", "Q", "E", "F"};
+        assertEquals(names.length, definitions.size());
+        for (int i = 0; i < names.length; i++) {
+            assertEquals(names[i], definitions.get(i).getName());
+            assertEquals(keys[i], definitions.get(i).getIntendedKey());
+        }
+        assertTrue(definitions.get(8).isHudMulti());
+        assertEquals(12, definitions.get(8).getVariants().size());
+        assertFalse(definitions.get(9).isHudMulti());
+        assertEquals(10, definitions.get(9).getVariants().size());
+        assertEquals(2, definitions.get(10).getVariants().get(0).getSteps().size());
+    }
+
+    @Test
+    public void oldPackRecipientsReceiveTheRevisionWithoutChangingTheirEnabledBind() throws Exception {
+        Path file = Files.createTempDirectory("keybinder-pack-upgrade").resolve("keybinds.properties");
+        List<PortableKeybindDefinition> definitions;
+        try (InputStream pack = openPack()) { definitions = new KeybindTransferStore().read(pack); }
+        KeybindRecord existing = definitions.get(5).toRecord("User", "Server");
+        existing.setEnabled(true);
+        existing.setPreviousManagedCommand("my-owned-command");
+        KeybindStore oldStore = new KeybindStore(file);
+        oldStore.setValuePackProvided(true);
+        oldStore.save(java.util.Collections.singletonList(existing));
+        // Version 1 installations had only the boolean marker.
+        Properties oldData = new Properties();
+        try (InputStream input = Files.newInputStream(file)) { oldData.load(input); }
+        oldData.remove("valuePackRevision");
+        try (java.io.OutputStream output = Files.newOutputStream(file)) { oldData.store(output, "legacy pack"); }
+
+        KeybindRegistry registry = registry(file);
+        assertEquals(1, registry.getValuePackRevision());
+        try (InputStream pack = openPack()) {
+            ValuePackProvider.ProvisionResult result = new ValuePackProvider().provideIfNeeded(
+                    new Properties(), pack, registry, value -> {});
+            assertEquals(10, result.getImportResult().getImported());
+            assertEquals(1, result.getImportResult().getSkippedDuplicates());
+        }
+        KeybindRecord retained = registry.find(existing.getId());
+        assertTrue(retained.isEnabled());
+        assertTrue(retained.isValuePack());
+        assertEquals("my-owned-command", retained.getPreviousManagedCommand());
+        for (KeybindRecord record : registry.snapshot()) {
+            assertTrue(record.isValuePack());
+            if (!record.getId().equals(existing.getId())) assertFalse(record.isEnabled());
+        }
+        KeybindRegistry reloaded = registry(file);
+        assertEquals(ValuePackProvider.CURRENT_REVISION, reloaded.getValuePackRevision());
+        assertFalse(new ValuePackProvider().provideIfNeeded(new Properties(), null, reloaded,
+                value -> {}).wasProvidedNow());
+        assertEquals(11, reloaded.snapshot().size());
+    }
+
+    @Test
+    public void failedPackUpgradeRollsBackItsRevisionAndRecords() throws Exception {
+        Path file = Files.createTempDirectory("keybinder-pack-upgrade-failure").resolve("keybinds.properties");
+        KeybindStore legacy = new KeybindStore(file);
+        legacy.setValuePackProvided(true);
+        legacy.save(java.util.Collections.emptyList());
+        KeybindRegistry registry = registry(file);
+        Path blockedBackup = file.resolveSibling(file.getFileName() + ".bak");
+        Files.createDirectory(blockedBackup);
+        Path blocker = blockedBackup.resolve("blocker");
+        Files.write(blocker, new byte[]{1});
+        try (InputStream pack = openPack()) {
+            new ValuePackProvider().provideIfNeeded(new Properties(), pack, registry, value -> {});
+            fail("Expected registry save to fail");
+        } catch (IOException expected) { assertNotNull(expected.getMessage()); }
+        assertEquals(1, registry.getValuePackRevision());
+        assertTrue(registry.snapshot().isEmpty());
+        assertEquals(1, registry(file).getValuePackRevision());
+        Files.delete(blocker);
+        Files.delete(blockedBackup);
+        try (InputStream pack = openPack()) {
+            assertEquals(11, new ValuePackProvider().provideIfNeeded(new Properties(), pack, registry,
+                    value -> {}).getImportResult().getImported());
+        }
+    }
+
+    @Test public void oldHudRecordLoadsWithQuickTagAndReimportKeepsItsIdentity() throws Exception {
+        Path file = Files.createTempDirectory("keybinder-quick-upgrade").resolve("keybinds.properties");
+        PortableKeybindDefinition definition;
+        try (InputStream pack = openPack()) {
+            definition = new KeybindTransferStore().read(pack).get(8);
+        }
+        KeybindRecord old = definition.toRecord("User", "Server");
+        old.setName("(HUD) (Multi) Menu for HUD");
+        old.setEnabled(false);
+        old.setValuePack(true);
+        new KeybindStore(file).save(java.util.Collections.singletonList(old));
+        KeybindRegistry loaded = registry(file);
+        KeybindRecord migrated = loaded.find(old.getId());
+        assertEquals("(Quick) Menu for HUD", migrated.getName());
+        assertTrue(migrated.isHudMulti());
+        assertFalse(migrated.isEnabled());
+        assertEquals(old.getActiveVariantId(), migrated.getActiveVariantId());
+        assertEquals(old.getVariants().get(0).getId(), migrated.getVariants().get(0).getId());
+        assertEquals(12, migrated.getVariants().size());
+        PortableKeybindDefinition legacy = new PortableKeybindDefinition(old.getName(),
+                definition.getIntendedKey(), true, definition.getActiveVariantIndex(),
+                definition.getVariants());
+        TransferImportResult result = loaded.importValuePack(java.util.Collections.singletonList(legacy));
+        assertEquals(0, result.getImported());
+        assertEquals(1, result.getSkippedDuplicates());
+        assertEquals(1, loaded.snapshot().size());
+        assertEquals(old.getId(), registry(file).snapshot().get(0).getId());
+    }
+
     private static InputStream openPack() {
         InputStream input = ValuePackProvider.class.getResourceAsStream(
                 ValuePackProvider.RESOURCE);
@@ -184,7 +303,11 @@ public class ValuePackProviderTest {
     }
 
     private static KeybindRegistry registry(Path file) {
-        KeybindRegistry registry = new KeybindRegistry(new KeybindStore(file),
+        return registry(new KeybindStore(file));
+    }
+
+    private static KeybindRegistry registry(KeybindStore store) {
+        KeybindRegistry registry = new KeybindRegistry(store,
                 new VanillaBindService(), new CustomActionsImporter(),
                 new ActionQueueCostCalculator(),
                 new EventLogger(Logger.getLogger("ValuePackProviderTest")));

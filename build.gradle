@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.11.1"
+version "0.11.6"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -43,7 +43,8 @@ task verifyVersion {
             [file('mods/keybinder.properties'), /(?m)^version=(.+)$/, 'properties'],
             [file('src/main/java/org/keybinder/wurm/KeybinderMod.java'),
              /VERSION = "([^"]+)"/, 'KeybinderMod'],
-            [file('readme.md'), /Keybinder (0\.\d+\.\d+)/, 'readme']
+            [file('readme.md'), /Keybinder (0\.\d+\.\d+)/, 'GitHub README'],
+            [file('README.txt'), /Keybinder (0\.\d+\.\d+)/, 'ZIP README']
         ]
         metadata.each { item ->
             def matcher = (item[0].getText('UTF-8') =~ item[1])
@@ -51,6 +52,10 @@ task verifyVersion {
                 throw new GradleException(
                         "Version mismatch in ${item[2]}: expected ${expected}")
             }
+        }
+        if (!file('images/keybinder-banner.png').isFile() ||
+                !file('readme.md').getText('UTF-8').contains('images/keybinder-banner.png')) {
+            throw new GradleException('GitHub README must reference the separate project banner')
         }
     }
 }
@@ -74,6 +79,7 @@ task verifyJarNamespace(dependsOn: jar) {
         ['keybinder/i18n/messages_en.properties',
          'keybinder/i18n/messages_pt-BR.properties',
          'keybinder/i18n/messages_de.properties',
+         'keybinder/i18n/messages_ru.properties',
          'keybinder/value-pack.keybinder'].each { resource ->
             if (tree.matching { include resource }.files.empty) {
                 throw new GradleException("Required resource is missing from keybinder.jar: ${resource}")
@@ -83,20 +89,23 @@ task verifyJarNamespace(dependsOn: jar) {
 }
 
 task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace]) {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    duplicatesStrategy = DuplicatesStrategy.FAIL
 
     into("mods", {
         into(project.name, {
             from jar
-            from 'readme.md'
+            from 'README.txt'
+            from 'LICENSE'
             from 'lgpl-3.0.txt'
-            into('images') { from 'images/keybinder-banner.png' }
             into('assets/keybinder') {
                 from 'src/main/resources/keybinder'
                 include '*.png'
                 exclude 'tile-selector.png' // Retired raster UI; the selector uses branded native buttons.
             }
         })
-        from fileTree(dir: 'mods', include: '*')
+        from 'mods/keybinder.properties'
     })
 
     archiveName "${project.name}-${project.version}.zip"
@@ -105,6 +114,28 @@ task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace]) {
 
 task verifyDistArchive(dependsOn: dist) {
     doLast {
+        def archive = new java.util.zip.ZipFile(dist.archivePath)
+        try {
+            def entries = java.util.Collections.list(archive.entries()).findAll { !it.directory }
+            def expected = [
+                    'mods/keybinder.properties',
+                    'mods/keybinder/keybinder.jar',
+                    'mods/keybinder/README.txt',
+                    'mods/keybinder/LICENSE',
+                    'mods/keybinder/lgpl-3.0.txt',
+                    'mods/keybinder/assets/keybinder/kb-tag.png'
+            ] as Set
+            if ((entries.collect { it.name } as Set) != expected || entries.size() != expected.size()) {
+                throw new GradleException('Distribution contains unexpected or missing files: ' +
+                        entries.collect { it.name })
+            }
+            def readme = archive.getInputStream(archive.getEntry('mods/keybinder/README.txt'))
+            try {
+                if (readme.getText('UTF-8') != file('README.txt').getText('UTF-8')) {
+                    throw new GradleException('ZIP README differs from the reviewed plain-text README')
+                }
+            } finally { readme.close() }
+        } finally { archive.close() }
         def expectedJarPath = "mods/${project.name}/${project.name}.jar"
         def packagedJars = zipTree(dist.archivePath).matching {
             include expectedJarPath
@@ -115,9 +146,13 @@ task verifyDistArchive(dependsOn: dist) {
         }
         def packagedJar = packagedJars.iterator().next()
         def nested = zipTree(packagedJar)
+        if (!nested.matching { include '**/keybinder-banner.png', '**/*.md', '**/*.markdown' }.files.empty) {
+            throw new GradleException('README artwork and Markdown must not be embedded in the JAR')
+        }
         ['keybinder/i18n/messages_en.properties',
          'keybinder/i18n/messages_pt-BR.properties',
          'keybinder/i18n/messages_de.properties',
+         'keybinder/i18n/messages_ru.properties',
          'keybinder/value-pack.keybinder'].each { resource ->
             if (nested.matching { include resource }.files.empty) {
                 throw new GradleException(

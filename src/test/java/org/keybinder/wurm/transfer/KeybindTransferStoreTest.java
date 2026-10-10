@@ -85,6 +85,18 @@ public class KeybindTransferStoreTest {
         assertNotEquals(SemanticFingerprint.of(first), SemanticFingerprint.of(changed));
     }
 
+    @Test public void oldHudAndQuickTagsHaveTheSameFingerprintButMultiRemainsDistinct() {
+        PortableKeybindDefinition base = definition(ItemSelector.emptyHand());
+        PortableKeybindDefinition legacy = new PortableKeybindDefinition("(HUD) (Multi) name",
+                "R", true, 0, base.getVariants());
+        PortableKeybindDefinition quick = new PortableKeybindDefinition("(Quick) name",
+                "R", true, 0, base.getVariants());
+        PortableKeybindDefinition multi = new PortableKeybindDefinition("name",
+                "R", false, 0, base.getVariants());
+        assertEquals(SemanticFingerprint.of(legacy), SemanticFingerprint.of(quick));
+        assertNotEquals(SemanticFingerprint.of(quick), SemanticFingerprint.of(multi));
+    }
+
     @Test public void roundTripsSingleVariantHudMode() throws Exception {
         KeybindRecord record = new KeybindRecord("single", "Open journal", "R",
                 Collections.<KeybindStep>singletonList(

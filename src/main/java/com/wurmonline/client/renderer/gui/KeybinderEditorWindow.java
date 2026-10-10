@@ -136,10 +136,24 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
 
     int stepTypeWidth() { return maximumOptionWidth(stepTypeOptions()); }
 
+    private int sourceMinimumWidth() {
+        return Math.max(SOURCE_MIN_WIDTH, maximumOptionWidth(new String[]{
+                Messages.text("editor.improve.source.toolbelt_only"),
+                Messages.text("editor.improve.source.toolbelt_inventory"),
+                Messages.text("editor.archeology.source.toolbelt_only"),
+                Messages.text("editor.archeology.source.toolbelt_inventory")}));
+    }
+
+    int minimumWidth() {
+        return Math.max(MIN_WIDTH, WINDOW_CHROME + ACTION_ROW_INDENT + 42 + stepTypeWidth()
+                + HELP_WIDTH + CAPTURE_WIDTH + SEPARATOR_WIDTH * 3 + COLUMN_GAP * 9
+                + 3 * Math.max(ACTION_NAME_MIN_WIDTH, sourceMinimumWidth()));
+    }
+
     int[] actionColumnWidths(int contentWidth, int controlsWidth) {
         return EditorRowLayout.columns(contentWidth, controlsWidth, stepTypeWidth(),
                 HELP_WIDTH, CAPTURE_WIDTH, SEPARATOR_WIDTH, COLUMN_GAP,
-                ACTION_NAME_MIN_WIDTH, SOURCE_MIN_WIDTH);
+                ACTION_NAME_MIN_WIDTH, sourceMinimumWidth());
     }
 
     private final KeybindEditorController controller;
@@ -206,7 +220,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         this.recordId = recordId;
         this.modCommandCatalogs = ModCommandCatalogRegistry.snapshot();
         this.keyOptions = KEY_CATALOG.displayOptions();
-        setTitle(Messages.text("window.editor.title"));
+        setLocalizedTitle(Messages.text("window.editor.title"));
         KeybindRecord record = controller.getRecord(recordId);
         createdByUser = record == null ? controller.currentUser() : record.getCreatedByUser();
         createdOnServer = record == null ? controller.currentServer() : record.getCreatedOnServer();
@@ -310,6 +324,18 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     }
 
     public String getEditedRecordId() { return recordId; }
+
+    @Override public void relocalize() {
+        super.relocalize();
+        for (ActionRow row : rows) {
+            row.type.setOptions(stepTypeOptions());
+            row.updateActionName();
+            row.updateHelpText();
+        }
+        lastLayoutWidth = -1;
+        rebuildActions();
+        applyLayout();
+    }
 
     public void addCapturedAction(ActionStep step) {
         KeybinderMod.deferUi(() -> {
@@ -709,8 +735,10 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     void setSize(int requestedWidth, int requestedHeight) {
         // Clamp inside the resize operation. Correcting the width from gameTick
         // fights WWindow's active resize/hover state and makes custom content flicker.
-        super.setSize(Math.max(requestedWidth, MIN_WIDTH), requestedHeight);
+        super.setSize(Math.max(requestedWidth, contentReadyForMinimum() ? minimumWidth() : MIN_WIDTH), requestedHeight);
     }
+
+    private boolean contentReadyForMinimum() { return modCommandCatalogs != null; }
 
     private void rebuildActions() {
         actions.removeAllComponents();
@@ -841,8 +869,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     }
 
     private static int maximumOptionWidth(String[] options) {
-        return LocalizedLayout.maximumOptionWidth(
-                options, 30, text -> new KeybinderUiLabel(text).width);
+        return KeybinderUiDropDown.optionWidth(options);
     }
 
     private static boolean concreteTarget(String target) {
@@ -1741,7 +1768,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
                     kind(), isVanilla(), isVanilla() && vanillaUsesTarget(),
                     usesActionTarget(), contentWidth, controls.width, stepTypeWidth(),
                     HELP_WIDTH, CAPTURE_WIDTH, SEPARATOR_WIDTH, COLUMN_GAP,
-                    ACTION_NAME_MIN_WIDTH, SOURCE_MIN_WIDTH);
+                    ACTION_NAME_MIN_WIDTH, sourceMinimumWidth());
             type.setSize(stepTypeWidth(), type.height);
             help.setSize(HELP_WIDTH, help.height);
             if (isModCatalog()) {
@@ -1846,7 +1873,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             if (isModCatalog()) {
                 ModCommandCatalog.Entry entry = modCatalogEntry();
                 if (entry == null)
-                    throw new IllegalStateException("No mod command is selected");
+                    throw new IllegalStateException(Messages.text("validation.mod_command_missing"));
                 return new ConsoleCommandStep(entry.getCommand());
             }
             EditorStepDraft draft = new EditorStepDraft(kind(), actionIdValue,

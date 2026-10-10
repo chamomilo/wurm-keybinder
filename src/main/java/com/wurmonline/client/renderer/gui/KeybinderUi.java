@@ -41,6 +41,13 @@ final class KeybinderUi {
         component.text = body(); component.textBold = strong();
     }
 
+    static void relocalize(WurmComponent root) {
+        for (WurmComponent node : tree(root))
+            if (node instanceof KeybinderLocalized) ((KeybinderLocalized) node).relocalize();
+        if (root instanceof FlexComponent) ((FlexComponent) root).componentResized();
+        theme(root);
+    }
+
     /** Includes SDK private header, editing child and popup option rows. No game-wide font changes. */
     static void theme(WurmComponent root) {
         List<WurmComponent> nodes = tree(root);
@@ -114,6 +121,18 @@ final class KeybinderUi {
                 WurmDropdownPopup popup = (WurmDropdownPopup) value;
                 if (popup.dropDown == owner) theme(popup);
             }
+        } catch (ReflectiveOperationException | RuntimeException failure) { report(failure); }
+    }
+
+    static void closePopup(ChamomiloUiV1DropDown owner) {
+        if (WurmComponent.hud == null) return;
+        try {
+            Field field = HeadsUpDisplay.class.getDeclaredField("dropdownPopups");
+            field.setAccessible(true);
+            List<?> popups = (List<?>) field.get(WurmComponent.hud);
+            for (Object value : new ArrayList<>(popups))
+                if (value instanceof WurmDropdownPopup && ((WurmDropdownPopup) value).dropDown == owner)
+                    popups.remove(value);
         } catch (ReflectiveOperationException | RuntimeException failure) { report(failure); }
     }
 

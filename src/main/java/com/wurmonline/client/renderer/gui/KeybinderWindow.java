@@ -2,7 +2,6 @@ package com.wurmonline.client.renderer.gui;
 
 import com.wurmonline.client.renderer.backend.Queue;
 import org.keybinder.wurm.KeybinderMod;
-import org.keybinder.wurm.i18n.Language;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.KeybindStep;
@@ -23,7 +22,7 @@ import java.util.Map;
 public final class KeybinderWindow extends KeybinderUiWindow implements ButtonListener {
     private static final int WINDOW_CHROME = 38;
     private static final int CONTROLS_WIDTH = 41;
-    private static final int CHECK_WIDTH = 34;
+    private static final int CHECK_WIDTH = 46;
     private static final int KEY_WIDTH = 90;
     private static final int EDIT_MIN_WIDTH = 58;
     private static final int DUPLICATE_MIN_WIDTH = 82;
@@ -38,8 +37,6 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
     private final WurmArrayPanel<FlexComponent> filterControls;
     private final List<TableRow> tableRows = new ArrayList<>();
     private final WButton instructionButton;
-    private KeybinderUiDropDown languageSelector;
-    private int previousLanguage;
     private final WButton addButton;
     private final WButton importButton;
     private final WButton importFileButton;
@@ -88,14 +85,10 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
     public KeybinderWindow(KeybinderWindowController controller) {
         super("keybinder.window", true);
         this.controller = controller;
-        setTitle(Messages.text("window.title"));
+        setLocalizedTitle(Messages.text("window.title"));
         table = createScrollableTable();
         listScroll = new KeybinderUiScrollPanel("keybinder.scroll", table);
         instructionButton = new KeybinderUiButton(Messages.text("help.read"), this);
-        Language language = Language.fromCode(controller.getLanguage());
-        languageSelector = new KeybinderUiDropDown("keybinder.header.language", language.ordinal(), Language.displayNames());
-        languageSelector.parent = this;
-        previousLanguage = language.ordinal();
         addButton = new KeybinderUiButton(Messages.text("list.add"), this);
         importButton = new KeybinderUiButton(Messages.text("list.import"), this);
         importFileButton = new KeybinderUiButton(Messages.text("list.import_file"), this);
@@ -134,7 +127,8 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
         editor = null;
         resizable = true;
         minimumHeight = DEFAULT_HEIGHT;
-        setTitle(Messages.text("window.title"));
+        setLocalizedTitle(Messages.text("window.title"));
+        relocalizeListActions();
         rebuildListTop();
         setComponent(root);
         refresh();
@@ -145,31 +139,52 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
         mode = Mode.EDITOR;
         editor = newEditor;
         resizable = true;
-        minimumWidth = KeybinderEditorWindow.MIN_WIDTH;
+        minimumWidth = newEditor.minimumWidth();
         minimumHeight = 430;
-        setTitle(Messages.text("window.editor.title"));
+        setLocalizedTitle(Messages.text("window.editor.title"));
         setComponent(newEditor.getEmbeddedContent());
-        if (width < minimumWidth) setSize(minimumWidth, Math.max(height, 430));
+        if (width < minimumWidth || height < minimumHeight)
+            setSize(Math.max(width, minimumWidth), Math.max(height, minimumHeight));
         newEditor.embeddedTick(width, height);
     }
 
     public boolean isEditorOpen() { return mode == Mode.EDITOR; }
 
+    /** Refresh every existing dialog after a shared Updater language change. */
+    public static void relocalizeExistingWindows() {
+        KeybinderUiWindow.refreshExistingLanguages();
+    }
+
     public void relocalize() {
-        if (mode == Mode.EDITOR) return;
-        setTitle(Messages.text("window.title"));
-        addButton.setLabel(Messages.text("list.add"));
-        importButton.setLabel(Messages.text("list.import"));
-        importFileButton.setLabel(Messages.text("list.import_file"));
-        exportAllButton.setLabel(Messages.text("list.export_all"));
-        restoreButton.setLabel(Messages.text("list.restore_originals"));
-        instructionButton.setLabel(Messages.text("help.read"));
-        previousLanguage = Language.fromCode(controller.getLanguage()).ordinal();
-        languageSelector = new KeybinderUiDropDown("keybinder.header.language", previousLanguage, Language.displayNames());
-        languageSelector.parent = this;
-        rebuildListTop();
-        refresh();
-        if (width < minimumWidth) setSize(minimumWidth, height);
+        super.relocalize();
+        if (mode == Mode.EDITOR) {
+            setLocalizedTitle(Messages.text("window.editor.title"));
+            if (editor != null) editor.relocalize();
+            minimumWidth = editor == null ? KeybinderEditorWindow.MIN_WIDTH : editor.minimumWidth();
+            if (width < minimumWidth) setSize(minimumWidth, height);
+        } else setLocalizedTitle(Messages.text("window.title"));
+        relocalizeListActions();
+        if (mode != Mode.EDITOR) {
+            int scrollOffset = ((KeybinderUiScrollPanel) listScroll).verticalBar().value();
+            rebuildListTop();
+            refresh();
+            if (width < minimumWidth) setSize(minimumWidth, height);
+            listScroll.scrollDownTo(scrollOffset);
+        }
+    }
+
+    private void relocalizeListActions() {
+        ((KeybinderUiButton)addButton).setLocalizedCaption(Messages.text("list.add"));
+        ((KeybinderUiButton)importButton).setLocalizedCaption(Messages.text("list.import"));
+        ((KeybinderUiButton)importFileButton).setLocalizedCaption(Messages.text("list.import_file"));
+        ((KeybinderUiButton)exportAllButton).setLocalizedCaption(Messages.text("list.export_all"));
+        ((KeybinderUiButton)restoreButton).setLocalizedCaption(Messages.text("list.restore_originals"));
+        KeybinderUi.confirm(restoreButton, Messages.text("list.restore_originals.question"),
+                Messages.text("list.restore_originals.confirm"));
+        importButton.setHoverString(Messages.text("list.import.tip"));
+        importFileButton.setHoverString(Messages.text("list.import_file.tip"));
+        exportAllButton.setHoverString(Messages.text("list.export_all.tip"));
+        ((KeybinderUiButton)instructionButton).setLocalizedCaption(Messages.text("help.read"));
     }
 
     private void rebuildListTop() {
@@ -434,13 +449,6 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
     @Override
     public void gameTick() {
         super.gameTick();
-        if (languageSelector.getValue() != previousLanguage) {
-            previousLanguage = languageSelector.getValue();
-            Language[] languages = Language.values();
-            if (previousLanguage >= 0 && previousLanguage < languages.length)
-                controller.setLanguage(languages[previousLanguage].getCode());
-            return;
-        }
         if (mode == Mode.EDITOR) {
             if (editor != null) editor.embeddedTick(width, height);
             return;
@@ -634,22 +642,22 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
 
     /** Name label with fixed-alpha, high-contrast mode tags. */
     private final class ModeNameLabel extends SelectableLabel {
-        private static final float HUD_RED = 0.35f;
-        private static final float HUD_GREEN = 0.68f;
-        private static final float HUD_BLUE = 1.00f;
+        private static final float QUICK_RED = 0.35f;
+        private static final float QUICK_GREEN = 0.68f;
+        private static final float QUICK_BLUE = 1.00f;
         private static final float MULTI_RED = 0.35f;
         private static final float MULTI_GREEN = 1.00f;
         private static final float MULTI_BLUE = 0.45f;
 
-        private final boolean hudMode;
+        private final boolean quickMode;
         private final boolean multiMode;
         private final String baseName;
 
         private ModeNameLabel(KeybindRecord record) {
             super(KeybindNamePrefixes.apply(record.getName(), record.getVariants().size(),
                     record.isHudMulti()), record.getId());
-            hudMode = record.isHudMulti();
-            multiMode = record.isMultiPurpose();
+            quickMode = record.isHudMulti();
+            multiMode = record.isMultiPurpose() && !quickMode;
             baseName = KeybindNamePrefixes.baseName(record.getName());
         }
 
@@ -657,9 +665,9 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
         protected void renderComponent(Queue queue, float ignoredAlpha) {
             int drawX = x + 4;
             int baseline = y + (height - text.getHeight()) / 2 + text.getAscent();
-            if (hudMode)
-                drawX += paintSegment(queue, KeybindNamePrefixes.HUD, drawX, baseline,
-                        HUD_RED, HUD_GREEN, HUD_BLUE);
+            if (quickMode)
+                drawX += paintSegment(queue, KeybindNamePrefixes.QUICK, drawX, baseline,
+                        QUICK_RED, QUICK_GREEN, QUICK_BLUE);
             if (multiMode)
                 drawX += paintSegment(queue, KeybindNamePrefixes.MULTI, drawX, baseline,
                         MULTI_RED, MULTI_GREEN, MULTI_BLUE);
@@ -840,22 +848,4 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
 
     private enum Mode { LIST, EDITOR }
 
-    @Override public FlexComponent getComponentAt(int mx, int my) {
-        positionLanguageSelector();
-        if (languageSelector != null && languageSelector.contains(mx, my)) return languageSelector;
-        return super.getComponentAt(mx, my);
-    }
-
-    private void positionLanguageSelector() {
-        WButton maximize = KeybinderUi.maximizeControl(this);
-        if (languageSelector != null && maximize != null)
-            languageSelector.setPosition(maximize.x - 28 - 8 - languageSelector.width,
-                    maximize.y + (maximize.height - languageSelector.height) / 2);
-    }
-
-    @Override protected void renderComponent(Queue queue, float ignoredAlpha) {
-        super.renderComponent(queue, 1f);
-        positionLanguageSelector();
-        if (languageSelector != null) languageSelector.render(queue, 1f);
-    }
 }

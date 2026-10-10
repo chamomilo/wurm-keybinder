@@ -3,7 +3,8 @@ package org.keybinder.wurm.i18n;
 public enum Language {
     ENGLISH("en", "language.en"),
     PORTUGUESE_BRAZIL("pt-BR", "language.pt_BR"),
-    GERMAN("de", "language.de");
+    GERMAN("de", "language.de"),
+    RUSSIAN("ru", "language.ru");
 
     private final String code;
     private final String displayKey;

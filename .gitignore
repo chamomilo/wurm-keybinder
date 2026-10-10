@@ -9,7 +9,7 @@
 /*.iml
 /*.ipr
 /libs
-# Internal research and development notes (kept locally, not published)
+# Do not retain research and development drafts in the project
 /ACTION_ICON_TAXONOMY.csv
 /ACTION_ICON_TAXONOMY.md
 /AGENTS.md

@@ -1,6 +1,6 @@
 package org.keybinder.wurm.bind;
 
-/** Pure press/repeat/release controller for ordinary and HUD multi keybinds. */
+/** Pure press/repeat/release controller for Multi and Quick keybinds. */
 public final class MultiKeyController {
     public enum Mode { ORDINARY, HUD }
     public enum Event {

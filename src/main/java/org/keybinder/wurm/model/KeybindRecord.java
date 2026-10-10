@@ -94,6 +94,7 @@ public final class KeybindRecord {
     }
     public List<KeybindVariant> getVariants() { return Collections.unmodifiableList(variants); }
     public boolean isMultiPurpose() { return variants.size() > 1; }
+    /** Quick mode; the historical HUD name remains compatible with saved bundles. */
     public boolean isHudMulti() { return hudMulti; }
     public void setHudMulti(boolean value) { hudMulti = value; }
     /** True when the key is observed by the selector hook instead of run directly. */
@@ -114,7 +115,7 @@ public final class KeybindRecord {
             throw new IllegalArgumentException(Messages.text("validation.variant_unknown"));
         activeVariantId = variantId;
     }
-    /** Read-only execution view used when a HUD choice must not become the default. */
+    /** Read-only execution view used when a Quick choice must not become the default. */
     public KeybindRecord executionViewForVariant(String variantId) {
         if (findVariant(variantId) == null)
             throw new IllegalArgumentException(Messages.text("validation.variant_unknown"));

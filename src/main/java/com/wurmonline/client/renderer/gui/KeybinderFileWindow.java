@@ -21,7 +21,7 @@ final class KeybinderFileWindow extends KeybinderUiWindow implements ButtonListe
     KeybinderFileWindow(TransferFileBrowser browser, boolean export, Consumer<Path> selected) {
         super("keybinder.files", true);
         this.browser = browser; this.export = export; this.selected = selected;
-        setTitle(Messages.text(export ? "transfer.export.title" : "transfer.import.title"));
+        setLocalizedTitle(Messages.text(export ? "transfer.export.title" : "transfer.import.title"));
         WurmBorderPanel root = new WurmBorderPanel("keybinder.files.root");
         WurmArrayPanel<FlexComponent> top = new KeybinderUiArrayPanel<>("keybinder.files.top", WurmArrayPanel.DIR_VERTICAL, true);
         directory = new KeybinderUiLabel(""); top.addComponent(directory);

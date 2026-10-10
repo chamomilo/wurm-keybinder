@@ -4,6 +4,7 @@ import com.wurmonline.client.renderer.backend.Queue;
 import org.chamomilo.wurm.ui.v1.UiColor;
 import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.i18n.Messages;
+import org.keybinder.wurm.i18n.LocalizedText;
 
 import java.awt.Desktop;
 import java.net.URI;
@@ -27,7 +28,7 @@ public final class KeybinderInstructionWindow extends KeybinderUiWindow implemen
     KeybinderInstructionWindow(boolean constructorHelp) {
         super("keybinder.instructions", true);
         this.constructorHelp = constructorHelp;
-        setTitle(Messages.text(constructorHelp ? "help.constructor_title" : "help.title"));
+        setLocalizedTitle(Messages.text(constructorHelp ? "help.constructor_title" : "help.title"));
         content = new KeybinderUiArrayPanel<>("keybinder.instructions.body", WurmArrayPanel.DIR_VERTICAL);
         scroll = new KeybinderUiScrollPanel("keybinder.instructions.scroll", content);
         WurmBorderPanel root = new WurmBorderPanel("keybinder.instructions.root");
@@ -153,8 +154,9 @@ public final class KeybinderInstructionWindow extends KeybinderUiWindow implemen
         if (active == this) active = null;
     }
 
-    private static final class Paragraph extends FlexComponent {
-        private final String caption;
+    private static final class Paragraph extends FlexComponent implements KeybinderLocalized {
+        private String caption;
+        private final LocalizedText source;
         private final boolean heading;
         private final List<String> lines = new ArrayList<>();
         private int lastWidth = -1;
@@ -162,10 +164,15 @@ public final class KeybinderInstructionWindow extends KeybinderUiWindow implemen
         Paragraph(String caption, boolean heading) {
             super("keybinder.instructions.paragraph");
             this.caption = caption; this.heading = heading;
+            source = LocalizedText.capture(caption);
             KeybinderUi.fonts(this);
             setSize(700, 24);
             sizeFlags = FIXED_HEIGHT;
             componentResized();
+        }
+
+        @Override public void relocalize() {
+            if (source != null) { caption = source.resolve(); lastWidth = -1; componentResized(); }
         }
 
         @Override void componentResized() {

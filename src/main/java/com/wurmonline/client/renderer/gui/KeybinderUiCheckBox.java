@@ -3,20 +3,28 @@ package com.wurmonline.client.renderer.gui;
 import com.wurmonline.client.renderer.backend.Queue;
 import com.wurmonline.client.renderer.PickData;
 import org.chamomilo.wurm.ui.v1.*;
+import org.keybinder.wurm.i18n.LocalizedText;
 
 /** Checkbox is not an SDK wrapper yet; reuse its painter, glyphs and cached fonts. */
-final class KeybinderUiCheckBox extends FlexComponent {
+final class KeybinderUiCheckBox extends FlexComponent implements KeybinderLocalized {
     boolean checked, enabled = true;
     private String label, tip;
     private boolean armed, hovered;
+    private final LocalizedText labelSource;
+    private LocalizedText tipSource;
     private final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
     private final UiButtonMotion motion = new UiButtonMotion();
     KeybinderUiCheckBox(String label) {
         super("keybinder.checkbox"); this.label = label;
+        labelSource = LocalizedText.capture(label);
         KeybinderUi.fonts(this);
         setSize(26 + text.getWidth(label), 32); sizeFlags = FIXED_HEIGHT;
     }
-    public void setHoverString(String value) { tip = value; }
+    public void setHoverString(String value) { tip = value; tipSource = LocalizedText.capture(value); }
+    @Override public void relocalize() {
+        if (labelSource != null) { label = labelSource.resolve(); setSize(26 + text.getWidth(label), height); }
+        if (tipSource != null) tip = tipSource.resolve();
+    }
     @Override protected void leftPressed(int mx, int my, int count) {
         armed = enabled; if (armed) motion.pointerPressed(System.nanoTime());
     }
