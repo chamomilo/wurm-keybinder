@@ -1,6 +1,7 @@
 package org.keybinder.wurm;
 
 import com.wurmonline.client.console.WurmConsole;
+import com.wurmonline.client.console.KeyBinding;
 import com.wurmonline.client.game.PlayerObj;
 import com.wurmonline.client.renderer.PickableUnit;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
@@ -24,6 +25,8 @@ public class KeybinderHookEntryPointContractTest {
         assertCallback("handleCommand", boolean.class, String.class, String[].class);
         assertCallback("handleKeyToggle", boolean.class,
                 WurmConsole.class, int.class, boolean.class);
+        assertCallback("resolveFreeCameraBinding", KeyBinding.class,
+                KeyBinding.class, KeyBinding.class);
         assertCallback("observeKeyPressed", void.class, int.class);
         assertCallback("observeKeyReleased", void.class, int.class);
         assertCallback("handleMouseWheel", void.class, int.class, int.class, int.class);

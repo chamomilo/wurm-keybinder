@@ -6,7 +6,7 @@ import org.keybinder.wurm.model.ConflictResolution;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.i18n.Messages;
 
-public final class KeybinderConflictWindow extends WWindow implements ButtonListener {
+public final class KeybinderConflictWindow extends KeybinderUiWindow implements ButtonListener {
     private final KeybindEditorController controller;
     private final WButton keepNew;
     private final WButton keepOld;
@@ -18,23 +18,23 @@ public final class KeybinderConflictWindow extends WWindow implements ButtonList
         setTitle(Messages.text("conflict.title", conflict.getKey()));
 
         WurmArrayPanel<FlexComponent> root =
-                new WurmArrayPanel<>("keybinder.conflict.root", WurmArrayPanel.DIR_VERTICAL, true);
+                new KeybinderUiArrayPanel<>("keybinder.conflict.root", WurmArrayPanel.DIR_VERTICAL, true);
         root.componentWidthOffset = 2;
-        root.addComponent(new WurmLabel(
+        root.addComponent(new KeybinderUiLabel(
                 Messages.text("conflict.used", conflict.getKey(),
                         conflict.isVanillaOwner()
                                 ? Messages.text("conflict.vanilla_owner") : conflict.getOwner())));
-        root.addComponent(new WurmLabel(Messages.text("conflict.created_user",
+        root.addComponent(new KeybinderUiLabel(Messages.text("conflict.created_user",
                 displayOrigin(conflict.getCreatedByUser(), Messages.text("list.unknown_user")))));
-        root.addComponent(new WurmLabel(Messages.text("conflict.created_server",
+        root.addComponent(new KeybinderUiLabel(Messages.text("conflict.created_server",
                 displayOrigin(conflict.getCreatedOnServer(), Messages.text("list.unknown_server")))));
 
         WurmArrayPanel<FlexComponent> buttons =
-                new WurmArrayPanel<>("keybinder.conflict.buttons", WurmArrayPanel.DIR_HORIZONTAL);
+                new KeybinderUiArrayPanel<>("keybinder.conflict.buttons", WurmArrayPanel.DIR_HORIZONTAL);
         buttons.componentWidthOffset = 8;
-        keepNew = new WButton(Messages.text("conflict.keep_new"), this);
-        keepOld = new WButton(Messages.text("conflict.keep_old"), this);
-        cancel = new WButton(Messages.text("common.cancel"), this);
+        keepNew = new KeybinderUiButton(Messages.text("conflict.keep_new"), this);
+        keepOld = new KeybinderUiButton(Messages.text("conflict.keep_old"), this);
+        cancel = new KeybinderUiButton(Messages.text("common.cancel"), this);
         keepNew.setHoverString(Messages.text("conflict.keep_new.tip"));
         keepOld.setHoverString(Messages.text("conflict.keep_old.tip"));
         cancel.setHoverString(Messages.text("conflict.cancel.tip"));

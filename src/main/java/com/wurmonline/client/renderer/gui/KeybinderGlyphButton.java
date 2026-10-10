@@ -3,7 +3,7 @@ package com.wurmonline.client.renderer.gui;
 import com.wurmonline.client.renderer.backend.Queue;
 
 /** Stable, font-independent row controls shared by both Keybinder windows. */
-final class KeybinderGlyphButton extends WButton {
+final class KeybinderGlyphButton extends KeybinderUiButton {
     enum Kind { PLUS_BOX, MINUS_BOX, CLOSE_BOX, EXTRACT_UP, RECORD_DOT, REFRESH }
 
     private Kind kind;
@@ -21,6 +21,7 @@ final class KeybinderGlyphButton extends WButton {
 
     @Override
     protected void renderComponent(Queue queue, float ignoredAlpha) {
+        paintSurface(queue);
         float brightness = isEnabled() ? (hovered ? 1.0f : 0.82f) : 0.36f;
         if (kind == Kind.PLUS_BOX || kind == Kind.MINUS_BOX || kind == Kind.CLOSE_BOX) {
             drawBoxIcon(queue, brightness, kind);
@@ -65,27 +66,13 @@ final class KeybinderGlyphButton extends WButton {
     }
 
     private void drawBoxIcon(Queue queue, float brightness, Kind boxKind) {
-        int size = 11;
+        int size = 16;
         int left = x + (width - size) / 2;
         int top = y + (height - size) / 2;
-        boolean close = boxKind == Kind.CLOSE_BOX;
-        float red = close && hovered ? 1.00f : brightness;
-        float green = close && hovered ? 0.55f : brightness * 0.90f;
-        float blue = close && hovered ? 0.42f : brightness * 0.72f;
-        fillRect(queue, red, green, blue, 1.0f, left, top, size, 1);
-        fillRect(queue, red, green, blue, 1.0f, left, top + size - 1, size, 1);
-        fillRect(queue, red, green, blue, 1.0f, left, top, 1, size);
-        fillRect(queue, red, green, blue, 1.0f, left + size - 1, top, 1, size);
-        if (close) {
-            for (int offset = 3; offset <= 7; offset++) {
-                fillRect(queue, red, green, blue, 1.0f, left + offset, top + offset, 1, 1);
-                fillRect(queue, red, green, blue, 1.0f,
-                        left + size - 1 - offset, top + offset, 1, 1);
-            }
-        } else {
-            fillRect(queue, red, green, blue, 1.0f, left + 3, top + 5, 5, 1);
-            if (boxKind == Kind.PLUS_BOX)
-                fillRect(queue, red, green, blue, 1.0f, left + 5, top + 3, 1, 5);
-        }
+        org.chamomilo.wurm.ui.v1.UiIcon icon = boxKind == Kind.CLOSE_BOX
+                ? org.chamomilo.wurm.ui.v1.UiIcon.CLOSE : boxKind == Kind.PLUS_BOX
+                ? org.chamomilo.wurm.ui.v1.UiIcon.PLUS : org.chamomilo.wurm.ui.v1.UiIcon.MINUS;
+        icon.paint(canvas, org.chamomilo.wurm.ui.v1.UiPainter.buttonCaptionColor(isEnabled(), motion.hover()),
+                1f, left, top, size);
     }
 }

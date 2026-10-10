@@ -12,12 +12,12 @@ import java.util.List;
 import java.util.Map;
 
 /** Non-mutating review window for the one-time vanilla binding import. */
-public final class KeybinderImportWindow extends WWindow implements ButtonListener {
+public final class KeybinderImportWindow extends KeybinderUiWindow implements ButtonListener {
     private static final int WIDTH = 860;
     private static final int HEIGHT = 430;
     private final ImportReviewController controller;
-    private final Map<WCheckBox, VanillaImportCandidate> selections =
-            new LinkedHashMap<WCheckBox, VanillaImportCandidate>();
+    private final Map<KeybinderUiCheckBox, VanillaImportCandidate> selections =
+            new LinkedHashMap<KeybinderUiCheckBox, VanillaImportCandidate>();
     private final WButton importSelected;
     private final WButton later;
     private final WButton neverAsk;
@@ -28,23 +28,23 @@ public final class KeybinderImportWindow extends WWindow implements ButtonListen
         this.controller = controller;
         setTitle(Messages.text("import.title"));
 
-        WurmArrayPanel<FlexComponent> content = new WurmArrayPanel<FlexComponent>(
-                "keybinder.import.content", WurmArrayPanel.DIR_VERTICAL, true);
-        content.addComponent(new WurmLabel(Messages.text("import.instructions")));
+        WurmArrayPanel<FlexComponent> content = new KeybinderUiArrayPanel<FlexComponent>(
+                "keybinder.import.content", WurmArrayPanel.DIR_VERTICAL);
+        content.addComponent(new KeybinderUiLabel(Messages.text("import.instructions")));
         content.addComponent(header());
         for (VanillaImportCandidate candidate : candidates)
             content.addComponent(row(candidate));
 
         WurmBorderPanel root = new WurmBorderPanel("keybinder.import.root");
-        root.setComponent(new WurmScrollPanel(
-                "keybinder.import.scroll", content, false, true), WurmBorderPanel.CENTER);
+        root.setComponent(new KeybinderUiScrollPanel(
+                "keybinder.import.scroll", content), WurmBorderPanel.CENTER);
 
-        WurmArrayPanel<FlexComponent> buttons = new WurmArrayPanel<FlexComponent>(
+        WurmArrayPanel<FlexComponent> buttons = new KeybinderUiArrayPanel<FlexComponent>(
                 "keybinder.import.buttons", WurmArrayPanel.DIR_HORIZONTAL);
         buttons.componentWidthOffset = 8;
-        importSelected = new WButton(Messages.text("import.selected"), this);
-        later = new WButton(Messages.text("import.not_now"), this);
-        neverAsk = new WButton(Messages.text("import.never_ask"), this);
+        importSelected = new KeybinderUiButton(Messages.text("import.selected"), this);
+        later = new KeybinderUiButton(Messages.text("import.not_now"), this);
+        neverAsk = new KeybinderUiButton(Messages.text("import.never_ask"), this);
         buttons.addComponent(importSelected);
         buttons.addComponent(later);
         buttons.addComponent(neverAsk);
@@ -54,32 +54,32 @@ public final class KeybinderImportWindow extends WWindow implements ButtonListen
     }
 
     private FlexComponent header() {
-        return columns("keybinder.import.header", new WurmLabel(""),
-                new WurmLabel(Messages.text("import.key")),
-                new WurmLabel(Messages.text("import.command")),
-                new WurmLabel(Messages.text("import.type")),
-                new WurmLabel(Messages.text("import.conversion")),
-                new WurmLabel(Messages.text("import.status")));
+        return columns("keybinder.import.header", KeybinderUiLabel.header(""),
+                KeybinderUiLabel.header(Messages.text("import.key")),
+                KeybinderUiLabel.header(Messages.text("import.command")),
+                KeybinderUiLabel.header(Messages.text("import.type")),
+                KeybinderUiLabel.header(Messages.text("import.conversion")),
+                KeybinderUiLabel.header(Messages.text("import.status")));
     }
 
     private FlexComponent row(VanillaImportCandidate candidate) {
-        WCheckBox selected = new WCheckBox("");
+        KeybinderUiCheckBox selected = new KeybinderUiCheckBox("");
         selected.checked = candidate.isSelectedByDefault();
         selections.put(selected, candidate);
-        WurmLabel command = new WurmLabel(candidate.getBinding().getCommand());
-        WurmLabel status = new WurmLabel(status(candidate));
+        WurmLabel command = new KeybinderUiLabel(candidate.getBinding().getCommand());
+        WurmLabel status = new KeybinderUiLabel(status(candidate));
         return columns("keybinder.import.row", selected,
-                new WurmLabel(candidate.getBinding().getKey()), command,
-                new WurmLabel(type(candidate.getType())),
-                new WurmLabel(conversion(candidate.getType())), status);
+                new KeybinderUiLabel(candidate.getBinding().getKey()), command,
+                new KeybinderUiLabel(type(candidate.getType())),
+                new KeybinderUiLabel(conversion(candidate.getType())), status);
     }
 
     private static FlexComponent columns(String id, FlexComponent selected,
                                          FlexComponent key, FlexComponent command,
                                          FlexComponent type, FlexComponent conversion,
                                          FlexComponent status) {
-        WurmArrayPanel<FlexComponent> row = new WurmArrayPanel<FlexComponent>(
-                id, WurmArrayPanel.DIR_HORIZONTAL);
+        WurmArrayPanel<FlexComponent> row = id.endsWith(".header") ? new KeybinderUiHeader(id)
+                : new KeybinderUiArrayPanel<FlexComponent>(id, WurmArrayPanel.DIR_HORIZONTAL);
         row.componentWidthOffset = 8;
         selected.setSize(28, selected.height);
         key.setSize(85, key.height);
@@ -128,7 +128,7 @@ public final class KeybinderImportWindow extends WWindow implements ButtonListen
     @Override public void buttonClicked(WButton button) {
         if (button == importSelected) {
             List<BindSnapshot> selected = new ArrayList<BindSnapshot>();
-            for (Map.Entry<WCheckBox, VanillaImportCandidate> entry : selections.entrySet()) {
+            for (Map.Entry<KeybinderUiCheckBox, VanillaImportCandidate> entry : selections.entrySet()) {
                 if (entry.getKey().checked && entry.getValue().isImportable())
                     selected.add(entry.getValue().getBinding());
             }

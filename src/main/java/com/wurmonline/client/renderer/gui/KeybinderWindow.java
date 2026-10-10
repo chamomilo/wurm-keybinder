@@ -14,15 +14,13 @@ import org.keybinder.wurm.ui.QueueMonitorSide;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
 import org.keybinder.wurm.ui.DropZoneClassifier;
 import org.keybinder.wurm.model.KeybindLimits;
-import com.wurmonline.client.resources.textures.KeybinderTextureFactory;
-import com.wurmonline.client.resources.textures.ResourceTexture;
 
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public final class KeybinderWindow extends WWindow implements ButtonListener {
+public final class KeybinderWindow extends KeybinderUiWindow implements ButtonListener {
     private static final int WINDOW_CHROME = 38;
     private static final int CONTROLS_WIDTH = 41;
     private static final int CHECK_WIDTH = 34;
@@ -31,11 +29,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private static final int DUPLICATE_MIN_WIDTH = 82;
     private static final int COLUMN_GAP = 8;
     private static final int DEFAULT_HEIGHT = 285;
-    private static final int INTRO_MIN_WIDTH = 800;
-    private static final int INTRO_MIN_HEIGHT = 700;
-    private static final int INTRO_HEIGHT_PADDING = 10;
-    private static final int INTRO_HORIZONTAL_CHROME = 0;
-    private static final int INTRO_BUTTON_WIDTH = 240;
     private static final String FILTER_ALL = KeybindListViewModel.FILTER_ALL;
     private final KeybinderWindowController controller;
     private final WurmArrayPanel<FlexComponent> table;
@@ -44,36 +37,31 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private final WurmArrayPanel<FlexComponent> listTop;
     private final WurmArrayPanel<FlexComponent> filterControls;
     private final List<TableRow> tableRows = new ArrayList<>();
+    private final WButton instructionButton;
+    private KeybinderUiDropDown languageSelector;
+    private int previousLanguage;
     private final WButton addButton;
     private final WButton importButton;
     private final WButton importFileButton;
     private final WButton exportAllButton;
     private final WButton restoreButton;
     private int displayedQueueLimit = -1;
-    private WurmDropDown queueMonitorSide;
+    private KeybinderUiDropDown queueMonitorSide;
     private int previousQueueMonitorSide;
     private WButton enableFiltered;
     private WButton disableFiltered;
-    private WurmDropDown userFilter;
-    private WurmDropDown serverFilter;
+    private KeybinderUiDropDown userFilter;
+    private KeybinderUiDropDown serverFilter;
     private String[] userFilterOptions = {Messages.text("list.all_users")};
     private String[] serverFilterOptions = {Messages.text("list.all_servers")};
     private String[] userFilterValues = {FILTER_ALL};
     private String[] serverFilterValues = {FILTER_ALL};
     private int lastUserFilterValue;
     private int lastServerFilterValue;
-    private WButton introPrimary;
-    private WCheckBox introSkip;
-    private WurmDropDown introLanguage;
-    private int previousIntroLanguage;
-    private WurmArrayPanel<FlexComponent> introContent;
-    private IntroBanner introBanner;
-    private final List<FlexComponent> introFullWidth = new ArrayList<>();
-    private boolean previousIntroSkip;
     private Mode mode = Mode.LIST;
     private KeybinderEditorWindow editor;
-    private final Map<WCheckBox, String> checkboxIds = new HashMap<>();
-    private final Map<WCheckBox, Boolean> checkboxStates = new HashMap<>();
+    private final Map<KeybinderUiCheckBox, String> checkboxIds = new HashMap<>();
+    private final Map<KeybinderUiCheckBox, Boolean> checkboxStates = new HashMap<>();
     private final Map<WButton, RowAction> rowActions = new HashMap<>();
     private final Map<WButton, String> editIds = new HashMap<>();
     private final Map<WButton, String> duplicateIds = new HashMap<>();
@@ -87,7 +75,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     private int minimumWidth;
     private int minimumHeight = DEFAULT_HEIGHT;
     private int lastLayoutWidth = -1;
-    private int introFixedHeight = INTRO_MIN_HEIGHT;
     private String selectedRowId;
     private String draggedRowId;
     private int dragPressY;
@@ -103,22 +90,26 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         this.controller = controller;
         setTitle(Messages.text("window.title"));
         table = createScrollableTable();
-        listScroll = new WurmScrollPanel("keybinder.scroll", table, false, true);
-        addButton = new WButton(Messages.text("list.add"), this);
-        importButton = new WButton(Messages.text("list.import"), this);
-        importFileButton = new WButton(Messages.text("list.import_file"), this);
-        exportAllButton = new WButton(Messages.text("list.export_all"), this);
+        listScroll = new KeybinderUiScrollPanel("keybinder.scroll", table);
+        instructionButton = new KeybinderUiButton(Messages.text("help.read"), this);
+        Language language = Language.fromCode(controller.getLanguage());
+        languageSelector = new KeybinderUiDropDown("keybinder.header.language", language.ordinal(), Language.displayNames());
+        languageSelector.parent = this;
+        previousLanguage = language.ordinal();
+        addButton = new KeybinderUiButton(Messages.text("list.add"), this);
+        importButton = new KeybinderUiButton(Messages.text("list.import"), this);
+        importFileButton = new KeybinderUiButton(Messages.text("list.import_file"), this);
+        exportAllButton = new KeybinderUiButton(Messages.text("list.export_all"), this);
         importButton.setHoverString(Messages.text("list.import.tip"));
         importFileButton.setHoverString(Messages.text("list.import_file.tip"));
         exportAllButton.setHoverString(Messages.text("list.export_all.tip"));
-        restoreButton = new WButton(Messages.text("list.restore_originals"), this);
-        restoreButton.setConfirm(true);
-        restoreButton.setConfirmQuestion(Messages.text("list.restore_originals.question"));
-        restoreButton.setConfirmMessage(Messages.text("list.restore_originals.confirm"));
+        restoreButton = new KeybinderUiButton(Messages.text("list.restore_originals"), this);
+        KeybinderUi.confirm(restoreButton, Messages.text("list.restore_originals.question"),
+                Messages.text("list.restore_originals.confirm"));
         root = new WurmBorderPanel("keybinder.root");
         listTop =
-                new WurmArrayPanel<>("keybinder.list.introduction", WurmArrayPanel.DIR_VERTICAL, true);
-        filterControls = new WurmArrayPanel<>(
+                new KeybinderUiArrayPanel<>("keybinder.list.introduction", WurmArrayPanel.DIR_VERTICAL, true);
+        filterControls = new KeybinderUiArrayPanel<>(
                 "keybinder.list.filters", WurmArrayPanel.DIR_HORIZONTAL);
         filterControls.componentWidthOffset = COLUMN_GAP;
         rebuildListTop();
@@ -135,22 +126,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         // back to 0 inside the same wheel event. Column widths are already
         // applied explicitly by applyTableLayout(), so auto-width is neither
         // necessary nor safe for this scroll content.
-        return new WurmArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL);
-    }
-
-    public void showIntro() {
-        mode = Mode.INTRO;
-        editor = null;
-        resizable = false;
-        minimumWidth = INTRO_MIN_WIDTH;
-        minimumHeight = INTRO_MIN_HEIGHT;
-        setTitle(Messages.text("window.intro.title"));
-        setComponent(createIntroContent());
-        layoutIntroContent(INTRO_MIN_WIDTH);
-        introFixedHeight = Math.max(INTRO_MIN_HEIGHT,
-                introContent.calcHeight() + WINDOW_CHROME + INTRO_HEIGHT_PADDING);
-        minimumHeight = introFixedHeight;
-        setSize(INTRO_MIN_WIDTH, introFixedHeight);
+        return new KeybinderUiArrayPanel<>("keybinder.table", WurmArrayPanel.DIR_VERTICAL);
     }
 
     public void showKeybinds() {
@@ -159,8 +135,6 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         resizable = true;
         minimumHeight = DEFAULT_HEIGHT;
         setTitle(Messages.text("window.title"));
-        // The language can change while Intro is visible. listTop was created
-        // earlier, so refresh its labels before exposing the persistent list.
         rebuildListTop();
         setComponent(root);
         refresh();
@@ -179,132 +153,53 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         newEditor.embeddedTick(width, height);
     }
 
-    private FlexComponent createIntroContent() {
-        introFullWidth.clear();
-        // Without the former WurmScrollPanel parent, a flexible vertical panel
-        // adopts the width of the longest unwrapped label and then gives that
-        // width to every child. Keep the intro column at the window content
-        // width so the 800x200 banner is rendered at exactly 800x200.
-        introContent = new WurmArrayPanel<>(
-                "keybinder.intro.content", WurmArrayPanel.DIR_VERTICAL, INTRO_MIN_WIDTH, 0);
-        introBanner = new IntroBanner();
-        introBanner.layout(INTRO_MIN_WIDTH - INTRO_HORIZONTAL_CHROME);
-        addIntro(introBanner);
-        addIntro(spacer(8));
-        addIntro(introText(Messages.text("intro.heading")));
-        addIntro(introText(Messages.text("intro.lead")));
-        addIntro(introText(Messages.text("intro.description")));
-        addIntro(spacer(8));
-        addIntro(introSection(Messages.text("intro.actions.heading"),
-                Messages.text("intro.actions.body")));
-        addIntro(introText(Messages.text("intro.targets.body")));
-        addIntro(introText(Messages.text("intro.migration.body")));
-        addIntro(spacer(8));
-        addIntro(introSection(Messages.text("intro.multi.heading"),
-                Messages.text("intro.multi.body")));
-        addIntro(spacer(8));
-        addIntro(introSection(Messages.text("intro.profiles.heading"),
-                Messages.text("intro.profiles.body")));
-        addIntro(spacer(8));
-        addIntro(introSection(Messages.text("intro.improve.heading"),
-                Messages.text("intro.improve.body")));
-        addIntro(introText(Messages.text("intro.improve.instructions")));
-        addIntro(introText(Messages.text("intro.interface")));
-        addIntro(introText(Messages.text("intro.closing")));
-        addIntro(spacer(8));
-        addIntro(introText(Messages.text("intro.signature")));
-        addIntro(spacer(8));
-        addIntro(introSection(Messages.text("intro.support.heading"),
-                Messages.text("intro.support.body")));
-        addIntro(introText(Messages.text("intro.support.thanks")));
-        addIntro(spacer(8));
-        addIntro(introText(Messages.text("intro.credits.heading")));
-        addIntro(link(Messages.text("intro.credit.custom_actions", KeybinderMod.ORIGINAL_PROJECT),
-                controller::openOriginalProject));
-        addIntro(link(Messages.text("intro.credit.munsta", KeybinderMod.MUNSTA_IMPROVE_PROJECT),
-                controller::openMunstaImproveProject));
-        addIntro(link(Messages.text("intro.credit.inniria", KeybinderMod.INNIRIA_IMPROVE_PROJECT),
-                controller::openInniriaImproveProject));
-        addIntro(link(Messages.text("intro.credit.snidor", KeybinderMod.IMPROVE_PROJECT),
-                controller::openImproveProject));
-        addIntro(introText(Messages.text("intro.license")));
-        addIntro(spacer(8));
-
-        boolean legacy = controller.isLegacyActionInstalled();
-        if (legacy) {
-            addIntro(introText(
-                    Messages.text("intro.legacy.found")));
-        }
-        introPrimary = new WButton(legacy
-                ? Messages.text("intro.import_exit") : Messages.text("intro.start"), this);
-        addIntro(centeredButton(introPrimary));
-        WurmArrayPanel<FlexComponent> languageRow = new WurmArrayPanel<>(
-                "keybinder.intro.language", WurmArrayPanel.DIR_HORIZONTAL);
-        languageRow.componentWidthOffset = 8;
-        languageRow.addComponent(new WurmLabel(Messages.text("language.label")));
-        Language current = Language.fromCode(controller.getLanguage());
-        introLanguage = new WurmDropDown(
-                "keybinder.intro.language.value", current.ordinal(), Language.displayNames());
-        previousIntroLanguage = current.ordinal();
-        languageRow.addComponent(introLanguage);
-        addIntro(languageRow);
-        introSkip = new WCheckBox(Messages.text("intro.skip"));
-        introSkip.checked = controller.isSkipIntro();
-        previousIntroSkip = introSkip.checked;
-        addIntro(introSkip);
-        addIntro(introText("Keybinder " + KeybinderMod.VERSION));
-        return introContent;
-    }
-
-    private void addIntro(FlexComponent component) {
-        introContent.addComponent(component);
-        introFullWidth.add(component);
-    }
-
     public boolean isEditorOpen() { return mode == Mode.EDITOR; }
 
     public void relocalize() {
         if (mode == Mode.EDITOR) return;
-        if (mode == Mode.INTRO) showIntro();
-        else {
-            setTitle(Messages.text("window.title"));
-            addButton.setLabel(Messages.text("list.add"));
-            importButton.setLabel(Messages.text("list.import"));
-            importFileButton.setLabel(Messages.text("list.import_file"));
-            exportAllButton.setLabel(Messages.text("list.export_all"));
-            rebuildListTop();
-            refresh();
-            if (width < minimumWidth) setSize(minimumWidth, height);
-        }
+        setTitle(Messages.text("window.title"));
+        addButton.setLabel(Messages.text("list.add"));
+        importButton.setLabel(Messages.text("list.import"));
+        importFileButton.setLabel(Messages.text("list.import_file"));
+        exportAllButton.setLabel(Messages.text("list.export_all"));
+        restoreButton.setLabel(Messages.text("list.restore_originals"));
+        instructionButton.setLabel(Messages.text("help.read"));
+        previousLanguage = Language.fromCode(controller.getLanguage()).ordinal();
+        languageSelector = new KeybinderUiDropDown("keybinder.header.language", previousLanguage, Language.displayNames());
+        languageSelector.parent = this;
+        rebuildListTop();
+        refresh();
+        if (width < minimumWidth) setSize(minimumWidth, height);
     }
 
     private void rebuildListTop() {
         listTop.removeAllComponents();
-        listTop.addComponent(new WurmLabel(Messages.text("list.heading")));
+        listTop.addComponent(instructionButton);
+        listTop.addComponent(spacer(5));
+        listTop.addComponent(new KeybinderUiLabel(Messages.text("list.heading")));
         WurmArrayPanel<FlexComponent> runtimeControls =
-                new WurmArrayPanel<>("keybinder.list.runtime", WurmArrayPanel.DIR_HORIZONTAL);
+                new KeybinderUiArrayPanel<>("keybinder.list.runtime", WurmArrayPanel.DIR_HORIZONTAL);
         runtimeControls.componentWidthOffset = COLUMN_GAP;
         displayedQueueLimit = controller.getQueueLimit();
-        runtimeControls.addComponent(new WurmLabel(
+        runtimeControls.addComponent(new KeybinderUiLabel(
                 Messages.text("list.queue_limit", displayedQueueLimit)));
-        runtimeControls.addComponent(new WurmLabel(
+        runtimeControls.addComponent(new KeybinderUiLabel(
                 Messages.text("queue.monitor.side.label")));
         QueueMonitorSide selectedSide = controller.getQueueMonitorSide();
-        queueMonitorSide = new WurmDropDown("keybinder.queue.monitor.side",
+        queueMonitorSide = new KeybinderUiDropDown("keybinder.queue.monitor.side",
                 selectedSide.ordinal(), new String[]{
                 Messages.text("queue.monitor.side.right"),
                 Messages.text("queue.monitor.side.left")});
         previousQueueMonitorSide = selectedSide.ordinal();
         runtimeControls.addComponent(queueMonitorSide);
         listTop.addComponent(runtimeControls);
-        listTop.addComponent(new WurmLabel(Messages.text("list.instructions")));
-        listTop.addComponent(new WurmLabel(Messages.text("list.instructions.merge")));
         listTop.addComponent(spacer(5));
         listTop.addComponent(filterControls);
         listTop.addComponent(spacer(5));
         WurmArrayPanel<FlexComponent> migrationControls =
-                new WurmArrayPanel<>("keybinder.list.migration", WurmArrayPanel.DIR_HORIZONTAL);
+                new KeybinderUiArrayPanel<>("keybinder.list.migration", WurmArrayPanel.DIR_HORIZONTAL);
         migrationControls.componentWidthOffset = COLUMN_GAP;
+        migrationControls.addComponent(addButton);
         migrationControls.addComponent(importButton);
         migrationControls.addComponent(importFileButton);
         migrationControls.addComponent(exportAllButton);
@@ -314,41 +209,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         listTop.componentResized();
     }
 
-    private static FlexComponent centeredButton(WButton button) {
-        int rowHeight = Math.max(18, button.height);
-        int buttonWidth = Math.min(INTRO_MIN_WIDTH,
-                Math.max(INTRO_BUTTON_WIDTH, button.width + 12));
-        int sideWidth = Math.max(0, (INTRO_MIN_WIDTH - buttonWidth) / 2);
-        WurmArrayPanel<FlexComponent> row = new WurmArrayPanel<>(
-                "keybinder.intro.primary.row", WurmArrayPanel.DIR_HORIZONTAL,
-                INTRO_MIN_WIDTH, rowHeight);
-        WurmLabel left = new WurmLabel("");
-        left.setSize(sideWidth, rowHeight);
-        button.setSize(buttonWidth, rowHeight);
-        WurmLabel right = new WurmLabel("");
-        right.setSize(sideWidth, rowHeight);
-        row.addComponent(left);
-        row.addComponent(button);
-        row.addComponent(right);
-        return row;
-    }
-
     private static FlexComponent spacer(int height) {
-        WurmLabel spacer = new WurmLabel("");
+        WurmLabel spacer = new KeybinderUiLabel("");
         spacer.setSize(1, height);
         return spacer;
-    }
-
-    private FlexComponent link(String text, Runnable action) {
-        return new IntroText(text, action);
-    }
-
-    private static FlexComponent introText(String text) {
-        return new IntroText(text, null);
-    }
-
-    private static FlexComponent introSection(String heading, String text) {
-        return new IntroText(heading + "  " + text, null);
     }
 
     public void refresh() {
@@ -374,32 +238,32 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         requiredEditWidth = localizedButtonColumnWidth("common.edit", EDIT_MIN_WIDTH);
         requiredDuplicateWidth = localizedButtonColumnWidth("common.duplicate", DUPLICATE_MIN_WIDTH);
         table.addComponent(header());
-        for (KeybindRecord record : filteredRecords()) table.addComponent(row(record));
-        WurmArrayPanel<FlexComponent> addRow =
-                new WurmArrayPanel<>("keybinder.add.row", WurmArrayPanel.DIR_HORIZONTAL);
-        addRow.addComponent(addButton);
-        table.addComponent(addRow);
+        for (KeybindRecord record : filteredRecords()) {
+            table.addComponent(row(record));
+            table.addComponent(spacer(2));
+        }
         minimumWidth = WINDOW_CHROME + CONTROLS_WIDTH + CHECK_WIDTH
                 + requiredEditWidth + requiredDuplicateWidth
                 + requiredNameWidth + requiredKeyWidth + requiredUserWidth + requiredServerWidth
                 + COLUMN_GAP * 7;
         minimumWidth = Math.max(Math.max(360, minimumWidth),
-                WINDOW_CHROME + requiredFilterWidth);
+                WINDOW_CHROME + Math.max(requiredFilterWidth, LocalizedLayout.horizontalRowWidth(COLUMN_GAP,
+                        addButton.width, importButton.width, importFileButton.width, exportAllButton.width, restoreButton.width)));
         lastLayoutWidth = -1;
         table.componentResized();
         applyTableLayout();
     }
 
     private FlexComponent header() {
-        return createTableRow("keybinder.header", new WurmLabel(""),
-                new WurmLabel(Messages.text("list.on")),
-                new WurmLabel(Messages.text("list.name")), new WurmLabel(Messages.text("list.key")),
-                new WurmLabel(Messages.text("list.user")), new WurmLabel(Messages.text("list.server")),
-                new WurmLabel(""), new WurmLabel(""));
+        return createTableRow("keybinder.header", KeybinderUiLabel.header(""),
+                KeybinderUiLabel.header(Messages.text("list.on")),
+                KeybinderUiLabel.header(Messages.text("list.name")), KeybinderUiLabel.header(Messages.text("list.key")),
+                KeybinderUiLabel.header(Messages.text("list.user")), KeybinderUiLabel.header(Messages.text("list.server")),
+                KeybinderUiLabel.header(""), KeybinderUiLabel.header(""));
     }
 
     private FlexComponent row(KeybindRecord record) {
-        WCheckBox enabled = new WCheckBox("");
+        KeybinderUiCheckBox enabled = new KeybinderUiCheckBox("");
         enabled.checked = record.isEnabled();
         checkboxIds.put(enabled, record.getId());
         checkboxStates.put(enabled, record.isEnabled());
@@ -412,16 +276,16 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         WurmLabel createdOn = new SelectableLabel(
                 KeybindListViewModel.displayOrigin(record.getCreatedOnServer()), record.getId());
 
-        WButton edit = new WButton(Messages.text("common.edit"), this);
+        WButton edit = new KeybinderUiButton(Messages.text("common.edit"), this);
         edit.setHoverString(Messages.text("keybind.edit.tip"));
         editIds.put(edit, record.getId());
 
-        WButton duplicate = new WButton(Messages.text("common.duplicate"), this);
+        WButton duplicate = new KeybinderUiButton(Messages.text("common.duplicate"), this);
         duplicate.setHoverString(Messages.text("keybind.duplicate.tip"));
         duplicateIds.put(duplicate, record.getId());
 
         WurmArrayPanel<FlexComponent> controls =
-                new WurmArrayPanel<>("keybinder.controls." + record.getId(), WurmArrayPanel.DIR_HORIZONTAL);
+                new KeybinderUiArrayPanel<>("keybinder.controls." + record.getId(), WurmArrayPanel.DIR_HORIZONTAL);
         controls.componentWidthOffset = 1;
         controls.addComponent(rowButton(KeybinderGlyphButton.Kind.PLUS_BOX,
                 RowAction.ADD_AFTER, record.getId()));
@@ -453,9 +317,8 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         WButton button = new KeybinderGlyphButton(kind, this, tooltip);
         rowActions.put(button, new RowAction(action, recordId));
         if (action == RowAction.REMOVE) {
-            button.setConfirm(true);
-            button.setConfirmQuestion(Messages.text("keybind.delete.question"));
-            button.setConfirmMessage(Messages.text("keybind.delete.this"));
+            KeybinderUi.confirm(button, Messages.text("keybind.delete.question"),
+                    Messages.text("keybind.delete.this"));
         }
         return button;
     }
@@ -515,18 +378,18 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         userFilterValues = users.getValues();
         serverFilterOptions = servers.getLabels();
         serverFilterValues = servers.getValues();
-        userFilter = new WurmDropDown("keybinder.filter.user",
+        userFilter = new KeybinderUiDropDown("keybinder.filter.user",
                 optionFor(userFilterValues, selectedUser), userFilterOptions);
-        serverFilter = new WurmDropDown("keybinder.filter.server",
+        serverFilter = new KeybinderUiDropDown("keybinder.filter.server",
                 optionFor(serverFilterValues, selectedServer), serverFilterOptions);
         lastUserFilterValue = userFilter.getValue();
         lastServerFilterValue = serverFilter.getValue();
-        enableFiltered = new WButton(Messages.text("list.enable_filtered"), this);
-        disableFiltered = new WButton(Messages.text("list.disable_filtered"), this);
+        enableFiltered = new KeybinderUiButton(Messages.text("list.enable_filtered"), this);
+        disableFiltered = new KeybinderUiButton(Messages.text("list.disable_filtered"), this);
         enableFiltered.setHoverString(Messages.text("list.enable_filtered.tip"));
         disableFiltered.setHoverString(Messages.text("list.disable_filtered.tip"));
-        WurmLabel userLabel = new WurmLabel(Messages.text("common.user"));
-        WurmLabel serverLabel = new WurmLabel(Messages.text("common.server"));
+        WurmLabel userLabel = new KeybinderUiLabel(Messages.text("common.user"));
+        WurmLabel serverLabel = new KeybinderUiLabel(Messages.text("common.server"));
         // WurmArrayPanel's runtime width is mutable and may retain a prior
         // layout width after its children are rebuilt. Never feed that width
         // back into the window minimum or every refresh can grow the window.
@@ -556,7 +419,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         return 0;
     }
 
-    private static String selectedOption(String[] options, WurmDropDown dropdown, String fallback) {
+    private static String selectedOption(String[] options, KeybinderUiDropDown dropdown, String fallback) {
         if (dropdown == null || options == null) return fallback;
         int value = dropdown.getValue();
         return value >= 0 && value < options.length ? options[value] : fallback;
@@ -571,18 +434,11 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
     @Override
     public void gameTick() {
         super.gameTick();
-        if (mode == Mode.INTRO) {
-            if (introSkip != null && introSkip.checked != previousIntroSkip) {
-                previousIntroSkip = introSkip.checked;
-                controller.setSkipIntro(introSkip.checked);
-            }
-            if (introLanguage != null && introLanguage.getValue() != previousIntroLanguage) {
-                previousIntroLanguage = introLanguage.getValue();
-                Language[] languages = Language.values();
-                if (previousIntroLanguage >= 0 && previousIntroLanguage < languages.length)
-                    controller.setLanguage(languages[previousIntroLanguage].getCode());
-                return;
-            }
+        if (languageSelector.getValue() != previousLanguage) {
+            previousLanguage = languageSelector.getValue();
+            Language[] languages = Language.values();
+            if (previousLanguage >= 0 && previousLanguage < languages.length)
+                controller.setLanguage(languages[previousLanguage].getCode());
             return;
         }
         if (mode == Mode.EDITOR) {
@@ -615,7 +471,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
             return;
         }
         List<CheckboxChange> changes = new ArrayList<>();
-        for (Map.Entry<WCheckBox, String> entry : new ArrayList<>(checkboxIds.entrySet())) {
+        for (Map.Entry<KeybinderUiCheckBox, String> entry : new ArrayList<>(checkboxIds.entrySet())) {
             boolean current = entry.getKey().checked;
             Boolean previous = checkboxStates.get(entry.getKey());
             if (previous != null && previous != current) {
@@ -630,31 +486,10 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
     @Override
     void setSize(int requestedWidth, int requestedHeight) {
-        if (mode == Mode.INTRO) {
-            super.setSize(INTRO_MIN_WIDTH, introFixedHeight);
-            return;
-        }
         // WWindow's resize grip otherwise accepts widths down to 64 and the old
         // gameTick correction fought the active mouse drag, causing flicker.
         super.setSize(Math.max(requestedWidth, minimumWidth),
                 Math.max(requestedHeight, minimumHeight));
-    }
-
-    private void layoutIntroContent(int windowWidth) {
-        if (introContent == null) return;
-        int contentWidth = Math.max(300, windowWidth - INTRO_HORIZONTAL_CHROME);
-        for (FlexComponent component : introFullWidth) {
-            if (component == introBanner) {
-                component.setSize(contentWidth,
-                        KeybinderIntroLayout.bannerHeight(contentWidth));
-            } else if (component instanceof IntroText) {
-                ((IntroText) component).layout(contentWidth);
-            } else {
-                component.setSize(contentWidth, component.height);
-            }
-        }
-        introContent.setSize(contentWidth, introContent.calcHeight());
-        introContent.componentResized();
     }
 
     private void applyTableLayout() {
@@ -686,10 +521,11 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
     static int localizedButtonColumnWidth(String messageKey, int minimum) {
         return LocalizedLayout.controlWidth(
-                Messages.text(messageKey), minimum, 18, text -> new WurmLabel(text).width);
+                Messages.text(messageKey), minimum, 18, text -> new KeybinderUiLabel(text).width);
     }
 
-    private final class SelectableRow extends WurmArrayPanel<FlexComponent> {
+    private final class SelectableRow extends KeybinderUiArrayPanel<FlexComponent> {
+        private final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
         private final String recordId;
         private final boolean statusError;
         private final boolean queueWarning;
@@ -717,6 +553,9 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
         @Override
         protected void renderComponent(Queue queue, float alpha) {
+            if (KeybinderUi.id(this).equals("keybinder.header"))
+                org.chamomilo.wurm.ui.v1.UiPainter.background(canvas.begin(queue),
+                        org.chamomilo.wurm.ui.v1.UiBackground.LEATHER, 1f, x, y, width, height);
             if (statusError)
                 fillRect(queue, 0.48f, 0.08f, 0.06f, 0.62f, x, y, width, height);
             else if (queueWarning)
@@ -725,7 +564,9 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
                 fillRect(queue, 0.20f, 0.42f, 0.22f, 1.0f, x, y, width, height);
             if (recordId != null && recordId.equals(selectedRowId))
                 fillRect(queue, 0.20f, 0.34f, 0.50f, 0.55f, x, y, width, height);
-            super.renderComponent(queue, alpha);
+            super.renderComponent(queue, 1.0f);
+            if (KeybinderUi.id(this).equals("keybinder.header"))
+                org.chamomilo.wurm.ui.v1.UiPainter.frame(canvas, 3, 1f, x, y, width, height);
             if (recordId != null && recordId.equals(dragMergeDestinationId))
                 KeybinderDragIndicator.paintMerge(this, queue,
                         x, y, width, height, dragMergeOverLimit);
@@ -758,7 +599,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         }
     }
 
-    private class SelectableLabel extends WurmLabel {
+    private class SelectableLabel extends KeybinderUiLabel {
         private final String recordId;
 
         private SelectableLabel(String text, String recordId) {
@@ -815,7 +656,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
         @Override
         protected void renderComponent(Queue queue, float ignoredAlpha) {
             int drawX = x + 4;
-            int baseline = y + text.getHeight() + 1;
+            int baseline = y + (height - text.getHeight()) / 2 + text.getAscent();
             if (hudMode)
                 drawX += paintSegment(queue, KeybindNamePrefixes.HUD, drawX, baseline,
                         HUD_RED, HUD_GREEN, HUD_BLUE);
@@ -827,6 +668,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
         private int paintSegment(Queue queue, String value, int drawX, int baseline,
                                  float red, float green, float blue) {
+            value = KeybinderUi.fit(text, value, Math.max(0, x + width - 4 - drawX));
             text.moveTo(drawX, baseline);
             return text.paint(queue, value, red, green, blue, 1.0f);
         }
@@ -880,11 +722,7 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
     @Override
     public void buttonClicked(WButton button) {
-        if (button == introPrimary) {
-            controller.setSkipIntro(introSkip != null && introSkip.checked);
-            if (controller.isLegacyActionInstalled()) controller.importDisableAndRestart();
-            else controller.startFromIntro();
-        }
+        if (button == instructionButton) KeybinderInstructionWindow.open(false);
         else if (button == enableFiltered)
             controller.setKeybindsEnabled(filteredIds(), true);
         else if (button == disableFiltered)
@@ -997,90 +835,27 @@ public final class KeybinderWindow extends WWindow implements ButtonListener {
 
     @Override
     protected void closePressed() {
-        if (mode == Mode.INTRO) {
-            controller.setSkipIntro(introSkip != null && introSkip.checked);
-        }
         controller.windowClosed();
     }
 
-    private enum Mode { INTRO, LIST, EDITOR }
+    private enum Mode { LIST, EDITOR }
 
-    private static final class IntroText extends FlexComponent {
-        private static final int HORIZONTAL_MARGIN = 24;
-        private static final int LINE_HEIGHT = 16;
-        private final String label;
-        private final Runnable action;
-        private final List<String> lines = new ArrayList<>();
-
-        private IntroText(String text, Runnable action) {
-            super("keybinder.intro.text");
-            this.label = text == null ? "" : text;
-            this.action = action;
-            lines.add(this.label);
-            setSize(Math.max(1, this.text.getWidth(this.label) + HORIZONTAL_MARGIN * 2),
-                    LINE_HEIGHT);
-        }
-
-        private void layout(int availableWidth) {
-            int lineWidth = Math.max(1, availableWidth - HORIZONTAL_MARGIN * 2);
-            lines.clear();
-            if (label.isEmpty()) {
-                lines.add("");
-            } else {
-                StringBuilder current = new StringBuilder();
-                for (String word : label.split("\\s+")) {
-                    String candidate = current.length() == 0
-                            ? word : current.toString() + " " + word;
-                    if (current.length() > 0 && text.getWidth(candidate) > lineWidth) {
-                        lines.add(current.toString());
-                        current.setLength(0);
-                        current.append(word);
-                    } else {
-                        current.setLength(0);
-                        current.append(candidate);
-                    }
-                }
-                if (current.length() > 0) lines.add(current.toString());
-            }
-            setSize(availableWidth, Math.max(LINE_HEIGHT, lines.size() * LINE_HEIGHT));
-        }
-
-        @Override
-        protected void renderComponent(Queue queue, float ignoredAlpha) {
-            int baselineOffset = Math.max(text.getAscent(),
-                    (LINE_HEIGHT + text.getAscent()) / 2 - 1);
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
-                text.moveTo(x + HORIZONTAL_MARGIN,
-                        y + baselineOffset + i * LINE_HEIGHT);
-                text.paint(queue, line, 1.0f, 1.0f, 1.0f, 1.0f);
-            }
-        }
-
-        @Override
-        void leftPressed(int mouseX, int mouseY, int clickCount) {
-            if (action != null) action.run();
-        }
+    @Override public FlexComponent getComponentAt(int mx, int my) {
+        positionLanguageSelector();
+        if (languageSelector != null && languageSelector.contains(mx, my)) return languageSelector;
+        return super.getComponentAt(mx, my);
     }
 
-    private static final class IntroBanner extends FlexComponent {
-        private final ResourceTexture texture = KeybinderTextureFactory.load("intro-banner.png");
+    private void positionLanguageSelector() {
+        WButton maximize = KeybinderUi.maximizeControl(this);
+        if (languageSelector != null && maximize != null)
+            languageSelector.setPosition(maximize.x - 28 - 8 - languageSelector.width,
+                    maximize.y + (maximize.height - languageSelector.height) / 2);
+    }
 
-        private IntroBanner() {
-            super("keybinder.intro.banner");
-        }
-
-        private void layout(int availableWidth) {
-            setSize(availableWidth, KeybinderIntroLayout.bannerHeight(availableWidth));
-        }
-
-        @Override
-        protected void renderComponent(Queue queue, float ignoredAlpha) {
-            // Wurm's drawTexture uses a fixed 0..256 UV space. The bundled
-            // banner is power-of-two RGBA; draw the complete texture directly
-            // into the full-width component, as in the proven 0.5.0 layout.
-            drawTexture(queue, texture, 1f, 1f, 1f, 1f,
-                    x, y, width, height, 0, 0, 256, 256);
-        }
+    @Override protected void renderComponent(Queue queue, float ignoredAlpha) {
+        super.renderComponent(queue, 1f);
+        positionLanguageSelector();
+        if (languageSelector != null) languageSelector.render(queue, 1f);
     }
 }

@@ -19,6 +19,7 @@ public final class KeybinderTagWindow extends StaticComponent implements WindowS
     private final TagController controller;
     private final DragController dragger;
     private final ResourceTexture texture = KeybinderTextureFactory.load("kb-tag.png");
+    private final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
     private int pressX;
     private int pressY;
     private boolean pressed;
@@ -38,13 +39,11 @@ public final class KeybinderTagWindow extends StaticComponent implements WindowS
 
     @Override
     protected void renderComponent(Queue queue, float ignoredAlpha) {
-        // TargetClassicRenderer uses a black outer line and a muted GUI-colour
-        // inner line. Keep that native target-window silhouette around the art.
-        fillRect(queue, 0.0f, 0.0f, 0.0f, 1.0f, x, y, TAG_SIZE, TAG_SIZE);
-        fillRect(queue, 0.26f, 0.23f, 0.18f, 1.0f,
-                x + 1, y + 1, TAG_SIZE - 2, TAG_SIZE - 2);
+        org.chamomilo.wurm.ui.v1.UiPainter.background(canvas.begin(queue),
+                org.chamomilo.wurm.ui.v1.UiBackground.WALNUT, 1f, x, y, TAG_SIZE, TAG_SIZE);
         drawTexture(queue, texture, 1f, 1f, 1f, 1f,
                 x + 3, y + 3, IMAGE_SIZE, IMAGE_SIZE, 0, 0, 256, 256);
+        org.chamomilo.wurm.ui.v1.UiPainter.frame(canvas, 3, 1f, x, y, TAG_SIZE, TAG_SIZE);
     }
 
     @Override

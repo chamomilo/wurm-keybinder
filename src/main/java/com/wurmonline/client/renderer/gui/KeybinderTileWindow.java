@@ -3,11 +3,9 @@ package com.wurmonline.client.renderer.gui;
 import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import com.wurmonline.client.renderer.backend.Queue;
-import com.wurmonline.client.resources.textures.KeybinderTextureFactory;
-import com.wurmonline.client.resources.textures.ResourceTexture;
 import org.keybinder.wurm.i18n.Messages;
 
-public final class KeybinderTileWindow extends WWindow implements ButtonListener {
+public final class KeybinderTileWindow extends KeybinderUiWindow implements ButtonListener {
     private static final int SELECTOR_SIZE = 300;
     private static final String[] TARGETS = {
             "tile_nw", "tile_n", "tile_ne", "tile_w", "tile",
@@ -23,7 +21,7 @@ public final class KeybinderTileWindow extends WWindow implements ButtonListener
 
         TileSelector selector = new TileSelector();
         selector.setSize(SELECTOR_SIZE, SELECTOR_SIZE);
-        area = new WButton(Messages.text("tile.area"), this);
+        area = new KeybinderUiButton(Messages.text("tile.area"), this);
         area.setHoverString(Messages.text("tile.area.tip"));
         area.setSize(SELECTOR_SIZE, area.height);
 
@@ -50,59 +48,39 @@ public final class KeybinderTileWindow extends WWindow implements ButtonListener
     @Override protected void closePressed() { KeybinderMod.deferUi(() -> hud.hideComponent(this)); }
 
     private final class TileSelector extends FlexComponent {
-        private final ResourceTexture texture =
-                KeybinderTextureFactory.load("tile-selector.png");
-        private int hovered = -1;
+        private final KeybinderUiButton[] cells = new KeybinderUiButton[9];
 
         private TileSelector() {
-            super("keybinder.tiles.image");
-        }
-
-        @Override
-        protected void renderComponent(Queue queue, float alpha) {
-            // WurmComponent UV coordinates use a fixed 0..256 range regardless
-            // of the source image's pixel dimensions.
-            drawTexture(queue, texture, 1f, 1f, 1f, 1f,
-                    x, y, width, height, 0, 0, 256, 256);
-            if (hovered >= 0) {
-                int column = hovered % 3;
-                int row = hovered / 3;
-                int left = x + column * width / 3;
-                int top = y + row * height / 3;
-                int right = x + (column + 1) * width / 3;
-                int bottom = y + (row + 1) * height / 3;
-                fillRect(queue, 0.82f, 0.67f, 0.30f, 0.22f,
-                        left, top, right - left, bottom - top);
+            super("keybinder.tiles.grid");
+            KeybinderUi.identify(this, "keybinder.tiles.grid");
+            String[] captions = {"NW", "N", "NE", "W", "C", "E", "SW", "S", "SE"};
+            for (int index = 0; index < cells.length; index++) {
+                final int target = index;
+                cells[index] = new KeybinderUiButton(captions[index], new ButtonListener() {
+                    @Override public void buttonPressed(WButton button) {}
+                    @Override public void buttonClicked(WButton button) { select(TARGETS[target]); }
+                });
+                cells[index].captionCeiling(32);
+                cells[index].parent = this;
             }
         }
 
         @Override
-        void mouseMoved(int mouseX, int mouseY) {
-            hovered = cellAt(mouseX, mouseY);
+        protected void renderComponent(Queue queue, float alpha) {
+            for (KeybinderUiButton cell : cells) cell.render(queue, 1f);
         }
-
-        @Override
-        void mouseExited() {
-            hovered = -1;
+        @Override void componentResized() {
+            if (cells == null || cells[0] == null) return;
+            for (int index = 0; index < cells.length; index++) {
+                int column = index % 3, row = index / 3;
+                cells[index].setSize(Math.max(32, width / 3 - 4), Math.max(32, height / 3 - 4));
+                cells[index].setPosition(x + column * width / 3 + 2, y + row * height / 3 + 2);
+            }
+            KeybinderUiButton.fitGroup("keybinder.tiles.directions", java.util.Arrays.asList(cells));
         }
-
-        @Override
-        int getMouseCursor(int mouseX, int mouseY) {
-            return cellAt(mouseX, mouseY) < 0 ? MOUSE_CURSOR_NORMAL : MOUSE_CURSOR_HAND;
-        }
-
-        @Override
-        void leftPressed(int mouseX, int mouseY, int clickCount) {
-            int cell = cellAt(mouseX, mouseY);
-            if (cell >= 0) select(TARGETS[cell]);
-        }
-
-        private int cellAt(int mouseX, int mouseY) {
-            if (mouseX < x || mouseY < y || mouseX >= x + width || mouseY >= y + height)
-                return -1;
-            int column = Math.min(2, (mouseX - x) * 3 / width);
-            int row = Math.min(2, (mouseY - y) * 3 / height);
-            return row * 3 + column;
+        @Override public FlexComponent getComponentAt(int mx, int my) {
+            for (KeybinderUiButton cell : cells) if (cell.contains(mx, my)) return cell;
+            return contains(mx, my) ? this : null;
         }
     }
 }

@@ -1,6 +1,7 @@
 package org.keybinder.wurm;
 
 import com.wurmonline.client.console.WurmConsole;
+import com.wurmonline.client.console.KeyBinding;
 import com.wurmonline.client.WurmClientBase;
 import com.wurmonline.client.game.PlayerObj;
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
@@ -59,6 +60,7 @@ import org.keybinder.wurm.i18n.LanguageChangePolicy;
 import org.keybinder.wurm.i18n.LocalizationSettings;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.i18n.ExistingWindowRelocalizer;
+import org.keybinder.wurm.catalog.ModCommandCatalogRegistry;
 import org.keybinder.wurm.migration.CustomActionsMigrationService;
 import org.keybinder.wurm.migration.ImprovedImproveMigrationService;
 import org.keybinder.wurm.model.ActionStep;
@@ -119,7 +121,7 @@ import java.util.logging.Logger;
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         ModListener,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.10.2";
+    public static final String VERSION = "0.11.1";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -267,7 +269,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 }
             };
     private Properties properties = new Properties();
-    private volatile boolean skipIntro;
     private volatile boolean centerViewAfterEmbark = true;
     private volatile String language = Language.ENGLISH.getCode();
     private volatile QueueMonitorSide queueMonitorSide = QueueMonitorSide.RIGHT;
@@ -281,7 +282,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     @Override
     public void configure(Properties properties) {
         this.properties = properties == null ? new Properties() : properties;
-        skipIntro = Boolean.parseBoolean(this.properties.getProperty("skipIntroPage", "false"));
         centerViewAfterEmbark = Boolean.parseBoolean(
                 this.properties.getProperty("centerViewAfterEmbark", "true"));
         language = LocalizationSettings.load(this.properties);
@@ -401,6 +401,10 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static boolean handleKeyToggle(WurmConsole console, int key, boolean pressed) {
         return INPUT.handleKeyToggle(console, key, pressed);
+    }
+
+    public static KeyBinding resolveFreeCameraBinding(KeyBinding exact, KeyBinding nativeBinding) {
+        return INPUT.resolveFreeCameraBinding(exact, nativeBinding);
     }
 
     private static void pollLongPress() {
@@ -718,6 +722,11 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             SharedUpdateCoordinator.modInitialized(entry);
         } catch (Throwable failure) {
             LOGGER.log(Level.WARNING, "Unable to collect mod update metadata", failure);
+        }
+        try {
+            ModCommandCatalogRegistry.modInitialized(entry);
+        } catch (Throwable failure) {
+            LOGGER.log(Level.WARNING, "Unable to collect an external command catalog", failure);
         }
     }
 
@@ -1087,6 +1096,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     public static void onHudReady(HeadsUpDisplay newHud) {
         try {
+            com.wurmonline.client.renderer.gui.KeybinderInstructionWindow.closeActive();
             ensureRuntimeServices();
             HeadsUpDisplay previousHud = HUD_SESSIONS.replace(newHud);
             if (previousHud != null) disposeHudSession(previousHud);
@@ -1121,15 +1131,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
                 EVENTS.warning(Messages.text("event.legacy_installed"));
             if (LEGACY_IMPROVE.isInstalled())
                 EVENTS.warning(Messages.text("event.improve_installed"));
-            if (INSTANCE.skipIntro) {
-                window.showKeybinds();
-                showTagInsteadOfWindow();
-            }
-            else {
-                window.showIntro();
-                ACCESS.ensureComponentVisible(newHud, window);
-                ACCESS.setComponentVisible(newHud, tagWindow, false);
-            }
+            window.showKeybinds();
+            showTagInsteadOfWindow();
             if (registry != null) {
                 WurmConsole console = ACCESS.console(newHud);
                 applyAccountBindingsIfReady(newHud);
@@ -1257,6 +1260,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     private static void clearConnectionState() {
+        com.wurmonline.client.renderer.gui.KeybinderInstructionWindow.closeActive();
         try {
             if (registry != null) registry.persistAccountBindings();
             if (KEYBIND_EXECUTOR != null) KEYBIND_EXECUTOR.cancelPending();
@@ -1766,44 +1770,6 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
             EVENTS.error(Messages.text("error.restore_originals"), e);
         }
     }
-    @Override public boolean isLegacyActionInstalled() { return LEGACY_ACTION.isInstalled(); }
-    @Override public void startFromIntro() {
-        deferUi(() -> {
-            try {
-                if (hud != null && window != null) {
-                    window.showKeybinds();
-                    if (pendingLanguage != null) applyLanguage(pendingLanguage);
-                    showTagInsteadOfWindow();
-                }
-            } catch (Exception e) {
-                EVENTS.error(Messages.text("error.open_keybinder"), e);
-            }
-        });
-    }
-    @Override public void importDisableAndRestart() {
-        deferUi(() -> {
-            try {
-                if (hud != null && window != null) {
-                    window.showKeybinds();
-                    showTagInsteadOfWindow();
-                }
-            } catch (Exception e) {
-                EVENTS.error(Messages.text("error.open_keybinder"), e);
-            }
-        });
-        requestImport();
-    }
-    @Override public boolean isSkipIntro() { return skipIntro; }
-    @Override public void setSkipIntro(boolean skip) {
-        if (skipIntro == skip && String.valueOf(skip).equals(properties.getProperty("skipIntroPage"))) return;
-        skipIntro = skip;
-        properties.setProperty("skipIntroPage", String.valueOf(skip));
-        try {
-            MOD_PROPERTIES.save(properties);
-        } catch (Exception e) {
-            EVENTS.error(Messages.text("error.save_intro"), e);
-        }
-    }
     @Override public String getLanguage() { return language; }
     @Override public QueueMonitorSide getQueueMonitorSide() {
         return queueMonitorSide;
@@ -1846,6 +1812,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
 
     private void applyLanguage(String selected) {
+        com.wurmonline.client.renderer.gui.KeybinderInstructionWindow.closeActive();
         final String normalized = Language.fromCode(selected).getCode();
         String previous = language;
         final KeybinderWindow currentWindow = window;
@@ -2214,6 +2181,7 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         }
     }
     @Override public void windowClosed() {
+        com.wurmonline.client.renderer.gui.KeybinderInstructionWindow.closeActive();
         ACTION_CAPTURE.cancel();
         SELECTION.cancel();
         resetExactPress();

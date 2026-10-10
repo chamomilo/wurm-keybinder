@@ -14,7 +14,7 @@ final class KeybinderDragIndicator {
     private static final float BLOCKED_BLUE = 0.12f;
     private static final int LINE_HEIGHT = 2;
     private static final int LABEL_GAP = 6;
-    static final int INSERT_GAP_HEIGHT = 18;
+    static final int INSERT_GAP_HEIGHT = 24;
 
     private KeybinderDragIndicator() { }
 
@@ -61,7 +61,7 @@ final class KeybinderDragIndicator {
     }
 
     static int keybindGapComponentIndex(int insertion) {
-        return 1 + Math.max(0, insertion);
+        return 1 + Math.max(0, insertion) * 2; // Header, then row + 2px spacing.
     }
 
     static int actionGapComponentIndex(int insertion) {
@@ -99,7 +99,7 @@ final class KeybinderDragIndicator {
     private static void paintLineLabel(WurmComponent owner, Queue queue,
                                        int left, int centerY, int width,
                                        String label, boolean blocked) {
-        TextFont font = TextFont.getFixedSizeText();
+        TextFont font = KeybinderUi.body();
         int labelWidth = font.getWidth(label);
         int labelLeft = left + Math.max(0, (width - labelWidth) / 2);
         int labelRight = labelLeft + labelWidth;
@@ -124,7 +124,7 @@ final class KeybinderDragIndicator {
     private static void paintLabel(WurmComponent owner, Queue queue,
                                    int left, int centerY, int width, String label,
                                    float red, float green, float blue) {
-        TextFont font = TextFont.getFixedSizeText();
+        TextFont font = KeybinderUi.body();
         int labelWidth = font.getWidth(label);
         int labelLeft = left + Math.max(0, (width - labelWidth) / 2);
         int textTop = centerY - font.getHeight() / 2;

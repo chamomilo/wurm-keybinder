@@ -4,7 +4,7 @@ import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.ui.LegacyMigrationController;
 import org.keybinder.wurm.i18n.Messages;
 
-public final class KeybinderLegacyWindow extends WWindow implements ButtonListener {
+public final class KeybinderLegacyWindow extends KeybinderUiWindow implements ButtonListener {
     private final LegacyMigrationController controller;
     private final WButton review;
     private final WButton disable;
@@ -14,13 +14,13 @@ public final class KeybinderLegacyWindow extends WWindow implements ButtonListen
         super("keybinder.legacy", false);
         this.controller = controller;
         setTitle(Messages.text("migration.title"));
-        WurmArrayPanel<FlexComponent> root = new WurmArrayPanel<>("keybinder.legacy.root", WurmArrayPanel.DIR_VERTICAL);
-        root.addComponent(new WurmLabel(Messages.text("migration.installed")));
-        root.addComponent(new WurmLabel(Messages.text("migration.replaced")));
-        root.addComponent(new WurmLabel(Messages.text("migration.instructions")));
-        review = new WButton(Messages.text("migration.review"), this);
-        disable = new WButton(Messages.text("migration.disable"), this);
-        later = new WButton(Messages.text("common.later"), this);
+        WurmArrayPanel<FlexComponent> root = new KeybinderUiArrayPanel<>("keybinder.legacy.root", WurmArrayPanel.DIR_VERTICAL);
+        root.addComponent(new KeybinderUiLabel(Messages.text("migration.installed")));
+        root.addComponent(new KeybinderUiLabel(Messages.text("migration.replaced")));
+        root.addComponent(new KeybinderUiLabel(Messages.text("migration.instructions")));
+        review = new KeybinderUiButton(Messages.text("migration.review"), this);
+        disable = new KeybinderUiButton(Messages.text("migration.disable"), this);
+        later = new KeybinderUiButton(Messages.text("common.later"), this);
         root.addComponent(review);
         root.addComponent(disable);
         root.addComponent(later);

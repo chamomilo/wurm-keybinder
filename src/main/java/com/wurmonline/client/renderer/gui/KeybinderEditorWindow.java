@@ -2,10 +2,11 @@ package com.wurmonline.client.renderer.gui;
 
 import com.wurmonline.client.renderer.backend.Queue;
 import org.keybinder.wurm.KeybinderMod;
+import org.keybinder.wurm.catalog.ModCommandCatalog;
+import org.keybinder.wurm.catalog.ModCommandCatalogRegistry;
 import org.keybinder.wurm.catalog.VanillaCatalogStepFactory;
 import org.keybinder.wurm.catalog.VanillaKeybindCatalog;
 import org.keybinder.wurm.catalog.InputKeyCatalog;
-import org.keybinder.wurm.catalog.ThirdPersonViewCommandCatalog;
 import org.keybinder.wurm.command.TargetCodec;
 import org.keybinder.wurm.command.ItemSelectorCodec;
 import org.keybinder.wurm.model.ActionStep;
@@ -47,7 +48,7 @@ import org.keybinder.wurm.i18n.Messages;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class KeybinderEditorWindow extends WWindow implements ButtonListener, InputFieldListener {
+public final class KeybinderEditorWindow extends KeybinderUiWindow implements ButtonListener, KeybinderUiInputListener {
     /*
      * The action-chain row has eight independently sized columns. 560 px was
      * enough to create the controls, but not enough to display Action and
@@ -58,7 +59,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private static final int WINDOW_CHROME = 32;
     private static final int ACTION_NAME_MIN_WIDTH = 145;
     private static final int SOURCE_MIN_WIDTH = 150;
-    private static final int HELP_WIDTH = 22;
+    private static final int HELP_WIDTH = 32;
     private static final int CAPTURE_WIDTH = 24;
     private static final int SEPARATOR_WIDTH = 9;
     private static final int COLUMN_GAP = 8;
@@ -77,8 +78,6 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private static final VanillaKeybindCatalog VANILLA_CATALOG = new VanillaKeybindCatalog();
     private static final VanillaCatalogStepFactory VANILLA_STEPS =
             new VanillaCatalogStepFactory();
-    private static final ThirdPersonViewCommandCatalog THIRD_PERSON_CATALOG =
-            ThirdPersonViewCommandCatalog.detect();
     private static final int BASE_TYPE_COUNT = 6;
     private static final String[] ACTIVATE_TARGET_OPTIONS = {
             "hand", "hover", "toolbelt", "equipment", "exact object"
@@ -95,7 +94,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             "CTRL+SHIFT+ALT"
     };
 
-    private static String[] stepTypeOptions() {
+    private String[] stepTypeOptions() {
         List<VanillaKeybindCatalog.Category> categories = VANILLA_CATALOG.getCategories();
         int vanillaOffset = vanillaTypeOffset();
         String[] options = new String[vanillaOffset + categories.size()];
@@ -105,24 +104,39 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         options[3] = Messages.text("editor.step_type.console");
         options[4] = Messages.text("editor.step_type.custom");
         options[5] = Messages.text("editor.step_type.bulk_transfer");
-        if (THIRD_PERSON_CATALOG.isVisible())
-            options[thirdPersonTypeIndex()] = Messages.text("editor.step_type.vanilla",
-                    ThirdPersonViewCommandCatalog.DISPLAY_NAME);
+        for (int i = 0; i < modCommandCatalogs.size(); i++)
+            options[BASE_TYPE_COUNT + i] = Messages.text("editor.step_type.vanilla",
+                    modCommandCatalogs.get(i).getDisplayName());
         for (int i = 0; i < categories.size(); i++)
             options[vanillaOffset + i] =
                     Messages.text("editor.step_type.vanilla", categories.get(i).getDisplayName());
         return options;
     }
 
-    private static int thirdPersonTypeIndex() { return BASE_TYPE_COUNT; }
-
-    private static int vanillaTypeOffset() {
-        return BASE_TYPE_COUNT + (THIRD_PERSON_CATALOG.isVisible() ? 1 : 0);
+    private int vanillaTypeOffset() {
+        return BASE_TYPE_COUNT + modCommandCatalogs.size();
     }
 
-    static int stepTypeWidth() { return maximumOptionWidth(stepTypeOptions()); }
+    private int modCatalogTypeIndex(ModCommandCatalog catalog) {
+        int index = modCommandCatalogs.indexOf(catalog);
+        return index < 0 ? -1 : BASE_TYPE_COUNT + index;
+    }
 
-    static int[] actionColumnWidths(int contentWidth, int controlsWidth) {
+    private ModCommandCatalog modCatalogForType(int typeIndex) {
+        int index = typeIndex - BASE_TYPE_COUNT;
+        return index < 0 || index >= modCommandCatalogs.size()
+                ? null : modCommandCatalogs.get(index);
+    }
+
+    private ModCommandCatalog modCatalogForCommand(String command) {
+        for (ModCommandCatalog catalog : modCommandCatalogs)
+            if (catalog.find(command) != null) return catalog;
+        return null;
+    }
+
+    int stepTypeWidth() { return maximumOptionWidth(stepTypeOptions()); }
+
+    int[] actionColumnWidths(int contentWidth, int controlsWidth) {
         return EditorRowLayout.columns(contentWidth, controlsWidth, stepTypeWidth(),
                 HELP_WIDTH, CAPTURE_WIDTH, SEPARATOR_WIDTH, COLUMN_GAP,
                 ACTION_NAME_MIN_WIDTH, SOURCE_MIN_WIDTH);
@@ -130,8 +144,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     private final KeybindEditorController controller;
     private final String recordId;
+    private final List<ModCommandCatalog> modCommandCatalogs;
     private final String[] keyOptions;
-    private final WurmInputField nameField;
+    private final KeybinderUiInputField nameField;
     private final WurmArrayPanel<FlexComponent> keySelectors;
     private final WurmArrayPanel<FlexComponent> creationFields;
     private final MetadataValueField createdByValue;
@@ -144,14 +159,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private String createdOnServer;
     private final WurmLabel keyLabel;
     private final WurmLabel modifierLabel;
-    private final WurmDropDown keyDropDown;
-    private final WurmDropDown modifierDropDown;
+    private final KeybinderUiDropDown keyDropDown;
+    private final KeybinderUiDropDown modifierDropDown;
     private final int keySelectorWidth;
     private final int modifierSelectorWidth;
     private final WurmBorderPanel root;
     private final WurmArrayPanel<FlexComponent> top;
+    private final WButton instructions;
     private final WButton addVariant;
-    private final WCheckBox hudMulti;
+    private final KeybinderUiCheckBox hudMulti;
     private final List<VariantZone> zones = new ArrayList<>();
     private String activeVariantId;
     private final WurmArrayPanel<FlexComponent> actions;
@@ -188,6 +204,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         super("keybinder.editor", true);
         this.controller = controller;
         this.recordId = recordId;
+        this.modCommandCatalogs = ModCommandCatalogRegistry.snapshot();
         this.keyOptions = KEY_CATALOG.displayOptions();
         setTitle(Messages.text("window.editor.title"));
         KeybindRecord record = controller.getRecord(recordId);
@@ -195,28 +212,19 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         createdOnServer = record == null ? controller.currentServer() : record.getCreatedOnServer();
 
         root = new WurmBorderPanel("keybinder.editor.root");
-        top = new WurmArrayPanel<>("keybinder.editor.top", WurmArrayPanel.DIR_VERTICAL, true);
+        top = new KeybinderUiArrayPanel<>("keybinder.editor.top", WurmArrayPanel.DIR_VERTICAL, true);
         top.addComponent(verticalSpacer(3));
-        top.addComponent(new WurmLabel(
-                Messages.text("editor.instructions")));
-        top.addComponent(new WurmLabel(
-                Messages.text("editor.action_selection_help")));
-        top.addComponent(new WurmLabel(
-                Messages.text("editor.long_press")));
-        top.addComponent(new WurmLabel(
-                Messages.text("editor.mouse_help")));
-        top.addComponent(new WurmLabel(
-                Messages.text("editor.extract_help")));
+        instructions = new KeybinderUiButton(Messages.text("help.read"), this);
+        top.addComponent(instructions);
         top.addComponent(verticalSpacer(SECTION_GAP));
-        top.addComponent(new WurmLabel(Messages.text("editor.name")));
-        nameField = new WurmInputField("keybinder.editor.name", this);
-        nameField.prompt = "";
+        top.addComponent(new KeybinderUiLabel(Messages.text("editor.name")));
+        nameField = new KeybinderUiInputField("keybinder.editor.name", this);
         nameField.setText(record == null ? Messages.text("editor.new") : record.getName());
         nameField.setMaxInput(KeybindLimits.MAX_RECORD_NAME_LENGTH);
         top.addComponent(nameField);
         top.addComponent(verticalSpacer(SECTION_GAP));
 
-        creationFields = new WurmArrayPanel<>("keybinder.editor.creation", WurmArrayPanel.DIR_HORIZONTAL);
+        creationFields = new KeybinderUiArrayPanel<>("keybinder.editor.creation", WurmArrayPanel.DIR_HORIZONTAL);
         creationFields.componentWidthOffset = COLUMN_GAP;
         createdByValue = new MetadataValueField("keybinder.editor.createdBy", createdByUser);
         createdOnValue = new MetadataValueField("keybinder.editor.createdOn", createdOnServer);
@@ -224,8 +232,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 Messages.text("editor.current_user"));
         refreshCreatedOn = new KeybinderGlyphButton(KeybinderGlyphButton.Kind.REFRESH, this,
                 Messages.text("editor.current_server"));
-        createdByCaption = new WurmLabel(Messages.text("editor.created_user"));
-        createdOnCaption = new WurmLabel(Messages.text("editor.created_server"));
+        createdByCaption = new KeybinderUiLabel(Messages.text("editor.created_user"));
+        createdOnCaption = new KeybinderUiLabel(Messages.text("editor.created_server"));
         creationFields.addComponent(createdByCaption);
         creationFields.addComponent(refreshCreatedBy);
         creationFields.addComponent(createdByValue);
@@ -235,14 +243,14 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         top.addComponent(creationFields);
         top.addComponent(verticalSpacer(SECTION_GAP));
 
-        keySelectors = new WurmArrayPanel<>("keybinder.editor.key", WurmArrayPanel.DIR_HORIZONTAL);
+        keySelectors = new KeybinderUiArrayPanel<>("keybinder.editor.key", WurmArrayPanel.DIR_HORIZONTAL);
         keySelectors.componentWidthOffset = COLUMN_GAP;
-        keyLabel = new WurmLabel(Messages.text("editor.key"));
-        modifierLabel = new WurmLabel(Messages.text("editor.modifier"));
-        keyDropDown = new WurmDropDown("keybinder.editor.key.value",
+        keyLabel = new KeybinderUiLabel(Messages.text("editor.key"));
+        modifierLabel = new KeybinderUiLabel(Messages.text("editor.modifier"));
+        keyDropDown = new KeybinderUiDropDown("keybinder.editor.key.value",
                 optionFor(keyOptions, KEY_CATALOG.displayName(baseKey(
                         record == null ? "" : record.getKey()))), keyOptions);
-        modifierDropDown = new WurmDropDown("keybinder.editor.key.modifier",
+        modifierDropDown = new KeybinderUiDropDown("keybinder.editor.key.modifier",
                 optionFor(MOD_OPTIONS, modifier(record == null ? "" : record.getKey())), MOD_OPTIONS);
         keySelectorWidth = maximumOptionWidth(keyOptions);
         modifierSelectorWidth = maximumOptionWidth(MOD_OPTIONS);
@@ -256,28 +264,27 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         keySelectors.addComponent(modifierDropDown);
         top.addComponent(keySelectors);
         top.addComponent(verticalSpacer(SECTION_GAP));
-        hudMulti = new WCheckBox(Messages.text("editor.hud_action"));
+        hudMulti = new KeybinderUiCheckBox(Messages.text("editor.hud_action"));
         hudMulti.checked = record != null && record.isHudMulti();
         hudMulti.setHoverString(Messages.text("editor.hud_action.tip"));
         top.addComponent(hudMulti);
-        top.addComponent(new WurmLabel(Messages.text("editor.hud_action.help")));
         top.addComponent(verticalSpacer(SECTION_GAP));
-        addVariant = new WButton(Messages.text("editor.add_variant"), this);
+        addVariant = new KeybinderUiButton(Messages.text("editor.add_variant"), this);
 
-        actions = new WurmArrayPanel<>("keybinder.editor.actions", WurmArrayPanel.DIR_VERTICAL, true);
-        done = new WButton(Messages.text("common.done"), this);
-        cancel = new WButton(Messages.text("common.cancel"), this);
-        footer = new WurmArrayPanel<>("keybinder.editor.footer", WurmArrayPanel.DIR_HORIZONTAL);
+        actions = new KeybinderUiArrayPanel<>("keybinder.editor.actions", WurmArrayPanel.DIR_VERTICAL);
+        done = new KeybinderUiButton(Messages.text("common.done"), this);
+        cancel = new KeybinderUiButton(Messages.text("common.cancel"), this);
+        footer = new KeybinderUiArrayPanel<>("keybinder.editor.footer", WurmArrayPanel.DIR_HORIZONTAL);
         footer.componentWidthOffset = COLUMN_GAP;
         footer.addComponent(done);
         footer.addComponent(cancel);
-        footerArea = new WurmArrayPanel<>("keybinder.editor.footer.area",
+        footerArea = new KeybinderUiArrayPanel<>("keybinder.editor.footer.area",
                 WurmArrayPanel.DIR_VERTICAL, true);
         footerArea.addComponent(verticalSpacer(SECTION_GAP));
         footerArea.addComponent(footer);
         footerArea.addComponent(verticalSpacer(3));
         root.setComponent(top, WurmBorderPanel.NORTH);
-        root.setComponent(new WurmScrollPanel("keybinder.editor.scroll", actions, false, true),
+        root.setComponent(new KeybinderUiScrollPanel("keybinder.editor.scroll", actions),
                 WurmBorderPanel.CENTER);
         root.setComponent(footerArea, WurmBorderPanel.SOUTH);
         setComponent(root);
@@ -329,6 +336,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     @Override
     public void buttonClicked(WButton button) {
+        if (button == instructions) { KeybinderInstructionWindow.open(true); return; }
         if (button == done) {
             save();
             return;
@@ -503,7 +511,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     private void updateRowState(ActionRow row) {
         updateStepType(row);
         row.updateActionName();
-        if (row.isThirdPersonCatalog()) return;
+        if (row.isModCatalog()) return;
         if (row.kind() == StepKind.BULK_TRANSFER) {
             updateBulkDestination(row);
             return;
@@ -756,8 +764,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     @Override protected void closePressed() { controller.closeEditor(); }
     @Override public void handleInput(String input) {}
-    @Override public void handleInputChanged(WurmInputField field, String input) {}
-    @Override public void handleEscape(WurmInputField field) {}
+    @Override public void handleInputChanged(KeybinderUiInputField field, String input) {}
+    @Override public void handleEscape(KeybinderUiInputField field) {}
 
     private String selectedKey() {
         String key = KEY_CATALOG.persistedName(keyOptions[keyDropDown.getValue()]);
@@ -781,16 +789,18 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
     }
 
     /**
-     * Read-only field-shaped metadata. Unlike WurmInputField it never accepts
+     * Read-only field-shaped metadata. Unlike KeybinderUiInputField it never accepts
      * focus, selection, cursor placement, mouse events, or tooltip picking.
      */
     private static final class MetadataValueField extends FlexComponent {
         private String value;
+        private final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
 
         private MetadataValueField(String name, String value) {
             super(name);
             this.value = safe(value);
-            setSize(120, 20);
+            KeybinderUi.fonts(this);
+            setSize(120, 32);
         }
 
         private void setValue(String value) {
@@ -799,26 +809,22 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         @Override
         protected void renderComponent(Queue queue, float ignoredAlpha) {
-            drawTexture(queue, panelTexture, r, g, b, 1.0f,
-                    x, y, 8, height, 64, 48, 8, 16);
-            drawTexture(queue, panelTexture, r, g, b, 1.0f,
-                    x + width - 8, y, 8, height, 88, 48, 8, 16);
-            if (width > 16)
-                drawTexTilingH(queue, panelTextureTilingH, r, g, b, 1.0f,
-                        x + 8, y, width - 16, height, 109, 16);
+            org.chamomilo.wurm.ui.v1.UiPainter.background(canvas.begin(queue),
+                    org.chamomilo.wurm.ui.v1.UiBackground.LEATHER, 1f, x, y, width, height);
+            org.chamomilo.wurm.ui.v1.UiPainter.frame(canvas, 3, 1f, x, y, width, height);
             text.moveTo(x + 4, y + Math.max(text.getAscent(), (height + text.getAscent()) / 2 - 1));
-            text.paint(queue, value, 1.0f, 1.0f, 1.0f, 1.0f);
+            text.paint(queue, KeybinderUi.fit(text, value, Math.max(0, width - 8)), 1.0f, 1.0f, 1.0f, 1.0f);
         }
     }
 
     private static FlexComponent verticalSpacer(int height) {
-        FlexComponent spacer = new WurmLabel("");
+        FlexComponent spacer = new KeybinderUiLabel("");
         spacer.setSize(1, height);
         return spacer;
     }
 
     private static WurmLabel horizontalSpacer(int width) {
-        WurmLabel spacer = new WurmLabel("");
+        WurmLabel spacer = new KeybinderUiLabel("");
         spacer.setSize(width, 1);
         return spacer;
     }
@@ -836,7 +842,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     private static int maximumOptionWidth(String[] options) {
         return LocalizedLayout.maximumOptionWidth(
-                options, 30, text -> new WurmLabel(text).width);
+                options, 30, text -> new KeybinderUiLabel(text).width);
     }
 
     private static boolean concreteTarget(String target) {
@@ -966,7 +972,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private final boolean defaultZone;
         private final ZonePanel panel;
         private final WurmArrayPanel<FlexComponent> titleRow =
-                new WurmArrayPanel<>("keybinder.variant.title", WurmArrayPanel.DIR_HORIZONTAL);
+                new KeybinderUiArrayPanel<>("keybinder.variant.title", WurmArrayPanel.DIR_HORIZONTAL);
         private final KeybinderGlyphButton collapse = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.MINUS_BOX, KeybinderEditorWindow.this,
                 Messages.text("editor.variant.collapse"));
@@ -974,15 +980,15 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private final WurmLabel titleToSubNameGap = horizontalSpacer(TITLE_TO_SUBNAME_GAP);
         private final ZoneDragLabel subNameLabel =
                 new ZoneDragLabel(Messages.text("editor.variant.subname"));
-        private final WurmInputField subName =
-                new WurmInputField("keybinder.variant.subname", KeybinderEditorWindow.this);
+        private final KeybinderUiInputField subName =
+                new KeybinderUiInputField("keybinder.variant.subname", KeybinderEditorWindow.this);
         private final KeybinderGlyphButton remove = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.CLOSE_BOX, KeybinderEditorWindow.this,
                 Messages.text("editor.variant.remove"));
         private final KeybinderGlyphButton extract = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.EXTRACT_UP, KeybinderEditorWindow.this,
                 Messages.text("editor.variant.extract"));
-        private final WurmLabel actionLimit = new WurmLabel("");
+        private final WurmLabel actionLimit = new KeybinderUiLabel("");
         private final HeaderRow header;
         private final List<ActionRow> rows = new ArrayList<ActionRow>();
         private final List<WurmArrayPanel<FlexComponent>> indentedRows =
@@ -998,7 +1004,6 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             this.panel = new ZonePanel();
             this.header = new HeaderRow(this);
             titleRow.componentWidthOffset = COLUMN_GAP;
-            subName.prompt = "";
             subName.setMaxInput(KeybindLimits.MAX_VARIANT_NAME_LENGTH);
             subName.setText(variant.getSubName());
             remove.setEnabled(!defaultZone);
@@ -1018,7 +1023,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             String titleText = defaultZone ? Messages.text("editor.variant.default")
                     : Messages.text("editor.variant.number", displayIndex);
             title.setLabel(titleText);
-            WurmLabel titleMeasure = new WurmLabel(titleText);
+            WurmLabel titleMeasure = new KeybinderUiLabel(titleText);
             title.setSize(titleMeasure.width, titleMeasure.height);
             panel.removeAllComponents();
             titleRow.removeAllComponents();
@@ -1080,9 +1085,9 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
         private WurmArrayPanel<FlexComponent> indented(FlexComponent component) {
             WurmArrayPanel<FlexComponent> inset =
-                    new WurmArrayPanel<>("keybinder.variant.inset", WurmArrayPanel.DIR_HORIZONTAL);
+                    new KeybinderUiArrayPanel<>("keybinder.variant.inset", WurmArrayPanel.DIR_HORIZONTAL);
             inset.componentWidthOffset = 0;
-            WurmLabel spacer = new WurmLabel("");
+            WurmLabel spacer = new KeybinderUiLabel("");
             spacer.setSize(ACTION_ROW_INDENT, 1);
             component.setSize(Math.max(1, panel.width - ACTION_ROW_INDENT), component.height);
             inset.addComponent(spacer);
@@ -1122,16 +1127,16 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             return new KeybindVariant(id, subName.getText(), result);
         }
 
-        private final class ZonePanel extends WurmArrayPanel<FlexComponent> {
+        private final class ZonePanel extends KeybinderUiArrayPanel<FlexComponent> {
             private ZonePanel() {
-                super("keybinder.variant.zone", WurmArrayPanel.DIR_VERTICAL, true);
+                super("keybinder.variant.zone", WurmArrayPanel.DIR_VERTICAL);
             }
 
             @Override
             protected void renderComponent(Queue queue, float alpha) {
                 fillRect(queue, defaultZone ? 0.16f : 0.12f, 0.20f, 0.24f,
                         0.78f, x, y, width, height);
-                super.renderComponent(queue, alpha);
+                super.renderComponent(queue, 1.0f);
             }
 
             @Override
@@ -1157,7 +1162,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             }
         }
 
-        private final class ZoneDragLabel extends WurmLabel {
+        private final class ZoneDragLabel extends KeybinderUiLabel {
             private ZoneDragLabel(String text) {
                 super(text);
             }
@@ -1184,17 +1189,17 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
 
     private final class HeaderRow {
         private final WurmArrayPanel<FlexComponent> panel =
-                new WurmArrayPanel<>("keybinder.action.header", WurmArrayPanel.DIR_HORIZONTAL);
-        private final WurmLabel controls = new WurmLabel("");
-        private final VerticalSeparator controlsSeparator = new VerticalSeparator();
-        private final WurmLabel type = new WurmLabel(Messages.text("editor.step_type"));
-        private final WurmLabel help = new WurmLabel("");
-        private final WurmLabel capture = new WurmLabel("");
-        private final WurmLabel source = new WurmLabel(Messages.text("editor.tool"));
-        private final VerticalSeparator sourceSeparator = new VerticalSeparator();
-        private final WurmLabel action = new WurmLabel(Messages.text("editor.action"));
-        private final VerticalSeparator targetSeparator = new VerticalSeparator();
-        private final WurmLabel target = new WurmLabel(Messages.text("editor.target"));
+                new KeybinderUiHeader("keybinder.action.header");
+        private final WurmLabel controls = KeybinderUiLabel.header("");
+        private final FlexComponent controlsSeparator = horizontalSpacer(SEPARATOR_WIDTH);
+        private final WurmLabel type = KeybinderUiLabel.header(Messages.text("editor.step_type"));
+        private final WurmLabel help = KeybinderUiLabel.header("");
+        private final WurmLabel capture = KeybinderUiLabel.header("");
+        private final WurmLabel source = KeybinderUiLabel.header(Messages.text("editor.tool"));
+        private final FlexComponent sourceSeparator = horizontalSpacer(SEPARATOR_WIDTH);
+        private final WurmLabel action = KeybinderUiLabel.header(Messages.text("editor.action"));
+        private final FlexComponent targetSeparator = horizontalSpacer(SEPARATOR_WIDTH);
+        private final WurmLabel target = KeybinderUiLabel.header(Messages.text("editor.target"));
 
         private final VariantZone zone;
 
@@ -1234,7 +1239,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private final VariantZone zone;
         private final SelectableActionPanel panel;
         private final WurmArrayPanel<FlexComponent> controls =
-                new WurmArrayPanel<>("keybinder.action.controls", WurmArrayPanel.DIR_HORIZONTAL);
+                new KeybinderUiArrayPanel<>("keybinder.action.controls", WurmArrayPanel.DIR_HORIZONTAL);
         private final WButton add = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.PLUS_BOX, KeybinderEditorWindow.this,
                 Messages.text("editor.add_step"));
@@ -1242,22 +1247,22 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 KeybinderGlyphButton.Kind.CLOSE_BOX, KeybinderEditorWindow.this,
                 Messages.text("editor.remove_step"));
         private final VerticalSeparator controlsSeparator = new VerticalSeparator();
-        private final WurmDropDown type;
-        private final WButton help = new WButton("?", KeybinderEditorWindow.this);
+        private final KeybinderUiDropDown type;
+        private final WButton help = new KeybinderUiButton("?", KeybinderEditorWindow.this);
         private final WButton capture = new KeybinderGlyphButton(
                 KeybinderGlyphButton.Kind.RECORD_DOT, KeybinderEditorWindow.this,
                 Messages.text("editor.capture_step"));
         private final WurmLabel captureGap = horizontalSpacer(CAPTURE_WIDTH);
-        private final WButton bulkSourceButton = new WButton(
+        private final WButton bulkSourceButton = new KeybinderUiButton(
                 Messages.text("editor.bulk.select_item"), KeybinderEditorWindow.this);
-        private final WurmInputField bulkQuantity = new WurmInputField(
+        private final KeybinderUiInputField bulkQuantity = new KeybinderUiInputField(
                 "keybinder.bulk.quantity", KeybinderEditorWindow.this);
         private final WurmArrayPanel<FlexComponent> bulkQuantityPanel =
-                new WurmArrayPanel<>("keybinder.bulk.quantity.panel",
+                new KeybinderUiArrayPanel<>("keybinder.bulk.quantity.panel",
                         WurmArrayPanel.DIR_HORIZONTAL);
         private final WurmLabel bulkQuantityLabel =
-                new WurmLabel(Messages.text("editor.bulk.quantity"));
-        private WurmDropDown bulkDestination;
+                new KeybinderUiLabel(Messages.text("editor.bulk.quantity"));
+        private KeybinderUiDropDown bulkDestination;
         private int lastBulkDestinationValue;
         private boolean hasCapturedBulkDestination;
         private BulkStorageItem selectedBulkSource;
@@ -1267,23 +1272,23 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         private String actionIdValue = "";
         private short rememberedActionNameId;
         private String rememberedActionName = "";
-        private final WurmInputField command =
-                new WurmInputField("keybinder.command.value", KeybinderEditorWindow.this);
+        private final KeybinderUiInputField command =
+                new KeybinderUiInputField("keybinder.command.value", KeybinderEditorWindow.this);
         private final SelectableActionLabel actionName;
         private final VerticalSeparator sourceSeparator = new VerticalSeparator();
         private final WurmLabel sourceGap = horizontalSpacer(SOURCE_MIN_WIDTH);
         private SelectableSourceDropDown source;
-        private WurmDropDown smartImproveSource;
+        private KeybinderUiDropDown smartImproveSource;
         private SmartImproveSourceMode smartImproveSourceMode =
                 SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
-        private WurmDropDown archeologyIdentifySource;
+        private KeybinderUiDropDown archeologyIdentifySource;
         private ArcheologyIdentifySourceMode archeologyIdentifySourceMode =
                 ArcheologyIdentifySourceMode.TOOLBELT_THEN_INVENTORY;
         private ItemSelector selectedSource;
         private int lastSourceValue;
         private boolean hasConcreteSource;
-        private WurmDropDown thirdPersonAction;
-        private WurmDropDown vanillaAction;
+        private KeybinderUiDropDown modCatalogAction;
+        private KeybinderUiDropDown vanillaAction;
         private final VerticalSeparator targetSeparator = new VerticalSeparator();
         private SelectableTargetDropDown target;
         private int lastDropdownValue;
@@ -1302,17 +1307,17 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             String selectedConsoleCommand = step instanceof ConsoleCommandStep
                     ? ((ConsoleCommandStep) step).getCommand() : null;
             int initialType = EditorStepType.initialIndex(step);
-            if (selectedConsoleCommand != null
-                    && THIRD_PERSON_CATALOG.find(selectedConsoleCommand) != null)
-                initialType = thirdPersonTypeIndex();
+            ModCommandCatalog selectedModCatalog = selectedConsoleCommand == null
+                    ? null : modCatalogForCommand(selectedConsoleCommand);
+            if (selectedModCatalog != null)
+                initialType = modCatalogTypeIndex(selectedModCatalog);
             else if (initialType < 0) initialType = selectedVanillaCommand != null
                         ? vanillaTypeFor(selectedVanillaCommand) : 4;
-            type = new WurmDropDown("keybinder.step.type", initialType, stepTypeOptions());
+            type = new KeybinderUiDropDown("keybinder.step.type", initialType, stepTypeOptions());
             lastTypeValue = initialType;
             controls.componentWidthOffset = 1;
             controls.addComponent(add);
             controls.addComponent(remove);
-            command.prompt = "";
             command.setMaxInput(KeybindLimits.MAX_COMMAND_LENGTH);
             if (step instanceof ActionStep) {
                 actionIdValue = String.valueOf(((ActionStep) step).getActionId());
@@ -1331,7 +1336,6 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             if (step instanceof ConsoleCommandStep)
                 command.setText(((ConsoleCommandStep) step).getCommand());
             else command.setText("");
-            bulkQuantity.prompt = "";
             bulkQuantity.setMaxInput(10);
             bulkQuantity.setText(step instanceof BulkTransferStep
                     ? Integer.toString(((BulkTransferStep) step).getQuantity()) : "1");
@@ -1348,7 +1352,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             }
             refreshBulkSourceLabel();
             createBulkDestination();
-            createThirdPersonAction(selectedConsoleCommand);
+            createModCatalogAction(selectedConsoleCommand);
             createVanillaAction(selectedVanillaCommand);
             selectedTarget = step instanceof ActionStep
                     ? TargetCodec.encode(((ActionStep) step).getTarget())
@@ -1373,9 +1377,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             return vanillaTypeOffset() + Math.max(0, index);
         }
 
-        private boolean isThirdPersonCatalog() {
-            return THIRD_PERSON_CATALOG.isVisible()
-                    && type.getValue() == thirdPersonTypeIndex();
+        private boolean isModCatalog() { return modCatalog() != null; }
+
+        private ModCommandCatalog modCatalog() {
+            return modCatalogForType(type.getValue());
         }
 
         private boolean isVanilla() {
@@ -1399,12 +1404,13 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     ? null : category.getEntries().get(selected);
         }
 
-        private ThirdPersonViewCommandCatalog.Entry thirdPersonEntry() {
-            List<ThirdPersonViewCommandCatalog.Entry> entries =
-                    THIRD_PERSON_CATALOG.getEntries();
-            if (!isThirdPersonCatalog() || entries.isEmpty() || thirdPersonAction == null)
+        private ModCommandCatalog.Entry modCatalogEntry() {
+            ModCommandCatalog catalog = modCatalog();
+            if (catalog == null || catalog.getEntries().isEmpty()
+                    || modCatalogAction == null)
                 return null;
-            int selected = thirdPersonAction.getValue();
+            List<ModCommandCatalog.Entry> entries = catalog.getEntries();
+            int selected = modCatalogAction.getValue();
             return selected < 0 || selected >= entries.size() ? null : entries.get(selected);
         }
 
@@ -1445,30 +1451,30 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             }
         }
 
-        private void createThirdPersonAction(String selectedCommand) {
-            List<ThirdPersonViewCommandCatalog.Entry> entries =
-                    THIRD_PERSON_CATALOG.getEntries();
-            if (entries.isEmpty()) {
-                thirdPersonAction = new WurmDropDown(
-                        "keybinder.third_person.action", 0, new String[]{""});
+        private void createModCatalogAction(String selectedCommand) {
+            ModCommandCatalog catalog = modCatalog();
+            if (catalog == null || catalog.getEntries().isEmpty()) {
+                modCatalogAction = new KeybinderUiDropDown(
+                        "keybinder.mod_catalog.action", 0, new String[]{""});
                 return;
             }
+            List<ModCommandCatalog.Entry> entries = catalog.getEntries();
             String[] options = new String[entries.size()];
             int selected = 0;
             for (int i = 0; i < entries.size(); i++) {
-                ThirdPersonViewCommandCatalog.Entry entry = entries.get(i);
+                ModCommandCatalog.Entry entry = entries.get(i);
                 options[i] = entry.getDisplayName();
                 if (selectedCommand != null
                         && entry.getCommand().equalsIgnoreCase(selectedCommand)) selected = i;
             }
-            thirdPersonAction = new WurmDropDown(
-                    "keybinder.third_person.action", selected, options);
+            modCatalogAction = new KeybinderUiDropDown(
+                    "keybinder.mod_catalog.action", selected, options);
         }
 
         private void createVanillaAction(String selectedCommand) {
             VanillaKeybindCatalog.Category category = vanillaCategory();
             if (category == null) {
-                vanillaAction = new WurmDropDown(
+                vanillaAction = new KeybinderUiDropDown(
                         "keybinder.vanilla.action", 0, new String[]{""});
                 lastVanillaValue = 0;
                 return;
@@ -1482,7 +1488,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 if (selectedCommand != null
                         && entry.getCommand().equalsIgnoreCase(selectedCommand)) selected = i;
             }
-            vanillaAction = new WurmDropDown("keybinder.vanilla.action", selected, options);
+            vanillaAction = new KeybinderUiDropDown("keybinder.vanilla.action", selected, options);
             lastVanillaValue = selected;
         }
 
@@ -1525,7 +1531,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             System.arraycopy(base, 0, options, offset, base.length);
             int selected = hasCapturedBulkDestination ? 0
                     : bulkDestinationKind == BulkDestinationKind.HOVERED_INVENTORY ? 1 : 0;
-            bulkDestination = new WurmDropDown(
+            bulkDestination = new KeybinderUiDropDown(
                     "keybinder.bulk.destination", selected, options);
             lastBulkDestinationValue = selected;
         }
@@ -1581,7 +1587,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private void createSmartImproveSource() {
-            smartImproveSource = new WurmDropDown("keybinder.improve.source",
+            smartImproveSource = new KeybinderUiDropDown("keybinder.improve.source",
                     smartImproveSourceMode == SmartImproveSourceMode.TOOLBELT_ONLY ? 0 : 1,
                     new String[]{
                             Messages.text("editor.improve.source.toolbelt_only"),
@@ -1590,7 +1596,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private void createArcheologyIdentifySource() {
-            archeologyIdentifySource = new WurmDropDown(
+            archeologyIdentifySource = new KeybinderUiDropDown(
                     "keybinder.archeology.identify.source",
                     archeologyIdentifySourceMode
                             == ArcheologyIdentifySourceMode.TOOLBELT_ONLY ? 0 : 1,
@@ -1607,8 +1613,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             panel.addComponent(type);
             panel.addComponent(help);
             panel.addComponent(EditorStepType.supportsCapture(kind()) ? capture : captureGap);
-            if (isThirdPersonCatalog()) {
-                panel.addComponent(thirdPersonAction);
+            if (isModCatalog()) {
+                panel.addComponent(modCatalogAction);
                 return;
             }
             if (kind() == StepKind.CONSOLE_COMMAND) {
@@ -1738,10 +1744,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                     ACTION_NAME_MIN_WIDTH, SOURCE_MIN_WIDTH);
             type.setSize(stepTypeWidth(), type.height);
             help.setSize(HELP_WIDTH, help.height);
-            if (isThirdPersonCatalog()) {
+            if (isModCatalog()) {
                 controlsSeparator.setSize(SEPARATOR_WIDTH, controlsSeparator.height);
                 captureGap.setSize(CAPTURE_WIDTH, captureGap.height);
-                thirdPersonAction.setSize(layout.getActionWidth(), thirdPersonAction.height);
+                modCatalogAction.setSize(layout.getActionWidth(), modCatalogAction.height);
                 capture.setEnabled(layout.isCaptureEnabled());
                 updateControlStates();
                 panel.componentResized();
@@ -1837,10 +1843,10 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private KeybindStep toStep() {
-            if (isThirdPersonCatalog()) {
-                ThirdPersonViewCommandCatalog.Entry entry = thirdPersonEntry();
+            if (isModCatalog()) {
+                ModCommandCatalog.Entry entry = modCatalogEntry();
                 if (entry == null)
-                    throw new IllegalStateException("No 3rd Person View command is selected");
+                    throw new IllegalStateException("No mod command is selected");
                 return new ConsoleCommandStep(entry.getCommand());
             }
             EditorStepDraft draft = new EditorStepDraft(kind(), actionIdValue,
@@ -1870,7 +1876,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
 
         private StepKind kind() {
-            if (isThirdPersonCatalog()) return StepKind.CONSOLE_COMMAND;
+            if (isModCatalog()) return StepKind.CONSOLE_COMMAND;
             switch (type.getValue()) {
                 case 0: return StepKind.ACTIVATE_TOOL;
                 case 1: return StepKind.SMART_IMPROVE;
@@ -1910,7 +1916,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
             capturedBulkDestination = null;
             bulkQuantity.setText("1");
             lastIdText = null;
-            createThirdPersonAction(null);
+            createModCatalogAction(null);
             createVanillaAction(null);
             createTarget();
             createSource();
@@ -1930,8 +1936,8 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
                 text = Messages.text("editor.help.improve");
             } else if (kind() == StepKind.ARCHEOLOGY_IDENTIFY) {
                 text = Messages.text("editor.help.archeology_identify");
-            } else if (isThirdPersonCatalog()) {
-                text = Messages.text("editor.help.third_person_view");
+            } else if (isModCatalog()) {
+                text = Messages.text("editor.help.mod_catalog", modCatalog().getDisplayName());
             } else if (kind() == StepKind.CONSOLE_COMMAND) {
                 text = Messages.text("editor.help.console");
             } else if (kind() == StepKind.BULK_TRANSFER) {
@@ -1963,7 +1969,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
     }
 
-    private final class SelectableActionPanel extends WurmArrayPanel<FlexComponent> {
+    private final class SelectableActionPanel extends KeybinderUiArrayPanel<FlexComponent> {
         private final ActionRow owner;
 
         private SelectableActionPanel(ActionRow owner) {
@@ -1982,7 +1988,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         protected void renderComponent(Queue queue, float alpha) {
             if (owner == selectedRow)
                 fillRect(queue, 0.20f, 0.34f, 0.50f, 0.55f, x, y, width, height);
-            super.renderComponent(queue, alpha);
+            super.renderComponent(queue, 1.0f);
         }
 
         @Override
@@ -2003,7 +2009,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
     }
 
-    private final class SelectableActionLabel extends WurmLabel {
+    private final class SelectableActionLabel extends KeybinderUiLabel {
         private final ActionRow owner;
         private String currentLabel = "";
 
@@ -2038,7 +2044,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
     }
 
-    private final class SelectableTargetDropDown extends WurmDropDown {
+    private final class SelectableTargetDropDown extends KeybinderUiDropDown {
         private final ActionRow owner;
 
         private SelectableTargetDropDown(ActionRow owner, int selectedValue, String[] options) {
@@ -2053,7 +2059,7 @@ public final class KeybinderEditorWindow extends WWindow implements ButtonListen
         }
     }
 
-    private final class SelectableSourceDropDown extends WurmDropDown {
+    private final class SelectableSourceDropDown extends KeybinderUiDropDown {
         private final ActionRow owner;
 
         private SelectableSourceDropDown(ActionRow owner, int selectedValue, String[] options) {

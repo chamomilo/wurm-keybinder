@@ -1,65 +1,7 @@
-// Shared protocol 1 updater. These checks never modify a game installation.
-task verifyUpdaterUi(type: JavaExec, dependsOn: ['classes', 'testClasses']) {
-    classpath = sourceSets.test.runtimeClasspath
-    def javaFx = project.findProperty('wurmJavaFxJar') ?:
-            System.getenv('WURM_JAVAFX_JAR') ?: System.getenv('WURM_JFX')
-    if (javaFx != null) classpath += files(javaFx)
-    main = 'org.chamomilo.wurm.update.UpdaterUiProbe'
-    args file('src/main/resources/org/chamomilo/wurm/update/update-frame.png').absolutePath,
-            file("${buildDir}/updater-preview.png").absolutePath,
-            file('src/main/resources/org/chamomilo/wurm/update/update-button.png').absolutePath
-}
-
-task verifyChamomiloUpdater(dependsOn: [jar, verifyUpdaterUi]) {
-    doLast {
-        def contents = zipTree(tasks.jar.archivePath)
-        ['org/chamomilo/wurm/update/SharedUpdateCoordinator.class',
-         'org/chamomilo/wurm/update/ModCatalog.class',
-         'org/chamomilo/wurm/update/SharedUpdateHooks.class',
-         'org/chamomilo/wurm/update/UpdatePreferences.class',
-         'com/wurmonline/client/renderer/gui/ChamomiloUpdateWindow.class',
-         'com/wurmonline/client/renderer/gui/ChamomiloUpdateBridge.class',
-         'com/wurmonline/client/renderer/gui/ChamomiloSkinnedButton.class',
-         'com/wurmonline/client/resources/ChamomiloResourceUrl.class',
-         'org/chamomilo/wurm/update/update-frame.png',
-         'org/chamomilo/wurm/update/update-button.png'].each { required ->
-            if (contents.matching { include required }.files.empty)
-                throw new GradleException('Missing current updater component: ' + required)
-        }
-        if (!contents.matching { include '**/ChamomiloUpdateWindow$RegistryButton*.class' }.files.empty)
-            throw new GradleException('Obsolete updater button remains in JAR')
-        sourceSets.main.output.classesDirs.asFileTree.matching {
-            include 'org/chamomilo/wurm/update/**'
-            include 'com/wurmonline/client/renderer/gui/ChamomiloUpdate*.class'
-            include 'com/wurmonline/client/renderer/gui/ChamomiloSkinnedButton*.class'
-        }.visit { entry ->
-            if (!entry.directory && contents.matching { include entry.relativePath.pathString }.files.empty)
-                throw new GradleException('Missing nested updater class: ' + entry.relativePath)
-        }
-        def metadata = new Properties()
-        file(chamomiloUpdate.properties).withInputStream { metadata.load(it) }
-        [sharedClassLoader:'true', updateProvider:'chamomilo', updateCoordinatorProtocol:'1',
-         updateId:chamomiloUpdate.id, updateName:chamomiloUpdate.name,
-         updateRepo:chamomiloUpdate.repo, updateAsset:chamomiloUpdate.asset,
-         version:project.version.toString()].each { key, expected ->
-            if (metadata.getProperty(key) != expected)
-                throw new GradleException('Incorrect updater metadata ' + key + ': expected ' + expected)
-        }
-        def main = file(chamomiloUpdate.main).getText('UTF-8')
-        ['ModListener', 'SharedUpdateCoordinator.modInitialized',
-         'SharedUpdateHooks.install', 'SharedUpdateHooks.registerHost'].each { integration ->
-            if (!main.contains(integration))
-                throw new GradleException('Missing updater lifecycle integration: ' + integration)
-        }
-        ['UPDATE_HOST', 'updateNotificationShown', 'showAvailableUpdates'].each { obsolete ->
-            if (main.contains(obsolete))
-                throw new GradleException('Obsolete per-mod updater remains: ' + obsolete)
-        }
-        def version = main =~ /VERSION\s*=\s*"([^"]+)"/
-        if (!version.find() || version.group(1) != project.version.toString())
-            throw new GradleException('Main mod version differs from distribution')
-    }
-}
-build.dependsOn verifyChamomiloUpdater
-tasks.findByName('dist')?.dependsOn verifyChamomiloUpdater
-tasks.findByName('publicationZip')?.dependsOn verifyChamomiloUpdater
+// Updater implementation and release checks live in the standalone reference.
+ext.chamomiloUpdaterReference = project.findProperty('chamomiloUpdaterReference') ?:
+        System.getenv('CHAMOMILO_UPDATER_REFERENCE') ?: 'C:/projects/updater'
+def reference = file(chamomiloUpdaterReference)
+if (!new File(reference, 'version.properties').isFile())
+    throw new GradleException('Missing updater reference: ' + reference)
+apply from: new File(reference, 'gradle/chamomilo-updater.gradle')

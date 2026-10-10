@@ -6,6 +6,7 @@ import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
 import org.keybinder.wurm.bind.MultiKeyController;
 import org.keybinder.wurm.bind.SelectorSessionController;
 import org.keybinder.wurm.bind.WheelInputHandler;
+import org.keybinder.wurm.catalog.InputKeyCatalog;
 import org.keybinder.wurm.model.KeybindRecord;
 
 import java.util.Locale;
@@ -42,6 +43,28 @@ public final class ManagedInputCoordinator {
     public ManagedInputCoordinator(Environment environment) {
         if (environment == null) throw new IllegalArgumentException("environment");
         this.environment = environment;
+    }
+
+    /** Wurm drops modifiers in free camera; managed bindings still use the exact chord. */
+    public KeyBinding resolveFreeCameraBinding(KeyBinding exact, KeyBinding nativeBinding) {
+        try {
+            if (ownsEnabledBinding(exact) || ownsEnabledBinding(nativeBinding)) return exact;
+            return nativeBinding;
+        } catch (Throwable failure) {
+            environment.warning("Free-camera keybind lookup failed open", failure);
+            return nativeBinding;
+        }
+    }
+
+    private boolean ownsEnabledBinding(KeyBinding binding) {
+        if (binding == null || binding.getAction() != null) return false;
+        String command = binding.getStrCommand();
+        if (command == null
+                || !command.toLowerCase(Locale.ENGLISH).startsWith(RUN_PREFIX)) return false;
+        KeybindRecord record = environment.findById(command.substring(RUN_PREFIX.length()).trim());
+        return record != null && record.isEnabled()
+                && InputKeyCatalog.normalizeChord(record.getKey()).equals(
+                        InputKeyCatalog.normalizeChord(binding.getStrName()));
     }
 
     public void handleMouseWheel(final int x, final int y, final int delta) {

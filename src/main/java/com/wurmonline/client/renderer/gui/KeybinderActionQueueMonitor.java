@@ -2,6 +2,8 @@ package com.wurmonline.client.renderer.gui;
 
 import com.wurmonline.client.renderer.backend.Queue;
 import com.wurmonline.client.renderer.gui.text.TextFont;
+import com.wurmonline.client.renderer.gui.text.ChamomiloUiV1Fonts;
+import org.chamomilo.wurm.ui.v1.*;
 import org.keybinder.wurm.i18n.Messages;
 import org.keybinder.wurm.queue.ActionQueueEntry;
 import org.keybinder.wurm.ui.ActionQueueMonitorController;
@@ -20,24 +22,24 @@ import java.util.List;
  */
 public final class KeybinderActionQueueMonitor extends StaticComponent {
     private static final int MAX_SLOTS = 10;
-    private static final int COLLAPSED_WIDTH = 24;
+    private static final int COLLAPSED_WIDTH = 28;
     private static final int MIN_EXPANDED_WIDTH = 220;
     private static final int MAX_EXPANDED_WIDTH = 520;
     private static final int ROW_HEIGHT = 22;
     private static final int TOGGLE_HEIGHT = 18;
-    private static final int PADDING = 2;
+    private static final int PADDING = 4;
     private static final int LAMP_SIZE = 20;
-    private static final int LAMP_LEFT = 2;
-    private static final int TEXT_LEFT = 26;
+    private static final int LAMP_LEFT = 4;
+    private static final int TEXT_LEFT = 30;
     private static final int TEXT_RIGHT_PADDING = 10;
     private static final int TEXT_LAMP_GAP = 4;
     private static final int ANIMATION_MILLIS = 180;
     private static final int CLICK_SLOP = 3;
 
     private final ActionQueueMonitorController controller;
-    private final TextFont actionFont = TextFont.getFixedSizeText();
-    private final TextFont detailFont = TextFont.getFixedSizeText();
-    private final TextureButton[] lamps = new TextureButton[MAX_SLOTS];
+    private final TextFont actionFont = ChamomiloUiV1Fonts.caption(12, false, UiDensity.LOW);
+    private final TextFont detailFont = ChamomiloUiV1Fonts.caption(10, false, UiDensity.LOW);
+    private final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
     private List<ActionQueueEntry> entries = Collections.emptyList();
     private int slots = MAX_SLOTS;
     private QueueMonitorSide side = QueueMonitorSide.RIGHT;
@@ -54,12 +56,6 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     public KeybinderActionQueueMonitor(ActionQueueMonitorController controller) {
         super("Keybinder action queue monitor");
         this.controller = controller;
-        for (int index = 0; index < lamps.length; index++) {
-            lamps[index] = new TextureButton("img.gui.crafting.que",
-                    LAMP_SIZE, LAMP_SIZE, 0, 0, "", 0, 0,
-                    0, 0, LAMP_SIZE, LAMP_SIZE * 2, false);
-            lamps[index].loadTexture();
-        }
         setSize(COLLAPSED_WIDTH, panelHeight(slots));
     }
 
@@ -91,12 +87,8 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
 
     @Override
     protected void renderComponent(Queue queue, float ignoredAlpha) {
-        fillRect(queue, 0.015f, 0.012f, 0.009f, 1.0f, x, y, width, height);
-        int borderX = side == QueueMonitorSide.LEFT ? x + width - 1 : x;
-        fillRect(queue, 0.20f, 0.17f, 0.12f, 1.0f, borderX, y, 1, height);
-        int backgroundX = side == QueueMonitorSide.LEFT ? x : x + 1;
-        fillRect(queue, 0.10f, 0.08f, 0.05f, 1.0f,
-                backgroundX, y + 1, Math.max(1, width - 1), Math.max(1, height - 2));
+        UiPainter.background(canvas.begin(queue), UiBackground.LEATHER, 1f, x, y, width, height);
+        UiPainter.frame(canvas, 3, 1f, x, y, width, height);
         paintToggleArrow(queue);
         if (width == targetWidth && expanded && width > COLLAPSED_WIDTH)
             paintTitle(queue);
@@ -113,25 +105,18 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
 
     private void paintLamp(Queue queue, int index, int left, int top,
                            ActionQueueEntry entry) {
-        TextureButton lamp = lamps[index];
-        lamp.setRealPosition(left, top);
-        lamp.setColour(1.0f, 1.0f, 1.0f);
-        lamp.setColourAlpha(1.0f);
-        lamp.setIsToggled(entry != null);
-        lamp.render(queue, false);
+        UiPainter.button(canvas, entry == null ? .45f : 1f, 0, 0, UiScale.BASE, 1f,
+                left, top, LAMP_SIZE, LAMP_SIZE);
+        canvas.fill(entry == null ? UiColor.MUTED : UiColor.TEXT, 1f, left + 7, top + 7, 6, 6);
     }
 
     private void paintToggleArrow(Queue queue) {
-        int arrowLeft = lampColumnLeft() + (LAMP_SIZE - 5) / 2;
+        int arrowLeft = lampColumnLeft() + (LAMP_SIZE - 16) / 2;
         int centerY = y + PADDING + TOGGLE_HEIGHT / 2;
         boolean pointsRight = KeybinderActionQueueMonitorHitBox.arrowPointsRight(
                 side == QueueMonitorSide.LEFT, expanded);
-        for (int column = 0; column < 5; column++) {
-            int arrowX = pointsRight ? arrowLeft + 4 - column : arrowLeft + column;
-            int halfHeight = column;
-            fillRect(queue, 0.88f, 0.76f, 0.50f, 1.0f,
-                    arrowX, centerY - halfHeight, 1, halfHeight * 2 + 1);
-        }
+        (pointsRight ? UiIcon.CHEVRON_RIGHT : UiIcon.CHEVRON_LEFT)
+                .paint(canvas, UiColor.TEXT, 1f, arrowLeft, centerY - 8, 16);
     }
 
     private void paintTitle(Queue queue) {

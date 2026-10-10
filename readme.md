@@ -1,13 +1,51 @@
 <p align="center">
-  <img src="src/main/resources/keybinder/intro-banner.png" alt="Wurm Keybinder" width="800">
+  <img src="images/keybinder-banner.png" alt="Wurm Keybinder" width="800">
 </p>
 
-# Keybinder 0.10.2 for Wurm Unlimited
+# Keybinder 0.11.1 for Wurm Unlimited
 
-Keybinder is a Wurm Unlimited client mod for creating, editing and sharing keybinds through a Wurm-styled window. It supports action chains, context-specific targets, Smart Improve and Archaeology Identify.
+Keybinder is a Wurm Unlimited client mod for creating, editing and sharing keybinds through Chamomilo UI. It supports action chains, context-specific targets, Smart Improve and Archaeology Identify.
 
-- [Download Keybinder 0.10.2](https://github.com/chamomilo/wurm-keybinder/releases/tag/v0.10.2)
+- [Download the latest published release](https://github.com/chamomilo/wurm-keybinder/releases/latest)
 - [Discuss Keybinder on the SKLOTOPOLIS forum](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
+
+## New in 0.11.1
+
+The list and constructor now open detailed instructions through **READ INSTRUCTION**.
+The language selector is in the title bar and the Intro screen is removed; its
+artwork remains only in this README. **ADD NEW KEYBIND** precedes import controls.
+Row glyphs are centered and repeated Edit/Duplicate buttons have a two-pixel gap.
+Scrolling updates the thumb with the wheel and hides the bar when content fits.
+
+## New in 0.11.0
+
+Every Keybinder window now uses the shared Chamomilo frame, materials and Alegreya
+Sans fonts. Buttons share caption sizes and baselines within their action groups;
+fields, dropdown menus and scrollbars use the SDK's native Wurm input wrappers.
+Import, capture, conflict, merge, target selection and confirmation dialogs use
+the same theme, together with the launcher and action-queue HUD.
+The tile selector uses nine native buttons; file import/export and overwrite
+confirmation also stay inside the branded interface. Detailed instructions and About information are available from **Read instruction**.
+
+## New in 0.10.4
+
+Managed keybinds now respect Shift, Ctrl and Alt in Free camera mode. Space and
+its modified combinations select their own commands, including Multi-keybind
+selectors. Unassigned modified combinations do not run a managed plain-key bind.
+Native camera movement keeps Wurm's existing behavior.
+
+## New in 0.10.3
+
+The shared updater is now embedded as one complete module from the independent
+Chamomilo updater reference. Every distribution build compares its version and
+checksum, replaces an outdated module, and rejects leftover updater classes or
+resources. Mod behavior and the existing updater interface are preserved.
+
+Compatible client mods can now publish complete console commands directly to
+Keybinder. Each detected provider receives its own `Catalog: <mod name>` entry
+in the action-chain editor. Holster Weapons exposes its holster controls and
+attachment studio this way; Third Person View continues through the same
+generic integration.
 
 ## New in 0.10.2
 
@@ -28,7 +66,7 @@ For world objects without improvement metadata, Smart Improve still selects the 
 - Action queue monitor on either screen edge, with deferred cancellation of queued actions.
 - Smart Improve with automatic tool/resource selection and client-side chance estimates.
 - Archaeology Identify with automatic brush or stone-chisel selection.
-- Mouse-wheel bindings and optional integration with WU-third_person_view.
+- Mouse-wheel bindings and optional command catalogs supplied by compatible client mods.
 - One-shot shadow recording of actions you perform yourself.
 - Import of predecessor bindings into native Keybinder records.
 - Per-character enabled state, Event logging and English, Brazilian Portuguese and German localization.
@@ -39,7 +77,7 @@ Keybinder sends ordinary Wurm actions. It is a keybind manager, not an unattende
 
 Keybinder requires Wurm Unlimited and Ago's Client Mod Launcher.
 
-1. Download `keybinder-0.10.2.zip` from the release page.
+1. Download `keybinder-0.11.1.zip` from the release page.
 2. Extract the ZIP into your Wurm Unlimited client directory. It contains `mods/keybinder.properties` and `mods/keybinder/`.
 3. When upgrading, overwrite the existing Keybinder distribution files. Managed keybinds are stored separately and are not included in the ZIP.
 4. Start the client and enable **Keybinder** in **HUD Settings** if its window is hidden.
@@ -55,6 +93,21 @@ For inventory filters and nearby-type targets, choose a stable object type rathe
 At execution, unavailable steps are explained in Event. Queue-consuming actions are checked against the remaining capacity; local tool activation costs no queue slots. Nearby and multi-target actions are resolved at runtime.
 
 Use **Print all keybinds to Event** or `keybinder_list` to inspect managed bindings. Import and restore operations respect bind ownership and report conflicts instead of silently replacing another binding.
+
+## Mod command catalog integration
+
+A client mod can add its own category to the action-chain editor by exposing
+this method on its main mod class:
+
+```java
+public static String[][] getKeybinderCommandCatalog()
+```
+
+Each row contains a display label and one complete console command. Keybinder
+ignores malformed rows, duplicate commands and commands containing placeholder
+brackets. The category label comes from the mod's `updateName` property, with
+the mod-loader name used as a fallback. No Keybinder compile-time dependency is
+required.
 
 ## Shared Chamomilo updates
 
@@ -75,15 +128,18 @@ Use JDK 8 and the included Gradle wrapper. Supply the pinned client libraries in
 - `javassist.jar`
 - `modlauncher.jar`
 
-The updater UI check also needs the client's JavaFX runtime. Set `WURM_JAVAFX_JAR` to the existing `jfxrt.jar`, or pass `-PwurmJavaFxJar=/path/to/jfxrt.jar`.
+The native UI checks also need the client's JavaFX runtime. Set `WURM_JFX` or
+`WURM_JAVAFX_JAR` to the existing `jfxrt.jar`.
 
 ```text
 ./gradlew clean build dist
 ```
 
-On Windows, use `gradlew.bat`. The installable archive is written to `build/distributions/keybinder-0.10.2.zip`. The build checks tests, version consistency, namespaces and shared updater packaging. It does not install the mod into a game directory.
+On Windows, use `gradlew.bat`. The installable archive is written to `build/distributions/keybinder-0.11.1.zip`. The build checks tests, version consistency, namespaces and shared updater packaging. It does not install the mod into a game directory.
 
-Version 0.10.2 passed 541 automated tests and the updater layout/input checks. Manual in-game verification of this release is still required.
+The build runs the automated suite and both updater and Keybinder layout/input
+checks. Keybinder previews are written to `build/chamomilo-preview`. Manual
+in-game verification of hover, resizing, HUD fade and reconnect is still required.
 
 ## Credits and license
 

@@ -6,9 +6,9 @@ import static org.junit.Assert.assertEquals;
 
 public class KeybinderDragIndicatorTest {
     @Test
-    public void keybindGapIsPlacedBetweenHeaderRowsAndAddButton() {
+    public void keybindGapAccountsForHeaderAndRowSpacing() {
         assertEquals(1, KeybinderDragIndicator.keybindGapComponentIndex(0));
-        assertEquals(4, KeybinderDragIndicator.keybindGapComponentIndex(3));
+        assertEquals(7, KeybinderDragIndicator.keybindGapComponentIndex(3));
     }
 
     @Test

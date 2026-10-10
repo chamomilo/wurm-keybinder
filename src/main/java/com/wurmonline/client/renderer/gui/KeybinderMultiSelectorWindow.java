@@ -13,7 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Small selector for ordinary multi-purpose and immediate HUD keybinds. */
-public final class KeybinderMultiSelectorWindow extends WWindow implements ButtonListener {
+public final class KeybinderMultiSelectorWindow extends KeybinderUiWindow implements ButtonListener {
     private static final int WINDOW_HORIZONTAL_CHROME = 6;
     private static final int WINDOW_VERTICAL_CHROME = 25;
     private final String recordId;
@@ -35,12 +35,12 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
         setTitle(record.getName());
         resizable = false;
         WurmArrayPanel<FlexComponent> content =
-                new WurmArrayPanel<FlexComponent>("keybinder.multi.options",
+                new KeybinderUiArrayPanel<FlexComponent>("keybinder.multi.options",
                         WurmArrayPanel.DIR_VERTICAL, true);
         content.componentWidthOffset = 2;
-        WurmLabel prompt = new WurmLabel(Messages.text("multi.pick"));
+        WurmLabel prompt = new KeybinderUiLabel(Messages.text("multi.pick"));
         content.addComponent(prompt);
-        int widest = Math.max(prompt.width, new WurmLabel(record.getName()).width + 30);
+        int widest = Math.max(prompt.width, new KeybinderUiLabel(record.getName()).width + 30);
         int index = 0;
         for (KeybindVariant variant : record.getVariants()) {
             String label = variant.getSubName().trim();
@@ -51,7 +51,7 @@ public final class KeybinderMultiSelectorWindow extends WWindow implements Butto
             boolean active = !hudSelection
                     && variant.getId().equals(record.getActiveVariantId());
             if (active) label = "> " + label;
-            WButton button = new WButton(label, this);
+            WButton button = new KeybinderUiButton(label, this);
             if (active) activeButton = button;
             widest = Math.max(widest, button.width);
             variants.put(button, variant.getId());

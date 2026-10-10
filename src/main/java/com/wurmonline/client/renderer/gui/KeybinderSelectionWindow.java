@@ -4,7 +4,7 @@ import org.keybinder.wurm.KeybinderMod;
 import org.keybinder.wurm.ui.KeybindEditorController;
 import org.keybinder.wurm.i18n.Messages;
 
-public final class KeybinderSelectionWindow extends WWindow {
+public final class KeybinderSelectionWindow extends KeybinderUiWindow {
     private final KeybindEditorController controller;
 
     public KeybinderSelectionWindow(KeybindEditorController controller, String message) {
@@ -12,11 +12,11 @@ public final class KeybinderSelectionWindow extends WWindow {
         this.controller = controller;
         setTitle(Messages.text("selection.title"));
         WurmArrayPanel<FlexComponent> lines =
-                new WurmArrayPanel<>("keybinder.selection.message", WurmArrayPanel.DIR_VERTICAL, true);
+                new KeybinderUiArrayPanel<>("keybinder.selection.message", WurmArrayPanel.DIR_VERTICAL, true);
         int widest = 0;
         int count = 0;
         for (String line : wrap(message, 72)) {
-            WurmLabel label = new WurmLabel(line);
+            WurmLabel label = new KeybinderUiLabel(line);
             widest = Math.max(widest, label.width);
             lines.addComponent(label);
             count++;

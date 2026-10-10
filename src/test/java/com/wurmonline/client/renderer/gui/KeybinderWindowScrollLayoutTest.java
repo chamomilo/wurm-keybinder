@@ -24,7 +24,7 @@ public class KeybinderWindowScrollLayoutTest {
             int position = code.next();
             if (code.byteAt(position) != Opcode.INVOKESPECIAL) continue;
             int methodRef = code.u16bitAt(position + 1);
-            if (!"com.wurmonline.client.renderer.gui.WurmArrayPanel".equals(
+            if (!"com.wurmonline.client.renderer.gui.KeybinderUiArrayPanel".equals(
                     constants.getMethodrefClassName(methodRef))) continue;
             String descriptor = constants.getMethodrefType(methodRef);
             if ("(Ljava/lang/String;I)V".equals(descriptor)) ordinaryVerticalPanel = true;
@@ -32,5 +32,20 @@ public class KeybinderWindowScrollLayoutTest {
         }
         assertTrue(ordinaryVerticalPanel);
         assertFalse(autoWidthPanel);
+        // The themed adapter retains the exact non-auto-width native constructor.
+        javassist.CtConstructor constructor = ClassPool.getDefault()
+                .get(KeybinderUiArrayPanel.class.getName())
+                .getDeclaredConstructor(new javassist.CtClass[]{ClassPool.getDefault().get("java.lang.String"), javassist.CtClass.intType});
+        CodeIterator adapter = constructor.getMethodInfo().getCodeAttribute().iterator();
+        ConstPool adapterConstants = constructor.getMethodInfo().getConstPool();
+        boolean nativeOrdinary = false;
+        while (adapter.hasNext()) {
+            int position = adapter.next();
+            if (adapter.byteAt(position) != Opcode.INVOKESPECIAL) continue;
+            int reference = adapter.u16bitAt(position + 1);
+            if ("com.wurmonline.client.renderer.gui.WurmArrayPanel".equals(adapterConstants.getMethodrefClassName(reference)))
+                nativeOrdinary |= "(Ljava/lang/String;I)V".equals(adapterConstants.getMethodrefType(reference));
+        }
+        assertTrue(nativeOrdinary);
     }
 }

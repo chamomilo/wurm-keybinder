@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.10.2"
+version "0.11.1"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -71,20 +71,6 @@ task verifyJarNamespace(dependsOn: jar) {
         if (tree.matching { include 'org/keybinder/wurm/KeybinderMod.class' }.files.empty) {
             throw new GradleException("Keybinder main class is missing from keybinder.jar")
         }
-        ['org/chamomilo/wurm/update/SharedUpdateCoordinator.class',
-         'org/chamomilo/wurm/update/GitHubReleaseClient.class',
-         'org/chamomilo/wurm/update/ModUpdate.class',
-         'org/chamomilo/wurm/update/ModCatalog.class',
-         'org/chamomilo/wurm/update/SharedUpdateHooks.class',
-         'com/wurmonline/client/renderer/gui/ChamomiloUpdateBridge.class',
-         'com/wurmonline/client/resources/ChamomiloResourceUrl.class',
-         'org/chamomilo/wurm/update/update-frame.png',
-         'com/wurmonline/client/renderer/gui/ChamomiloUpdateWindow.class'].each { updateClass ->
-            if (tree.matching { include updateClass }.files.empty) {
-                throw new GradleException(
-                        "Shared update coordinator class is missing: ${updateClass}")
-            }
-        }
         ['keybinder/i18n/messages_en.properties',
          'keybinder/i18n/messages_pt-BR.properties',
          'keybinder/i18n/messages_de.properties',
@@ -96,49 +82,18 @@ task verifyJarNamespace(dependsOn: jar) {
     }
 }
 
-task verifyUpdaterIntegration(dependsOn: jar) {
-    doLast {
-        def properties = new Properties()
-        file('mods/keybinder.properties').withInputStream { properties.load(it) }
-        def expected = [
-                updateProvider: 'chamomilo',
-                updateCoordinatorProtocol: '1',
-                updateId: 'keybinder',
-                updateName: 'Keybinder',
-                updateRepo: 'chamomilo/wurm-keybinder',
-                updateAsset: 'keybinder-{version}.zip'
-        ]
-        expected.each { key, value ->
-            if (properties.getProperty(key) != value) {
-                throw new GradleException(
-                        "Required shared-updater metadata ${key}=${value} is missing")
-            }
-        }
-        def mainSource = file('src/main/java/org/keybinder/wurm/KeybinderMod.java')
-                .getText('UTF-8')
-        ['ModListener',
-         'SharedUpdateHooks.registerHost',
-         'SharedUpdateCoordinator.modInitialized',
-         'SharedUpdateHooks.install'].each { integration ->
-            if (!mainSource.contains(integration)) {
-                throw new GradleException(
-                        "Required shared-updater integration is missing: ${integration}")
-            }
-        }
-    }
-}
-
-task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace,
-                                verifyUpdaterIntegration]) {
+task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace]) {
 
     into("mods", {
         into(project.name, {
             from jar
             from 'readme.md'
             from 'lgpl-3.0.txt'
+            into('images') { from 'images/keybinder-banner.png' }
             into('assets/keybinder') {
                 from 'src/main/resources/keybinder'
                 include '*.png'
+                exclude 'tile-selector.png' // Retired raster UI; the selector uses branded native buttons.
             }
         })
         from fileTree(dir: 'mods', include: '*')
@@ -172,7 +127,7 @@ task verifyDistArchive(dependsOn: dist) {
     }
 }
 
-build.dependsOn verifyJarNamespace, verifyUpdaterIntegration, verifyDistArchive
+build.dependsOn verifyJarNamespace, verifyDistArchive
 
 test {
     testLogging {
@@ -183,3 +138,13 @@ test {
 
 ext.chamomiloUpdate = [id: 'keybinder', name: 'Keybinder', repo: 'chamomilo/wurm-keybinder', asset: 'keybinder-{version}.zip', properties: 'mods/keybinder.properties', main: 'src/main/java/org/keybinder/wurm/KeybinderMod.java']
 apply from: 'gradle/chamomilo-updater.gradle'
+
+task verifyKeybinderUi(type: JavaExec, dependsOn: testClasses) {
+    classpath = sourceSets.test.runtimeClasspath
+    def javaFx = System.getenv('WURM_JFX') ?: System.getenv('WURM_JAVAFX_JAR')
+    if (javaFx) classpath += files(javaFx)
+    main = 'org.keybinder.wurm.ui.ChamomiloUiProbe'
+    args file("${buildDir}/chamomilo-preview").absolutePath
+}
+check.dependsOn verifyKeybinderUi
+dist.dependsOn verifyKeybinderUi

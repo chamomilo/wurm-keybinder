@@ -6,7 +6,7 @@ import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.ui.MergeController;
 
 /** Explicit confirmation for the destructive half of a drag-to-merge operation. */
-public final class KeybinderMergeWindow extends WWindow implements ButtonListener {
+public final class KeybinderMergeWindow extends KeybinderUiWindow implements ButtonListener {
     private final MergeController controller;
     private final String sourceId;
     private final String destinationId;
@@ -20,22 +20,22 @@ public final class KeybinderMergeWindow extends WWindow implements ButtonListene
         sourceId = source.getId();
         destinationId = destination.getId();
         setTitle(Messages.text("merge.title"));
-        WurmArrayPanel<FlexComponent> root = new WurmArrayPanel<FlexComponent>(
+        WurmArrayPanel<FlexComponent> root = new KeybinderUiArrayPanel<FlexComponent>(
                 "keybinder.merge.root", WurmArrayPanel.DIR_VERTICAL, true);
         root.componentWidthOffset = 3;
-        root.addComponent(new WurmLabel(Messages.text("merge.source", source.getName())));
-        root.addComponent(new WurmLabel(Messages.text("merge.destination", destination.getName())));
-        root.addComponent(new WurmLabel(Messages.text("merge.calculation",
+        root.addComponent(new KeybinderUiLabel(Messages.text("merge.source", source.getName())));
+        root.addComponent(new KeybinderUiLabel(Messages.text("merge.destination", destination.getName())));
+        root.addComponent(new KeybinderUiLabel(Messages.text("merge.calculation",
                 destination.getVariants().size(), source.getVariants().size(),
                 destination.getVariants().size() + source.getVariants().size())));
-        root.addComponent(new WurmLabel(Messages.text("merge.effects",
+        root.addComponent(new KeybinderUiLabel(Messages.text("merge.effects",
                 destination.getKey(), Messages.text(destination.isHudMulti()
                         ? "multi.mode.hud" : "multi.mode.ordinary"))));
-        WurmArrayPanel<FlexComponent> buttons = new WurmArrayPanel<FlexComponent>(
+        WurmArrayPanel<FlexComponent> buttons = new KeybinderUiArrayPanel<FlexComponent>(
                 "keybinder.merge.buttons", WurmArrayPanel.DIR_HORIZONTAL);
         buttons.componentWidthOffset = 8;
-        merge = new WButton(Messages.text("merge.confirm"), this);
-        cancel = new WButton(Messages.text("common.cancel"), this);
+        merge = new KeybinderUiButton(Messages.text("merge.confirm"), this);
+        cancel = new KeybinderUiButton(Messages.text("common.cancel"), this);
         merge.setHoverString(Messages.text("merge.confirm.tip"));
         cancel.setHoverString(Messages.text("merge.cancel.tip"));
         buttons.addComponent(merge);

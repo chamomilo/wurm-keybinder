@@ -4,7 +4,7 @@ import org.keybinder.wurm.model.KeybindRecord;
 
 import java.util.List;
 
-/** Operations used by the persistent Keybinder list/intro window. */
+/** Operations used by the persistent Keybinder list window. */
 public interface KeybinderWindowController {
     int getQueueLimit();
     List<KeybindRecord> getRecords();
@@ -21,11 +21,6 @@ public interface KeybinderWindowController {
     void requestImportFile();
     void requestExportAll();
     void restoreOriginalBindings();
-    boolean isLegacyActionInstalled();
-    void startFromIntro();
-    void importDisableAndRestart();
-    boolean isSkipIntro();
-    void setSkipIntro(boolean skip);
     String getLanguage();
     void setLanguage(String language);
     QueueMonitorSide getQueueMonitorSide();

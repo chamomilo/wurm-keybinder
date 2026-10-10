@@ -26,6 +26,7 @@ public final class KeybinderClientHooks {
         hooks.install("per-action source override", () -> hookActionSource(pool));
         hooks.install("action menu paths", () -> hookActionMenuPaths(pool));
         hooks.install("console commands", () -> hookConsole(pool));
+        hooks.install("free-camera keybind modifiers", () -> hookFreeCameraBindings(pool));
         hooks.install("multi-purpose long press", () -> hookLongPress(pool));
         hooks.install("mouse wheel keybinds", () -> hookMouseWheel(pool));
         hooks.install("connection lifecycle", () -> hookConnectionLifecycle(pool));
@@ -81,6 +82,21 @@ public final class KeybinderClientHooks {
         eventHandler.getDeclaredMethod("keyReleased",
                 new CtClass[]{CtClass.intType, CtClass.charType}).insertBefore(
                 "org.keybinder.wurm.KeybinderMod.observeKeyReleased($1);");
+    }
+
+    static void hookFreeCameraBindings(ClassPool pool) throws Exception {
+        CtClass console = pool.getCtClass("com.wurmonline.client.console.WurmConsole");
+        // Keep Wurm's modifier-free camera movement unless a live binding belongs
+        // to an enabled Keybinder record. Both normal execution and selectors
+        // consult this method, so they receive the same exact chord.
+        console.getMethod("getCurrentBinding",
+                "(I)Lcom/wurmonline/client/console/KeyBinding;").insertAfter(
+                "{ if (this.world.getWorldRenderer().isFreeCamera()) {"
+                        + " $_ = org.keybinder.wurm.KeybinderMod.resolveFreeCameraBinding("
+                        + "this.getBinding(com.wurmonline.client.console.WurmConsole.getMetaCode("
+                        + "$1, this.world.getPlayer().isShiftDown(),"
+                        + "this.world.getPlayer().isAltDown(),"
+                        + "this.world.getPlayer().isControlDown())), $_); } }");
     }
 
     private static void hookMouseWheel(ClassPool pool) throws Exception {
