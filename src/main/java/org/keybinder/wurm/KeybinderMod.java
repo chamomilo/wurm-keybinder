@@ -122,7 +122,7 @@ import java.util.logging.Logger;
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         ModListener, SharedLanguageCoordinator.Participant,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.11.13";
+    public static final String VERSION = "1.0.0";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =
@@ -281,6 +281,8 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
 
     @Override
     public void configure(Properties properties) {
+        properties = org.chamomilo.wurm.update.SharedModSettings.configure("keybinder", properties,
+                ModSettingsSchema.specs(), this::applyUserSettings);
         this.properties = properties == null ? new Properties() : properties;
         centerViewAfterEmbark = Boolean.parseBoolean(
                 this.properties.getProperty("centerViewAfterEmbark", "true"));
@@ -290,6 +292,16 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
         vanillaImportPromptDismissed = Boolean.parseBoolean(
                 this.properties.getProperty("vanillaImportPromptDismissed", "false"));
         Messages.select(language);
+    }
+
+    private void applyUserSettings(String key, Properties values) {
+        if (key.equals("centerViewAfterEmbark")) {
+            centerViewAfterEmbark = Boolean.parseBoolean(values.getProperty(key));
+            if (embarkHeading != null) embarkHeading.initializeClientAccess(centerViewAfterEmbark);
+        } else if (key.equals("queueMonitorSide")) {
+            queueMonitorSide = QueueMonitorSide.fromSetting(values.getProperty(key));
+        }
+        properties.setProperty(key, values.getProperty(key));
     }
 
     @Override
@@ -1770,6 +1782,13 @@ public final class KeybinderMod implements WurmClientMod, Initable, PreInitable,
     }
     @Override public void setQueueMonitorSide(QueueMonitorSide requested) {
         QueueMonitorSide selected = requested == null ? QueueMonitorSide.RIGHT : requested;
+        org.chamomilo.wurm.update.SharedModSettings.Provider shared =
+                org.chamomilo.wurm.update.SharedModSettings.provider("keybinder");
+        if (shared != null) {
+            try { shared.change("queueMonitorSide", selected.getSetting()); }
+            catch (Exception failure) { EVENTS.error(Messages.text("error.save_queue_monitor_side"), failure); }
+            return;
+        }
         if (queueMonitorSide == selected && selected.getSetting().equals(
                 properties.getProperty("queueMonitorSide"))) return;
         queueMonitorSide = selected;

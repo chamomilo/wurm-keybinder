@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.11.13"
+version "1.0.0"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -38,15 +38,15 @@ jar {
 task verifyVersion {
     doFirst {
         def expected = project.version.toString()
-        if (!(expected ==~ /0\.\d+\.\d+/)) {
-            throw new GradleException("Keybinder release version must match 0.x.y, got ${expected}")
+        if (!(expected ==~ /\d+\.\d+\.\d+/)) {
+            throw new GradleException("Keybinder release version must match major.minor.patch, got ${expected}")
         }
         def metadata = [
             [file('mods/keybinder.properties'), /(?m)^version=(.+)$/, 'properties'],
             [file('src/main/java/org/keybinder/wurm/KeybinderMod.java'),
              /VERSION = "([^"]+)"/, 'KeybinderMod'],
-            [file('readme.md'), /Keybinder (0\.\d+\.\d+)/, 'GitHub README'],
-            [file('README.txt'), /Keybinder (0\.\d+\.\d+)/, 'ZIP README']
+            [file('readme.md'), /Keybinder (\d+\.\d+\.\d+)/, 'GitHub README'],
+            [file('README.txt'), /Keybinder (\d+\.\d+\.\d+)/, 'ZIP README']
         ]
         metadata.each { item ->
             def matcher = (item[0].getText('UTF-8') =~ item[1])
@@ -59,7 +59,7 @@ task verifyVersion {
                 !file('readme.md').getText('UTF-8').contains('images/keybinder-banner.png')) {
             throw new GradleException('GitHub README must reference the separate project banner')
         }
-        ['keybinds.png', 'constructor.png', 'tile-targets.png', 'multi-selector.png'].each { image ->
+        ['keybinds.png', 'constructor.png', 'tile-targets.png', 'multi-selector.png', 'settings.png'].each { image ->
             if (!file('images/' + image).isFile() ||
                     !file('readme.md').getText('UTF-8').contains('images/' + image)) {
                 throw new GradleException('GitHub README image is missing: ' + image)

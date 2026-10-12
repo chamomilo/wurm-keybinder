@@ -54,6 +54,12 @@ public final class ChamomiloUiProbe {
         pool.get("org.chamomilo.wurm.update.UpdatePreferences").getDeclaredMethod("shared")
                 .setBody("{ return " + probe + ".sharedPreferences; }");
         Loader loader = new Loader(pool);
-        loader.run(probe, args);
+        String originalHome = System.getProperty("user.home");
+        System.setProperty("user.home", new java.io.File(args[0], "profile").getAbsolutePath());
+        try {
+            loader.run(probe, args);
+        } finally {
+            System.setProperty("user.home", originalHome);
+        }
     }
 }

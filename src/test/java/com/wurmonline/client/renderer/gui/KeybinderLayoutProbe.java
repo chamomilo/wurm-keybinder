@@ -11,6 +11,7 @@ import org.chamomilo.wurm.update.SharedUpdateCoordinator;
 import org.chamomilo.wurm.update.SharedUpdateHooks;
 import org.chamomilo.wurm.update.ModUpdate;
 import org.chamomilo.wurm.update.UpdatePreferences;
+import org.chamomilo.wurm.update.SharedModSettings;
 import org.gotti.wurmunlimited.modloader.interfaces.ModEntry;
 import org.keybinder.wurm.model.*;
 import org.keybinder.wurm.queue.QueueCost;
@@ -95,6 +96,7 @@ public final class KeybinderLayoutProbe {
             preview("keybinds-" + language, translated);
         }
         verifyRussianWindows(record, second, controller, editorController, files);
+        verifySharedSettings();
         verifySharedLanguage(record, controller, editorController);
         verifyLiveDialogs(record, second, controller, editorController, files);
         Files.write(output.resolve("russian-layout-audit.txt"), localeAudit, java.nio.charset.StandardCharsets.UTF_8);
@@ -381,6 +383,54 @@ public final class KeybinderLayoutProbe {
         KeybinderActionQueueMonitor monitor = new KeybinderActionQueueMonitor(controller);
         monitor.gameTick(); preview("queue-ru", monitor);
         verifyControls(); verifyScrollAndRowRegressions();
+    }
+
+    private static void verifySharedSettings() throws Exception {
+        SharedLanguageCoordinator.selectLanguage("en");
+        Messages.select("en");
+        String originalPath = "mods/keybinder/keybinds.properties";
+        String changedPath = "mods/keybinder/alternative.properties";
+        Properties initial = new Properties();
+        initial.setProperty("dataFile", originalPath);
+        KeybinderMod mod = new KeybinderMod();
+        mod.configure(initial);
+        SharedModSettings.Provider provider = SharedModSettings.provider("keybinder");
+        check(provider != null && provider.settings().size() == 3,
+                "Keybinder registers all three settings with the shared editor");
+        ChamomiloUpdateSettingsWindow settings = new ChamomiloUpdateSettingsWindow(
+                WurmComponent.hud, "keybinder", "Keybinder", provider);
+        settings.show(WurmComponent.hud);
+        preview("settings", settings);
+        List<?> rows = (List<?>)field(ChamomiloUpdateSettingsWindow.class, "rows").get(settings);
+        ChamomiloUiV1DropDown align = (ChamomiloUiV1DropDown)field(rows.get(0).getClass(), "choice").get(rows.get(0));
+        ChamomiloUiV1DropDown side = (ChamomiloUiV1DropDown)field(rows.get(1).getClass(), "choice").get(rows.get(1));
+        ChamomiloUiV1TextField path = (ChamomiloUiV1TextField)field(rows.get(2).getClass(), "field").get(rows.get(2));
+        align.selectIndex(0);
+        side.selectIndex(0);
+        check(!field(KeybinderMod.class, "centerViewAfterEmbark").getBoolean(mod)
+                && mod.getQueueMonitorSide() == QueueMonitorSide.LEFT,
+                "Native settings apply embark alignment and queue side immediately");
+        Properties active = (Properties)field(KeybinderMod.class, "properties").get(mod);
+        path.handleInput(" ");
+        check(originalPath.equals(provider.value("dataFile")), "Invalid file path never reaches Keybinder");
+        path.handleInput(changedPath);
+        check(changedPath.equals(provider.value("dataFile")) && originalPath.equals(active.getProperty("dataFile")),
+                "Startup-only data path is saved without replacing active keybind storage");
+        check(field(ChamomiloUpdateSettingsWindow.class, "restartNotice").get(settings) != null,
+                "Changing the keybind file shows the shared restart notice");
+        align.selectIndex(1);
+        check(originalPath.equals(active.getProperty("dataFile")),
+                "Later live callbacks preserve the active data file until restart");
+        KeybinderMod restarted = new KeybinderMod();
+        restarted.configure(initial);
+        Properties loaded = (Properties)field(KeybinderMod.class, "properties").get(restarted);
+        check(changedPath.equals(loaded.getProperty("dataFile"))
+                && restarted.getQueueMonitorSide() == QueueMonitorSide.LEFT,
+                "Saved live and startup settings are loaded on the next configure call");
+        path.handleInput(originalPath);
+        check(!SharedModSettings.restartPending(), "Restoring the data file clears the restart reminder");
+        settings.disposeHud();
+        System.out.println("KEYBINDER_SETTINGS_OK: native edits, live callbacks, invalid path rejection, persistence and startup isolation");
     }
 
     private static ModEntry<Object> entry(String name, Object mod) {
