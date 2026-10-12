@@ -401,7 +401,19 @@ public final class KeybindExecutionService {
                 resolveActivateItem((ActivateToolStep) step, hud);
             return 0;
         }
-        return 0;
+        if (step instanceof VanillaActionStep) {
+            VanillaActionStep vanilla = (VanillaActionStep) step;
+            String command = vanillaConsoleCommand(vanilla);
+            if (command == null) vanillaAction(vanilla);
+            else validateConsoleCommand(command);
+            return 0;
+        }
+        if (step instanceof ConsoleCommandStep) {
+            validateConsoleCommand(((ConsoleCommandStep) step).getCommand());
+            return 0;
+        }
+        throw new IllegalArgumentException(
+                Messages.text("execution.unsupported_step", step.getClass().getName()));
     }
 
     private void executeStep(KeybindStep step, HeadsUpDisplay hud, int plannedQueueCost)
@@ -420,8 +432,7 @@ public final class KeybindExecutionService {
             executeVanilla((VanillaActionStep) step, hud);
         } else if (step instanceof ConsoleCommandStep) {
             String command = ((ConsoleCommandStep) step).getCommand();
-            if (command.trim().toLowerCase(java.util.Locale.ENGLISH).startsWith("keybinder_run "))
-                throw new IllegalArgumentException(Messages.text("validation.nested_run"));
+            validateConsoleCommand(command);
             access.console(hud).handleInput(command, false);
         } else {
             throw new IllegalArgumentException(
@@ -431,19 +442,38 @@ public final class KeybindExecutionService {
 
     private void executeVanilla(VanillaActionStep step, HeadsUpDisplay hud)
             throws ReflectiveOperationException {
-        String command = step.getCommand().trim();
-        if (command.length() >= 2 && command.charAt(0) == '"'
-                && command.charAt(command.length() - 1) == '"') {
-            access.console(hud).handleInput(command.substring(1, command.length() - 1), false);
+        String command = vanillaConsoleCommand(step);
+        if (command != null) {
+            validateConsoleCommand(command);
+            access.console(hud).handleInput(command, false);
             return;
         }
-        com.wurmonline.client.console.ActionClass action =
-                com.wurmonline.client.console.ActionClass.valueOf(
-                        command.toUpperCase(java.util.Locale.ENGLISH));
+        com.wurmonline.client.console.ActionClass action = vanillaAction(step);
         // Mirror WurmConsole.toggleKey: instantaneous actions are pressed and
         // released so no movement/key state remains latched.
         hud.getWorld().getPlayer().toggleKey(action, true);
         hud.getWorld().getPlayer().toggleKey(action, false);
+    }
+
+    private static String vanillaConsoleCommand(VanillaActionStep step) {
+        String command = step.getCommand().trim();
+        return command.length() >= 2 && command.charAt(0) == '"'
+                && command.charAt(command.length() - 1) == '"'
+                ? command.substring(1, command.length() - 1) : null;
+    }
+
+    private static com.wurmonline.client.console.ActionClass vanillaAction(
+            VanillaActionStep step) {
+        return com.wurmonline.client.console.ActionClass.valueOf(
+                step.getCommand().trim().toUpperCase(java.util.Locale.ENGLISH));
+    }
+
+    private static void validateConsoleCommand(String command) {
+        String trimmed = command.trim();
+        if (trimmed.isEmpty())
+            throw new IllegalArgumentException(Messages.text("validation.console_missing"));
+        if (trimmed.split("\\s+", 2)[0].equalsIgnoreCase("keybinder_run"))
+            throw new IllegalArgumentException(Messages.text("validation.nested_run"));
     }
 
     private void activate(ActivateToolStep step, HeadsUpDisplay hud) throws ReflectiveOperationException {

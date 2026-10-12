@@ -185,6 +185,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     private final List<VariantZone> zones = new ArrayList<>();
     private String activeVariantId;
     private final WurmArrayPanel<FlexComponent> actions;
+    private final KeybinderUiScrollPanel actionsScroll;
     private final List<ActionRow> rows = new ArrayList<>();
     private final WButton done;
     private final WButton cancel;
@@ -195,6 +196,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     private ActionRow pendingBulkSourceRow;
     private ActionRow pendingBulkDestinationRow;
     private ActionRow selectedRow;
+    private VariantZone selectedZone;
     private ActionRow captureTargetRow;
     private int lastLayoutWidth = -1;
     private ActionRow draggedRow;
@@ -298,8 +300,8 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         footerArea.addComponent(footer);
         footerArea.addComponent(verticalSpacer(3));
         root.setComponent(top, WurmBorderPanel.NORTH);
-        root.setComponent(new KeybinderUiScrollPanel("keybinder.editor.scroll", actions),
-                WurmBorderPanel.CENTER);
+        actionsScroll = new KeybinderUiScrollPanel("keybinder.editor.scroll", actions);
+        root.setComponent(actionsScroll, WurmBorderPanel.CENTER);
         root.setComponent(footerArea, WurmBorderPanel.SOUTH);
         setComponent(root);
         setInitialSize(MIN_WIDTH, 430, true);
@@ -314,7 +316,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         updateHudMultiState();
         lastHudMultiChecked = hudMulti.checked;
         refreshRows();
-        selectedRow = rows.get(0);
+        selectRow(rows.get(0));
         rebuildActions();
         applyLayout();
     }
@@ -342,11 +344,11 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             ActionRow destination = captureTargetRow;
             captureTargetRow = null;
             if (destination != null && rows.contains(destination)) {
-                selectedRow = destination;
+                selectRow(destination);
                 destination.setActionStep(step);
             } else {
                 VariantZone zone = zones.get(0);
-                selectedRow = new ActionRow(zone, step);
+                selectRow(new ActionRow(zone, step));
                 zone.rows.add(selectedRow);
                 refreshRows();
             }
@@ -357,7 +359,10 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     @Override
     public void buttonPressed(WButton button) {
         ActionRow owner = ownerOf(button);
-        if (owner != null) selectedRow = owner;
+        if (owner != null) selectRow(owner);
+        else for (VariantZone zone : zones)
+            if (button == zone.collapse || button == zone.remove || button == zone.extract)
+                selectZone(zone);
     }
 
     @Override
@@ -397,12 +402,13 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             zones.add(zone);
             updateHudMultiState();
             refreshRows();
-            selectedRow = zone.rows.get(0);
-            rebuildActions();
+            selectRow(zone.rows.get(0));
+            rebuildActions(zone.panel);
             return;
         }
         for (VariantZone zone : new ArrayList<VariantZone>(zones)) {
             if (button == zone.collapse) {
+                selectZone(zone);
                 zone.collapsed = !zone.collapsed;
                 zone.rebuildPanel();
                 applyActionLayout(Math.max(300, width - WINDOW_CHROME));
@@ -410,11 +416,13 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             }
             if (button == zone.remove) {
                 if (zone.defaultZone || zones.size() <= 1) return;
+                int oldIndex = zones.indexOf(zone);
                 if (zone.id.equals(activeVariantId)) activeVariantId = zones.get(0).id;
                 zones.remove(zone);
                 updateHudMultiState();
                 refreshRows();
-                selectedRow = rows.isEmpty() ? null : rows.get(0);
+                if (selectedZone == zone)
+                    selectRow(zones.get(Math.min(oldIndex, zones.size() - 1)).rows.get(0));
                 rebuildActions();
                 return;
             }
@@ -454,8 +462,8 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
                     ActionRow inserted = new ActionRow(zone, null);
                     zone.rows.add(index, inserted);
                     refreshRows();
-                    selectedRow = inserted;
-                    rebuildActions();
+                    selectRow(inserted);
+                    rebuildActions(inserted.panel);
                 });
                 return;
             }
@@ -467,7 +475,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
                     if (zone.rows.isEmpty()) zone.rows.add(new ActionRow(zone, null));
                     refreshRows();
                     if (selectedRow == row)
-                        selectedRow = zone.rows.get(Math.min(oldIndex, zone.rows.size() - 1));
+                        selectRow(zone.rows.get(Math.min(oldIndex, zone.rows.size() - 1)));
                     rebuildActions();
                 });
                 return;
@@ -477,9 +485,21 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
 
     private ActionRow ownerOf(WButton button) {
         for (ActionRow row : rows)
-            if (button == row.add || button == row.remove || button == row.capture
+            if (button == row.add || button == row.remove || button == row.capture || button == row.help
                     || button == row.bulkSourceButton) return row;
         return null;
+    }
+
+    private void selectRow(ActionRow row) {
+        selectedRow = row;
+        if (row != null) selectedZone = row.zone;
+    }
+
+    private void selectZone(VariantZone zone) {
+        // Keep the object identity through renumbering and panel rebuilds.
+        // This editor selection never changes the variant used by the live bind.
+        selectedZone = zone;
+        if (selectedRow == null || selectedRow.zone != zone) selectedRow = zone.rows.get(0);
     }
 
     private void save() {
@@ -553,7 +573,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     private void updateStepType(ActionRow row) {
         int typeValue = row.type.getValue();
         if (typeValue == row.lastTypeValue) return;
-        selectedRow = row;
+        selectRow(row);
         row.lastTypeValue = typeValue;
         row.resetForType();
         row.rebuildPanel();
@@ -563,7 +583,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     private boolean updateVanillaAction(ActionRow row) {
         int value = row.vanillaAction.getValue();
         if (value == row.lastVanillaValue) return false;
-        selectedRow = row;
+        selectRow(row);
         row.lastVanillaValue = value;
         row.createTarget();
         row.rebuildPanel();
@@ -580,7 +600,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     private void updateBulkDestination(ActionRow row) {
         int destinationValue = row.bulkDestination.getValue();
         if (destinationValue == row.lastBulkDestinationValue) return;
-        selectedRow = row;
+        selectRow(row);
         row.lastBulkDestinationValue = destinationValue;
         if (row.hasCapturedBulkDestination && destinationValue == 0) return;
         int baseIndex = row.hasCapturedBulkDestination
@@ -610,7 +630,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         if (!row.usesActionSource()) return;
         int sourceValue = row.source.getValue();
         if (sourceValue == row.lastSourceValue) return;
-        selectedRow = row;
+        selectRow(row);
         row.lastSourceValue = sourceValue;
         if (row.hasConcreteSource && sourceValue == 0) return;
         int sourceIndex = row.hasConcreteSource ? sourceValue - 1 : sourceValue;
@@ -633,7 +653,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         if (!row.usesActionTarget()) return;
         int value = row.target.getValue();
         if (value == row.lastDropdownValue) return;
-        selectedRow = row;
+        selectRow(row);
         row.lastDropdownValue = value;
         if (row.hasConcreteTarget && value == 0) return;
         int baseIndex = row.hasConcreteTarget ? value - 1 : value;
@@ -741,6 +761,13 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
     private boolean contentReadyForMinimum() { return modCommandCatalogs != null; }
 
     private void rebuildActions() {
+        rebuildActions(null);
+    }
+
+    private void rebuildActions(FlexComponent inserted) {
+        // Native layout clamps the offset while removeAllComponents temporarily
+        // empties the list. Restore only after its final height is available.
+        int scrollOffset = actionsScroll.yo;
         actions.removeAllComponents();
         actionGapZone = null;
         for (int i = 0; i < zones.size(); i++) {
@@ -753,6 +780,16 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         actions.addComponent(addVariant);
         actions.componentResized();
         applyActionLayout(Math.max(300, width - WINDOW_CHROME));
+        actionsScroll.layout();
+        int offset = Math.min(scrollOffset, actionsScroll.verticalBar().maximum());
+        if (inserted != null) {
+            int viewportHeight = ((FlexComponent) actionsScroll.offs).height;
+            int top = inserted.y - actions.y;
+            if (top < offset || inserted.height > viewportHeight) offset = top;
+            else if (top + inserted.height > offset + viewportHeight)
+                offset = top + inserted.height - viewportHeight;
+        }
+        actionsScroll.scrollDownTo(Math.max(0, offset));
     }
 
     private void applyLayout() {
@@ -792,7 +829,15 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
 
     @Override protected void closePressed() { controller.closeEditor(); }
     @Override public void handleInput(String input) {}
-    @Override public void handleInputChanged(KeybinderUiInputField field, String input) {}
+    @Override public void handleInputChanged(KeybinderUiInputField field, String input) {
+        for (VariantZone zone : zones) {
+            if (field == zone.subName) { selectZone(zone); return; }
+            for (ActionRow row : zone.rows)
+                if (field == row.command || field == row.bulkQuantity) {
+                    selectRow(row); return;
+                }
+        }
+    }
     @Override public void handleEscape(KeybinderUiInputField field) {}
 
     private String selectedKey() {
@@ -914,11 +959,12 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         zoneRows.remove(source);
         zoneRows.add(Math.max(0, Math.min(destination, zoneRows.size())), moving);
         refreshRows();
-        selectedRow = moving;
+        selectRow(moving);
         rebuildActions();
     }
 
     private void beginZoneDrag(VariantZone zone, int mouseY) {
+        selectZone(zone);
         if (zone.defaultZone) return;
         hideZoneInsertionGap();
         draggedZone = zone;
@@ -1030,6 +1076,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             this.displayIndex = displayIndex;
             this.panel = new ZonePanel();
             this.header = new HeaderRow(this);
+            subName.setFocusListener(() -> selectZone(this));
             titleRow.componentWidthOffset = COLUMN_GAP;
             subName.setMaxInput(KeybindLimits.MAX_VARIANT_NAME_LENGTH);
             subName.setText(variant.getSubName());
@@ -1161,14 +1208,19 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
 
             @Override
             protected void renderComponent(Queue queue, float alpha) {
-                fillRect(queue, defaultZone ? 0.16f : 0.12f, 0.20f, 0.24f,
+                boolean selected = VariantZone.this == selectedZone;
+                // Stable material tint: it must not follow HUD hover/fade alpha.
+                fillRect(queue, selected ? 0.29f : defaultZone ? 0.16f : 0.12f,
+                        selected ? 0.39f : 0.20f, selected ? 0.48f : 0.24f,
                         0.78f, x, y, width, height);
                 super.renderComponent(queue, 1.0f);
             }
 
             @Override
             void leftPressed(int mouseX, int mouseY, int clickCount) {
-                if (!inside(collapse, mouseX, mouseY)
+                selectZone(VariantZone.this);
+                if (inside(titleRow, mouseX, mouseY)
+                        && !inside(collapse, mouseX, mouseY)
                         && (defaultZone || !inside(remove, mouseX, mouseY))
                         && (defaultZone || !inside(extract, mouseX, mouseY))
                         && !inside(subName, mouseX, mouseY))
@@ -1304,7 +1356,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         private final SelectableActionLabel actionName;
         private final VerticalSeparator sourceSeparator = new VerticalSeparator();
         private final WurmLabel sourceGap = horizontalSpacer(SOURCE_MIN_WIDTH);
-        private SelectableSourceDropDown source;
+        private SelectableActionDropDown source;
         private KeybinderUiDropDown smartImproveSource;
         private SmartImproveSourceMode smartImproveSourceMode =
                 SmartImproveSourceMode.TOOLBELT_THEN_INVENTORY;
@@ -1317,7 +1369,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         private KeybinderUiDropDown modCatalogAction;
         private KeybinderUiDropDown vanillaAction;
         private final VerticalSeparator targetSeparator = new VerticalSeparator();
-        private SelectableTargetDropDown target;
+        private SelectableActionDropDown target;
         private int lastDropdownValue;
         private String selectedTarget;
         private String lastIdText = null;
@@ -1329,6 +1381,8 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             this.zone = zone;
             panel = new SelectableActionPanel(this);
             actionName = new SelectableActionLabel(this);
+            command.setFocusListener(() -> selectRow(this));
+            bulkQuantity.setFocusListener(() -> selectRow(this));
             String selectedVanillaCommand = step instanceof VanillaActionStep
                     ? ((VanillaActionStep) step).getCommand() : null;
             String selectedConsoleCommand = step instanceof ConsoleCommandStep
@@ -1340,7 +1394,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
                 initialType = modCatalogTypeIndex(selectedModCatalog);
             else if (initialType < 0) initialType = selectedVanillaCommand != null
                         ? vanillaTypeFor(selectedVanillaCommand) : 4;
-            type = new KeybinderUiDropDown("keybinder.step.type", initialType, stepTypeOptions());
+            type = new SelectableActionDropDown(this, "keybinder.step.type", initialType, stepTypeOptions());
             lastTypeValue = initialType;
             controls.componentWidthOffset = 1;
             controls.addComponent(add);
@@ -1481,7 +1535,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         private void createModCatalogAction(String selectedCommand) {
             ModCommandCatalog catalog = modCatalog();
             if (catalog == null || catalog.getEntries().isEmpty()) {
-                modCatalogAction = new KeybinderUiDropDown(
+                modCatalogAction = new SelectableActionDropDown(this,
                         "keybinder.mod_catalog.action", 0, new String[]{""});
                 return;
             }
@@ -1494,14 +1548,14 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
                 if (selectedCommand != null
                         && entry.getCommand().equalsIgnoreCase(selectedCommand)) selected = i;
             }
-            modCatalogAction = new KeybinderUiDropDown(
+            modCatalogAction = new SelectableActionDropDown(this,
                     "keybinder.mod_catalog.action", selected, options);
         }
 
         private void createVanillaAction(String selectedCommand) {
             VanillaKeybindCatalog.Category category = vanillaCategory();
             if (category == null) {
-                vanillaAction = new KeybinderUiDropDown(
+                vanillaAction = new SelectableActionDropDown(this,
                         "keybinder.vanilla.action", 0, new String[]{""});
                 lastVanillaValue = 0;
                 return;
@@ -1515,7 +1569,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
                 if (selectedCommand != null
                         && entry.getCommand().equalsIgnoreCase(selectedCommand)) selected = i;
             }
-            vanillaAction = new KeybinderUiDropDown("keybinder.vanilla.action", selected, options);
+            vanillaAction = new SelectableActionDropDown(this, "keybinder.vanilla.action", selected, options);
             lastVanillaValue = selected;
         }
 
@@ -1524,7 +1578,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             if (!usesActionTarget()) {
                 hasConcreteTarget = false;
                 lastDropdownValue = 0;
-                target = new SelectableTargetDropDown(this, 0, new String[]{""});
+                target = new SelectableActionDropDown(this, "keybinder.target", 0, new String[]{""});
                 return;
             }
             if (!concreteTarget(selectedTarget)
@@ -1535,7 +1589,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             hasConcreteTarget = concreteTarget(selectedTarget);
             String[] options = EditorOptionPresentation.targetOptions(selectedTarget, base);
             lastDropdownValue = hasConcreteTarget ? 0 : optionFor(base, selectedTarget);
-            target = new SelectableTargetDropDown(this, lastDropdownValue, options);
+            target = new SelectableActionDropDown(this, "keybinder.target", lastDropdownValue, options);
         }
 
         private void createBulkDestination() {
@@ -1558,7 +1612,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
             System.arraycopy(base, 0, options, offset, base.length);
             int selected = hasCapturedBulkDestination ? 0
                     : bulkDestinationKind == BulkDestinationKind.HOVERED_INVENTORY ? 1 : 0;
-            bulkDestination = new KeybinderUiDropDown(
+            bulkDestination = new SelectableActionDropDown(this,
                     "keybinder.bulk.destination", selected, options);
             lastBulkDestinationValue = selected;
         }
@@ -1609,12 +1663,12 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
                 labels[i + offset] = EditorOptionPresentation.sourceLabel(SOURCE_OPTIONS[i]);
             int selected = hasConcreteSource ? 0
                     : EditorOptionPresentation.sourceOptionFor(selectedSource.getKind());
-            source = new SelectableSourceDropDown(this, selected, labels);
+            source = new SelectableActionDropDown(this, "keybinder.source", selected, labels);
             lastSourceValue = selected;
         }
 
         private void createSmartImproveSource() {
-            smartImproveSource = new KeybinderUiDropDown("keybinder.improve.source",
+            smartImproveSource = new SelectableActionDropDown(this, "keybinder.improve.source",
                     smartImproveSourceMode == SmartImproveSourceMode.TOOLBELT_ONLY ? 0 : 1,
                     new String[]{
                             Messages.text("editor.improve.source.toolbelt_only"),
@@ -1623,7 +1677,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         }
 
         private void createArcheologyIdentifySource() {
-            archeologyIdentifySource = new KeybinderUiDropDown(
+            archeologyIdentifySource = new SelectableActionDropDown(this,
                     "keybinder.archeology.identify.source",
                     archeologyIdentifySourceMode
                             == ArcheologyIdentifySourceMode.TOOLBELT_ONLY ? 0 : 1,
@@ -2020,7 +2074,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
 
         @Override
         void leftPressed(int mouseX, int mouseY, int clickCount) {
-            selectedRow = owner;
+            selectRow(owner);
             beginRowDrag(owner, mouseY);
             super.leftPressed(mouseX, mouseY, clickCount);
         }
@@ -2055,7 +2109,7 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
 
         @Override
         void leftPressed(int mouseX, int mouseY, int clickCount) {
-            selectedRow = owner;
+            selectRow(owner);
             beginRowDrag(owner, mouseY);
             super.leftPressed(mouseX, mouseY, clickCount);
         }
@@ -2071,32 +2125,17 @@ public final class KeybinderEditorWindow extends KeybinderUiWindow implements Bu
         }
     }
 
-    private final class SelectableTargetDropDown extends KeybinderUiDropDown {
+    private final class SelectableActionDropDown extends KeybinderUiDropDown {
         private final ActionRow owner;
 
-        private SelectableTargetDropDown(ActionRow owner, int selectedValue, String[] options) {
-            super("keybinder.target", selectedValue, options);
+        private SelectableActionDropDown(ActionRow owner, String id, int selectedValue, String[] options) {
+            super(id, selectedValue, options);
             this.owner = owner;
         }
 
         @Override
         protected void leftPressed(int mouseX, int mouseY, int clickCount) {
-            selectedRow = owner;
-            super.leftPressed(mouseX, mouseY, clickCount);
-        }
-    }
-
-    private final class SelectableSourceDropDown extends KeybinderUiDropDown {
-        private final ActionRow owner;
-
-        private SelectableSourceDropDown(ActionRow owner, int selectedValue, String[] options) {
-            super("keybinder.source", selectedValue, options);
-            this.owner = owner;
-        }
-
-        @Override
-        protected void leftPressed(int mouseX, int mouseY, int clickCount) {
-            selectedRow = owner;
+            selectRow(owner);
             super.leftPressed(mouseX, mouseY, clickCount);
         }
     }

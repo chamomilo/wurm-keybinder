@@ -85,7 +85,7 @@ class KeybinderUiButton extends WButton implements KeybinderLocalized {
         int chosen = 128, top = 0, bottom = 0;
         for (KeybinderUiButton button : buttons) {
             UiButtonLayout fit = UiButtonLayout.fit(new String[]{button.label}, Math.max(32, button.width),
-                    Math.max(32, button.height), UiDensity.HIGH, UiScale.BASE, true);
+                    Math.max(32, button.height), UiDensity.HIGH, KeybinderUi.DIALOG_SCALE, true);
             chosen = Math.min(chosen, Math.min(button.ceiling, fit.fontPixels));
         }
         for (KeybinderUiButton button : buttons) {
@@ -120,7 +120,7 @@ class KeybinderUiButton extends WButton implements KeybinderLocalized {
     protected void paintSurface(Queue queue) {
         motion.update(isEnabled(), hovered, isCloseHovered, System.nanoTime());
         UiPainter.button(canvas.begin(queue), motion.brightness(), motion.depth(), motion.hover(),
-                UiScale.BASE, 1f, x, y, width, height);
+                KeybinderUi.DIALOG_SCALE, 1f, x, y, width, height);
     }
     @Override protected void renderComponent(Queue queue, float ignoredAlpha) {
         paintSurface(queue);

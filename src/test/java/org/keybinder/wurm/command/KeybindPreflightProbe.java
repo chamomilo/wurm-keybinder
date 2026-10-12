@@ -9,9 +9,11 @@ import org.keybinder.wurm.integration.ActionSourceOverride;
 import org.keybinder.wurm.integration.ClientAccess;
 import org.keybinder.wurm.model.ActionStep;
 import org.keybinder.wurm.model.ActivateToolStep;
+import org.keybinder.wurm.model.ConsoleCommandStep;
 import org.keybinder.wurm.model.KeybindRecord;
 import org.keybinder.wurm.model.TargetKind;
 import org.keybinder.wurm.model.TargetSpec;
+import org.keybinder.wurm.model.VanillaActionStep;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -30,6 +32,9 @@ public class KeybindPreflightProbe {
         if ("order".equals(args[0])) probe.allUnavailableStepsAreReportedBeforeFirstSendAndDoNotUseCapacity();
         else if ("snapshot".equals(args[0])) probe.laterActionsUseThePressTimeTargetEvenWhenEarlierDispatchChangesHud();
         else if ("activation".equals(args[0])) probe.simulatesEmptyHandActivation();
+        else if ("commands".equals(args[0])) probe.unavailableCommandsAreRejectedBeforeFirstSend();
+        else if ("capacity".equals(args[0])) probe.onlyAvailableQueueCapacityIsUsed(2, 0);
+        else if ("occupied".equals(args[0])) probe.onlyAvailableQueueCapacityIsUsed(3, 1);
         else probe.missingActiveItemNeverReachesTheSendPath();
     }
     private final List<Long> sent = new ArrayList<Long>();
@@ -89,6 +94,39 @@ public class KeybindPreflightProbe {
         Field active = HeadsUpDisplay.class.getDeclaredField("activeToolItem");
         active.setAccessible(true);
         assertEquals(null, active.get(hud));
+    }
+
+    public void unavailableCommandsAreRejectedBeforeFirstSend() throws Exception {
+        List<String> events = new ArrayList<String>();
+        HeadsUpDisplay hud = hud(41L);
+        KeybindExecutionService service = service(access(), events, false);
+        service.execute(new KeybindRecord("commands", "Test", "R", Arrays.asList(
+                action(TargetKind.ACTIVE_TOOL),
+                new ConsoleCommandStep("keybinder_run nested"),
+                new VanillaActionStep("KEYBINDER_MISSING_NATIVE_ACTION"),
+                new VanillaActionStep("\"keybinder_run\tnested\""),
+                new ConsoleCommandStep(" "),
+                action(TargetKind.ACTIVE_TOOL))), hud, 2);
+
+        assertEquals(Arrays.asList(41L, 41L), sent);
+        int firstSend = events.indexOf("send");
+        assertTrue(events.toString(), firstSend >= 4);
+        for (int index = 0; index < firstSend; index++)
+            assertTrue(events.get(index), events.get(index).contains("skipping"));
+        assertEquals(Arrays.asList("send", "send"), events.subList(firstSend, events.size()));
+    }
+
+    public void onlyAvailableQueueCapacityIsUsed(int limit, int occupied) throws Exception {
+        List<String> events = new ArrayList<String>();
+        HeadsUpDisplay hud = hud(41L);
+        KeybindExecutionService service = service(access(), events, false);
+        service.execute(new KeybindRecord("capacity", "Test", "R", Arrays.asList(
+                action(TargetKind.ACTIVE_TOOL), action(TargetKind.ACTIVE_TOOL),
+                action(TargetKind.ACTIVE_TOOL))), hud, limit, () -> occupied);
+
+        assertEquals(Arrays.asList(41L, 41L), sent);
+        assertEquals(3, events.size());
+        assertTrue(events.get(2), events.get(2).contains("skipping"));
     }
 
     private static ActionStep action(TargetKind kind) {

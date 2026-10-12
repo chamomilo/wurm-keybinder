@@ -13,6 +13,8 @@ import org.keybinder.wurm.ui.QueueMonitorSide;
 import org.keybinder.wurm.ui.RowInsertionCalculator;
 import org.keybinder.wurm.ui.DropZoneClassifier;
 import org.keybinder.wurm.model.KeybindLimits;
+import org.chamomilo.wurm.ui.v1.UiCompactLayout;
+import org.chamomilo.wurm.ui.v1.UiScale;
 
 import java.util.HashMap;
 import java.util.ArrayList;
@@ -60,8 +62,8 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
     private final Map<KeybinderUiCheckBox, String> checkboxIds = new HashMap<>();
     private final Map<KeybinderUiCheckBox, Boolean> checkboxStates = new HashMap<>();
     private final Map<WButton, RowAction> rowActions = new HashMap<>();
-    private final Map<WButton, String> editIds = new HashMap<>();
-    private final Map<WButton, String> duplicateIds = new HashMap<>();
+    private final UiScale rowActionScale = KeybinderUi.DIALOG_SCALE;
+    private UiCompactLayout[] rowActionLayouts;
     private int requiredNameWidth;
     private int requiredKeyWidth;
     private int requiredUserWidth;
@@ -244,14 +246,18 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
         checkboxIds.clear();
         checkboxStates.clear();
         rowActions.clear();
-        editIds.clear();
-        duplicateIds.clear();
         requiredNameWidth = 0;
         requiredKeyWidth = KEY_WIDTH;
         requiredUserWidth = 90;
         requiredServerWidth = 100;
-        requiredEditWidth = localizedButtonColumnWidth("common.edit", EDIT_MIN_WIDTH);
-        requiredDuplicateWidth = localizedButtonColumnWidth("common.duplicate", DUPLICATE_MIN_WIDTH);
+        // Named group: keybinder.list.row-actions. Both repeated columns share
+        // the complete active-language caption set, including offscreen rows.
+        rowActionLayouts = UiCompactLayout.group(
+                new String[]{Messages.text("common.edit"), Messages.text("common.duplicate")},
+                new int[]{rowActionScale.pixels(EDIT_MIN_WIDTH), rowActionScale.pixels(DUPLICATE_MIN_WIDTH)},
+                rowActionScale, false);
+        requiredEditWidth = rowActionLayouts[0].width;
+        requiredDuplicateWidth = rowActionLayouts[1].width;
         table.addComponent(header());
         for (KeybindRecord record : filteredRecords()) {
             table.addComponent(row(record));
@@ -278,7 +284,7 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
     }
 
     private FlexComponent row(KeybindRecord record) {
-        KeybinderUiCheckBox enabled = new KeybinderUiCheckBox("");
+        KeybinderUiCheckBox enabled = new KeybinderUiCheckBox("", 24);
         enabled.checked = record.isEnabled();
         checkboxIds.put(enabled, record.getId());
         checkboxStates.put(enabled, record.isEnabled());
@@ -291,13 +297,10 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
         WurmLabel createdOn = new SelectableLabel(
                 KeybindListViewModel.displayOrigin(record.getCreatedOnServer()), record.getId());
 
-        WButton edit = new KeybinderUiButton(Messages.text("common.edit"), this);
-        edit.setHoverString(Messages.text("keybind.edit.tip"));
-        editIds.put(edit, record.getId());
-
-        WButton duplicate = new KeybinderUiButton(Messages.text("common.duplicate"), this);
-        duplicate.setHoverString(Messages.text("keybind.duplicate.tip"));
-        duplicateIds.put(duplicate, record.getId());
+        WButton edit = rowCaptionAction(0, "common.edit", "keybind.edit.tip",
+                () -> controller.editKeybind(record.getId()));
+        WButton duplicate = rowCaptionAction(1, "common.duplicate", "keybind.duplicate.tip",
+                () -> controller.duplicateKeybind(record.getId()));
 
         WurmArrayPanel<FlexComponent> controls =
                 new KeybinderUiArrayPanel<>("keybinder.controls." + record.getId(), WurmArrayPanel.DIR_HORIZONTAL);
@@ -527,9 +530,13 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
         root.componentResized();
     }
 
-    static int localizedButtonColumnWidth(String messageKey, int minimum) {
-        return LocalizedLayout.controlWidth(
-                Messages.text(messageKey), minimum, 18, text -> new KeybinderUiLabel(text).width);
+    private WButton rowCaptionAction(int column, String captionKey, String hintKey, Runnable action) {
+        String caption = Messages.text(captionKey);
+        ChamomiloUiV1CompactButton button = new ChamomiloUiV1CompactButton(
+                caption, rowActionLayouts[column].width, rowActionScale, action);
+        button.applyLayout(caption, rowActionLayouts[column]);
+        button.setHoverString(Messages.text(hintKey));
+        return button;
     }
 
     private final class SelectableRow extends KeybinderUiArrayPanel<FlexComponent> {
@@ -740,9 +747,6 @@ public final class KeybinderWindow extends KeybinderUiWindow implements ButtonLi
         else if (button == importFileButton) controller.requestImportFile();
         else if (button == exportAllButton) controller.requestExportAll();
         else if (button == restoreButton) controller.restoreOriginalBindings();
-        else if (editIds.containsKey(button)) controller.editKeybind(editIds.get(button));
-        else if (duplicateIds.containsKey(button))
-            controller.duplicateKeybind(duplicateIds.get(button));
         else {
             RowAction action = rowActions.get(button);
             if (action == null) return;

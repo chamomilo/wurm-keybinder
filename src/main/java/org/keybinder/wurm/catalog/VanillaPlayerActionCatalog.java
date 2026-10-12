@@ -5,6 +5,7 @@ import com.wurmonline.shared.constants.PlayerAction;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Collections;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -46,6 +47,11 @@ public final class VanillaPlayerActionCatalog {
 
     public PlayerAction find(short actionId) {
         return byId.get(actionId);
+    }
+
+    /** Immutable built-in snapshot, independent of the mutable runtime registry. */
+    public Collection<PlayerAction> snapshot() {
+        return byId.values();
     }
 
     public PlayerAction resolveOrGeneric(short actionId) {

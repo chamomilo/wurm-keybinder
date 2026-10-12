@@ -4,6 +4,7 @@ import com.wurmonline.client.options.keybinding.PlayerKeybind;
 import com.wurmonline.client.options.keybinding.PlayerKeybindCategory;
 import com.wurmonline.shared.constants.PlayerAction;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
+import org.keybinder.wurm.catalog.VanillaPlayerActionCatalog;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -34,6 +35,8 @@ public final class VanillaActionPolicy {
 
     /** Unknown server/mod actions remain fully configurable. */
     public static boolean acceptsSelectableTool(short actionId) {
+        Boolean explicitSource = ActionSourceMetadata.selectableTool(actionId);
+        if (explicitSource != null) return explicitSource;
         if (actionId == DRINK_ACTION_ID
                 || actionId == OPEN_INVENTORY_CONTAINER_ACTION_ID
                 || actionId == PlayerAction.EMBARK_DRIVER.getId()
@@ -50,6 +53,11 @@ public final class VanillaActionPolicy {
     }
 
     public static boolean usesItemSource(PlayerKeybind keybind) {
+        String bind = actionBindFor(keybind);
+        Short actionId = bind == null ? null : ACTION_IDS_BY_BIND.get(normalize(bind));
+        Boolean explicitSource = actionId == null ? null
+                : ActionSourceMetadata.selectableTool(actionId);
+        if (explicitSource != null) return explicitSource;
         PlayerKeybindCategory category = keybind.getCategory();
         if (category == PlayerKeybindCategory.SPELLS
                 || category == PlayerKeybindCategory.TERRAFORM) return true;
@@ -154,23 +162,30 @@ public final class VanillaActionPolicy {
             Field field = PlayerAction.class.getDeclaredField("actionIds");
             @SuppressWarnings("unchecked")
             Map<Short, PlayerAction> source = ReflectionUtil.getPrivateField(null, field);
-            for (PlayerAction action : new LinkedHashMap<Short, PlayerAction>(source).values()) {
-                if (action == null || action.getBind() == null
-                        || action.getBind().trim().isEmpty()) continue;
-                String bind = normalize(action.getBind());
-                List<Short> ids = candidates.get(bind);
-                if (ids == null) {
-                    ids = new ArrayList<Short>();
-                    candidates.put(bind, ids);
-                }
-                ids.add(action.getId());
-            }
+            for (PlayerAction action : new LinkedHashMap<Short, PlayerAction>(source).values())
+                addCandidate(candidates, action);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING,
-                    "Unable to match vanilla keybind commands to PlayerAction IDs; "
-                            + "capabilities will fail open", e);
+                    "Unable to read runtime action IDs; using the built-in client snapshot", e);
         }
-        return Collections.unmodifiableMap(uniqueActionIds(candidates));
+        Map<String, Short> result = uniqueActionIds(candidates);
+        candidates.clear();
+        for (PlayerAction action : new VanillaPlayerActionCatalog().snapshot())
+            addCandidate(candidates, action);
+        // Built-in identity and capabilities must survive removed/replaced runtime entries.
+        result.putAll(uniqueActionIds(candidates));
+        return Collections.unmodifiableMap(result);
+    }
+
+    private static void addCandidate(Map<String, List<Short>> candidates, PlayerAction action) {
+        if (action == null || action.getBind() == null || action.getBind().trim().isEmpty()) return;
+        String bind = normalize(action.getBind());
+        List<Short> ids = candidates.get(bind);
+        if (ids == null) {
+            ids = new ArrayList<Short>();
+            candidates.put(bind, ids);
+        }
+        ids.add(action.getId());
     }
 
     private static Map<Short, Capabilities> loadCapabilities(Map<String, Short> actionIdsByBind) {

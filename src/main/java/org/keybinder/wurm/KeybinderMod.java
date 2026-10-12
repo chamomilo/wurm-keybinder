@@ -122,7 +122,7 @@ import java.util.logging.Logger;
 public final class KeybinderMod implements WurmClientMod, Initable, PreInitable, Configurable,
         ModListener, SharedLanguageCoordinator.Participant,
         KeybinderUiController, KeybindEditorController {
-    public static final String VERSION = "0.11.6";
+    public static final String VERSION = "0.11.13";
     public static final String IMPROVE_PROJECT = "https://github.com/Snidor/i2improve";
     public static final String INNIRIA_IMPROVE_PROJECT = "https://github.com/inniria/i2improve";
     public static final String MUNSTA_IMPROVE_PROJECT =

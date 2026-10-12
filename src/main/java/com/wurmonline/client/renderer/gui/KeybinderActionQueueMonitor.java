@@ -1,6 +1,7 @@
 package com.wurmonline.client.renderer.gui;
 
 import com.wurmonline.client.renderer.backend.Queue;
+import com.wurmonline.client.renderer.PickData;
 import com.wurmonline.client.renderer.gui.text.TextFont;
 import com.wurmonline.client.renderer.gui.text.ChamomiloUiV1Fonts;
 import org.chamomilo.wurm.ui.v1.*;
@@ -25,8 +26,6 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     private static final int COLLAPSED_WIDTH = 28;
     private static final int MIN_EXPANDED_WIDTH = 220;
     private static final int MAX_EXPANDED_WIDTH = 520;
-    private static final int ROW_HEIGHT = 22;
-    private static final int TOGGLE_HEIGHT = 18;
     private static final int PADDING = 4;
     private static final int LAMP_SIZE = 20;
     private static final int LAMP_LEFT = 4;
@@ -37,15 +36,16 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     private static final int CLICK_SLOP = 3;
 
     private final ActionQueueMonitorController controller;
-    private final TextFont actionFont = ChamomiloUiV1Fonts.caption(12, false, UiDensity.LOW);
-    private final TextFont detailFont = ChamomiloUiV1Fonts.caption(10, false, UiDensity.LOW);
+    private UiScale scale;
+    private TextFont actionFont, detailFont, titleFont;
+    private int rowHeight, toggleHeight;
     private final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
     private List<ActionQueueEntry> entries = Collections.emptyList();
     private int slots = MAX_SLOTS;
     private QueueMonitorSide side = QueueMonitorSide.RIGHT;
     private boolean expanded;
-    private int animationFrom = COLLAPSED_WIDTH;
-    private int targetWidth = COLLAPSED_WIDTH;
+    private int animationFrom;
+    private int targetWidth;
     private long animationStarted;
     private int pressX;
     private int pressY;
@@ -56,11 +56,27 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     public KeybinderActionQueueMonitor(ActionQueueMonitorController controller) {
         super("Keybinder action queue monitor");
         this.controller = controller;
-        setSize(COLLAPSED_WIDTH, panelHeight(slots));
+        refreshScale();
+        animationFrom = targetWidth = px(COLLAPSED_WIDTH);
+        setSize(targetWidth, panelHeight(slots));
+    }
+
+    private int px(int nominal) { return scale.pixels(nominal); }
+
+    private void refreshScale() {
+        UiScale next = KeybinderUi.viewportScale();
+        if (scale != null && Float.compare(scale.factor, next.factor) == 0) return;
+        scale = next;
+        actionFont = ChamomiloUiV1Fonts.caption(KeybinderUi.fontPixels(scale, 16), false, UiDensity.LOW);
+        detailFont = ChamomiloUiV1Fonts.caption(KeybinderUi.fontPixels(scale, 14), false, UiDensity.LOW);
+        titleFont = ChamomiloUiV1Fonts.caption(KeybinderUi.fontPixels(scale, 16), true, UiDensity.HIGH);
+        rowHeight = Math.max(px(LAMP_SIZE), actionFont.getHeight() + detailFont.getHeight() + px(4));
+        toggleHeight = Math.max(px(24), titleFont.getHeight() + px(4));
     }
 
     @Override
     public void gameTick() {
+        refreshScale();
         int requestedSlots = controller == null ? MAX_SLOTS
                 : controller.getQueueMonitorSlots();
         slots = Math.max(1, Math.min(MAX_SLOTS, requestedSlots));
@@ -71,7 +87,7 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
                 : controller.getQueueMonitorSide();
         side = requestedSide == null ? QueueMonitorSide.RIGHT : requestedSide;
 
-        int desired = expanded ? expandedWidth() : COLLAPSED_WIDTH;
+        int desired = expanded ? expandedWidth() : px(COLLAPSED_WIDTH);
         if (desired != targetWidth) beginAnimation(desired);
         int animatedWidth = animatedWidth(System.currentTimeMillis());
         int desiredHeight = panelHeight(slots);
@@ -88,54 +104,55 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     @Override
     protected void renderComponent(Queue queue, float ignoredAlpha) {
         UiPainter.background(canvas.begin(queue), UiBackground.LEATHER, 1f, x, y, width, height);
-        UiPainter.frame(canvas, 3, 1f, x, y, width, height);
+        UiPainter.frame(canvas, px(3), 1f, x, y, width, height);
         paintToggleArrow(queue);
-        if (width == targetWidth && expanded && width > COLLAPSED_WIDTH)
+        if (width == targetWidth && expanded && width > px(COLLAPSED_WIDTH))
             paintTitle(queue);
 
         for (int index = 0; index < slots; index++) {
             ActionQueueEntry entry = index < entries.size() ? entries.get(index) : null;
-            int rowTop = y + PADDING + TOGGLE_HEIGHT + index * ROW_HEIGHT;
+            int rowTop = y + px(PADDING) + toggleHeight + index * rowHeight;
             paintLamp(queue, index, lampColumnLeft(),
-                    rowTop + Math.max(0, (ROW_HEIGHT - LAMP_SIZE) / 2), entry);
-            if (width == targetWidth && expanded && width > COLLAPSED_WIDTH)
+                    rowTop + Math.max(0, (rowHeight - px(LAMP_SIZE)) / 2), entry);
+            if (width == targetWidth && expanded && width > px(COLLAPSED_WIDTH))
                 paintEntry(queue, rowTop, entry);
         }
     }
 
     private void paintLamp(Queue queue, int index, int left, int top,
                            ActionQueueEntry entry) {
-        UiPainter.button(canvas, entry == null ? .45f : 1f, 0, 0, UiScale.BASE, 1f,
-                left, top, LAMP_SIZE, LAMP_SIZE);
-        canvas.fill(entry == null ? UiColor.MUTED : UiColor.TEXT, 1f, left + 7, top + 7, 6, 6);
+        UiPainter.button(canvas, entry == null ? .45f : 1f, 0, 0, scale, 1f,
+                left, top, px(LAMP_SIZE), px(LAMP_SIZE));
+        canvas.fill(entry == null ? UiColor.MUTED : UiColor.TEXT, 1f,
+                left + px(7), top + px(7), px(6), px(6));
     }
 
     private void paintToggleArrow(Queue queue) {
-        int arrowLeft = lampColumnLeft() + (LAMP_SIZE - 16) / 2;
-        int centerY = y + PADDING + TOGGLE_HEIGHT / 2;
+        int arrowLeft = lampColumnLeft() + (px(LAMP_SIZE) - px(16)) / 2;
+        int centerY = y + px(PADDING) + toggleHeight / 2;
         boolean pointsRight = KeybinderActionQueueMonitorHitBox.arrowPointsRight(
                 side == QueueMonitorSide.LEFT, expanded);
         (pointsRight ? UiIcon.CHEVRON_RIGHT : UiIcon.CHEVRON_LEFT)
-                .paint(canvas, UiColor.TEXT, 1f, arrowLeft, centerY - 8, 16);
+                .paint(canvas, UiColor.TEXT, 1f, arrowLeft, centerY - px(8), px(16));
     }
 
     private void paintTitle(Queue queue) {
         int textLeft;
         int textRight;
         if (side == QueueMonitorSide.LEFT) {
-            textLeft = x + TEXT_RIGHT_PADDING;
-            textRight = lampColumnLeft() - TEXT_LAMP_GAP;
+            textLeft = x + px(TEXT_RIGHT_PADDING);
+            textRight = lampColumnLeft() - px(TEXT_LAMP_GAP);
         } else {
-            textLeft = x + TEXT_LEFT;
-            textRight = x + width - TEXT_RIGHT_PADDING;
+            textLeft = x + px(TEXT_LEFT);
+            textRight = x + width - px(TEXT_RIGHT_PADDING);
         }
         int available = Math.max(1, textRight - textLeft);
-        String title = fit(actionFont, Messages.text("queue.monitor.title"), available);
+        String title = KeybinderUi.fit(titleFont, Messages.text("queue.monitor.title"), available);
         int paintedLeft = KeybinderActionQueueMonitorHitBox.alignedTextLeft(
                 side == QueueMonitorSide.LEFT, textLeft, textRight,
-                actionFont.getWidth(title));
-        actionFont.moveTo(paintedLeft, y + PADDING + 2 + actionFont.getAscent());
-        actionFont.paint(queue, title, 0.88f, 0.76f, 0.50f, 1.0f);
+                titleFont.getWidth(title));
+        titleFont.moveTo(paintedLeft, y + px(PADDING) + (toggleHeight - titleFont.getHeight()) / 2 + titleFont.getAscent());
+        titleFont.paint(queue, title, UiColor.TEXT.red, UiColor.TEXT.green, UiColor.TEXT.blue, 1.0f);
     }
 
     private void paintEntry(Queue queue, int rowTop, ActionQueueEntry entry) {
@@ -143,32 +160,39 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
         int textRight;
         int available;
         if (side == QueueMonitorSide.LEFT) {
-            textLeft = x + TEXT_RIGHT_PADDING;
-            textRight = lampColumnLeft() - TEXT_LAMP_GAP;
+            textLeft = x + px(TEXT_RIGHT_PADDING);
+            textRight = lampColumnLeft() - px(TEXT_LAMP_GAP);
             available = Math.max(1, textRight - textLeft);
         } else {
-            textLeft = x + TEXT_LEFT;
-            available = Math.max(1, width - TEXT_LEFT - 8);
+            textLeft = x + px(TEXT_LEFT);
+            available = Math.max(1, width - px(TEXT_LEFT) - px(TEXT_RIGHT_PADDING));
             textRight = textLeft + available;
         }
         String action = actionText(entry);
         String detail = detailText(entry);
-        String fittedAction = fit(actionFont, action, available);
-        String fittedDetail = fit(detailFont, detail, available);
+        String fittedAction = KeybinderUi.fit(actionFont, action, available);
+        String fittedDetail = KeybinderUi.fit(detailFont, detail, available);
         boolean mirrored = side == QueueMonitorSide.LEFT;
 
         actionFont.moveTo(KeybinderActionQueueMonitorHitBox.alignedTextLeft(
                 mirrored, textLeft, textRight, actionFont.getWidth(fittedAction)),
-                rowTop + 1 + actionFont.getAscent());
-        actionFont.paint(queue, fittedAction,
-                entry == null ? 0.34f : 0.95f,
-                entry == null ? 0.31f : 0.88f,
-                entry == null ? 0.25f : 0.68f, 1.0f);
+                rowTop + px(2) + actionFont.getAscent());
+        UiColor color = entry == null ? UiColor.MUTED : UiColor.TEXT;
+        actionFont.paint(queue, fittedAction, color.red, color.green, color.blue, 1.0f);
         detailFont.moveTo(KeybinderActionQueueMonitorHitBox.alignedTextLeft(
                 mirrored, textLeft, textRight, detailFont.getWidth(fittedDetail)),
-                rowTop + 11 + detailFont.getAscent());
-        detailFont.paint(queue, fittedDetail,
-                0.68f, 0.66f, 0.60f, 1.0f);
+                rowTop + px(2) + actionFont.getHeight() + detailFont.getAscent());
+        detailFont.paint(queue, fittedDetail, UiColor.MUTED.red, UiColor.MUTED.green, UiColor.MUTED.blue, 1.0f);
+    }
+
+    @Override public void pick(PickData data, int mouseX, int mouseY) {
+        if (!contains(mouseX, mouseY)) return;
+        int relativeY = mouseY - y - px(PADDING) - toggleHeight;
+        if (relativeY < 0) return;
+        int index = relativeY / rowHeight;
+        if (index >= slots || index >= entries.size()) return;
+        ActionQueueEntry entry = entries.get(index);
+        if (entry != null) { data.addText(actionText(entry)); data.addText(detailText(entry)); }
     }
 
     @Override
@@ -183,8 +207,8 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     @Override
     protected void leftReleased(int mouseX, int mouseY) {
         if (!pressed) return;
-        boolean click = Math.abs(mouseX - pressX) <= CLICK_SLOP
-                && Math.abs(mouseY - pressY) <= CLICK_SLOP;
+        boolean click = Math.abs(mouseX - pressX) <= px(CLICK_SLOP)
+                && Math.abs(mouseY - pressY) <= px(CLICK_SLOP);
         int releasedLamp = lampAt(mouseX, mouseY);
         int lamp = pressedLamp;
         boolean toggle = pressedToggle;
@@ -216,30 +240,30 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
 
     private int lampAt(int mouseX, int mouseY) {
         int lampLeft = lampColumnLeft();
-        int lampRight = lampLeft + LAMP_SIZE;
+        int lampRight = lampLeft + px(LAMP_SIZE);
         if (mouseX < lampLeft || mouseX >= lampRight) return -1;
-        int relativeY = mouseY - y - PADDING - TOGGLE_HEIGHT;
+        int relativeY = mouseY - y - px(PADDING) - toggleHeight;
         if (relativeY < 0) return -1;
-        int index = relativeY / ROW_HEIGHT;
+        int index = relativeY / rowHeight;
         if (index < 0 || index >= slots) return -1;
-        int lampTop = index * ROW_HEIGHT + (ROW_HEIGHT - LAMP_SIZE) / 2;
-        return relativeY >= lampTop && relativeY < lampTop + LAMP_SIZE
+        int lampTop = index * rowHeight + (rowHeight - px(LAMP_SIZE)) / 2;
+        return relativeY >= lampTop && relativeY < lampTop + px(LAMP_SIZE)
                 ? index : -1;
     }
 
     private boolean toggleAt(int mouseX, int mouseY) {
         return KeybinderActionQueueMonitorHitBox.contains(mouseX, mouseY,
-                lampColumnLeft(), y + PADDING, LAMP_SIZE, TOGGLE_HEIGHT);
+                lampColumnLeft(), y + px(PADDING), px(LAMP_SIZE), toggleHeight);
     }
 
     private int lampColumnLeft() {
         return KeybinderActionQueueMonitorHitBox.lampColumnLeft(
-                side == QueueMonitorSide.LEFT, x, width, LAMP_LEFT, LAMP_SIZE);
+                side == QueueMonitorSide.LEFT, x, width, px(LAMP_LEFT), px(LAMP_SIZE));
     }
 
     private void toggleExpanded() {
         expanded = !expanded;
-        beginAnimation(expanded ? expandedWidth() : COLLAPSED_WIDTH);
+        beginAnimation(expanded ? expandedWidth() : px(COLLAPSED_WIDTH));
     }
 
     private void beginAnimation(int desiredWidth) {
@@ -257,15 +281,15 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
     }
 
     private int expandedWidth() {
-        int longest = 0;
+        int longest = titleFont.getWidth(Messages.text("queue.monitor.title"));
         for (ActionQueueEntry entry : entries) {
             longest = Math.max(longest, actionFont.getWidth(actionText(entry)));
             longest = Math.max(longest, detailFont.getWidth(detailText(entry)));
         }
-        int contentWidth = Math.max(MIN_EXPANDED_WIDTH,
-                Math.min(MAX_EXPANDED_WIDTH, TEXT_LEFT + longest + TEXT_RIGHT_PADDING));
-        int screenWidth = hud == null ? MAX_EXPANDED_WIDTH
-                : Math.max(COLLAPSED_WIDTH, hud.getWidth() - 8);
+        int contentWidth = Math.max(px(MIN_EXPANDED_WIDTH),
+                Math.min(px(MAX_EXPANDED_WIDTH), px(TEXT_LEFT) + longest + px(TEXT_RIGHT_PADDING)));
+        int screenWidth = hud == null ? px(MAX_EXPANDED_WIDTH)
+                : Math.max(px(COLLAPSED_WIDTH), hud.getWidth() - px(8));
         return Math.min(contentWidth, screenWidth);
     }
 
@@ -286,17 +310,7 @@ public final class KeybinderActionQueueMonitor extends StaticComponent {
                 Messages.text("editor.target"), target);
     }
 
-    private static int panelHeight(int slots) {
-        return PADDING * 2 + TOGGLE_HEIGHT + Math.max(1, slots) * ROW_HEIGHT;
-    }
-
-    private static String fit(TextFont font, String value, int availableWidth) {
-        if (value == null || value.isEmpty() || font.getWidth(value) <= availableWidth)
-            return value == null ? "" : value;
-        String ellipsis = "...";
-        int end = value.length();
-        while (end > 0 && font.getWidth(value.substring(0, end) + ellipsis) > availableWidth)
-            end--;
-        return end == 0 ? ellipsis : value.substring(0, end) + ellipsis;
+    private int panelHeight(int slots) {
+        return px(PADDING) * 2 + toggleHeight + Math.max(1, slots) * rowHeight;
     }
 }

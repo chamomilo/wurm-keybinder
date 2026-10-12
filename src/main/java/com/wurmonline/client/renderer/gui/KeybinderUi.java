@@ -3,6 +3,8 @@ package com.wurmonline.client.renderer.gui;
 import com.wurmonline.client.renderer.gui.text.ChamomiloUiV1Fonts;
 import com.wurmonline.client.renderer.gui.text.TextFont;
 import org.chamomilo.wurm.ui.v1.UiDensity;
+import org.chamomilo.wurm.ui.v1.UiScale;
+import org.chamomilo.wurm.ui.v1.UiTypography;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.*;
@@ -15,7 +17,23 @@ final class KeybinderUi {
     private static final Map<Class<?>, List<Field>> CHILD_FIELDS = new HashMap<>();
     private static final Map<WurmComponent, String> IDS = new WeakHashMap<>();
     private static boolean reflectionReported;
+    // Dialogs use Wurm's pixel layout throughout. Scale an independent HUD
+    // component by viewport only when its complete geometry and input do so.
+    static final UiScale DIALOG_SCALE = UiScale.BASE;
     private KeybinderUi() {}
+
+    /** Physical metrics for viewport-aware controls, independent of Wurm's global font option. */
+    static UiScale viewportScale() {
+        if (WurmComponent.hud == null || WurmComponent.hud.getWidth() <= 0 || WurmComponent.hud.getHeight() <= 0)
+            return UiScale.BASE;
+        return UiScale.forViewport(WurmComponent.hud.getWidth(), WurmComponent.hud.getHeight());
+    }
+
+    static int fontPixels(UiScale scale, int nominal) {
+        int preferred = Math.max(8, scale.pixels(nominal)), result = 8;
+        for (int pixels : UiTypography.sizes()) if (pixels <= preferred) result = pixels;
+        return result;
+    }
 
     static void identify(WurmComponent component, String id) { IDS.put(component, id); }
     static String id(WurmComponent component) {

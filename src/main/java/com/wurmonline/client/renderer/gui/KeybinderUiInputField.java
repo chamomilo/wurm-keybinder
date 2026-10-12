@@ -7,6 +7,9 @@ import java.util.logging.Logger;
 /** Kit field around Wurm's real editing child: focus, selection and clipboard stay native. */
 final class KeybinderUiInputField extends WurmBorderPanel {
     private final ChamomiloUiV1TextField control;
+    private WurmInputField editingChild;
+    private Runnable focusListener;
+    private boolean hadFocus;
     KeybinderUiInputField(String id, KeybinderUiInputListener listener) {
         super(id);
         control = new ChamomiloUiV1TextField(id + ".field", 180, 2048,
@@ -15,6 +18,7 @@ final class KeybinderUiInputField extends WurmBorderPanel {
         KeybinderUi.theme(this);
         for (WurmComponent child : KeybinderUi.tree(control)) if (child instanceof WurmInputField) {
             WurmInputField input = (WurmInputField) child;
+            editingChild = input;
             input.setMaxLines(1);
             try {
                 Field field = WurmInputField.class.getDeclaredField("inputFieldListener");
@@ -39,6 +43,15 @@ final class KeybinderUiInputField extends WurmBorderPanel {
     String getText() { return control.value(); }
     void setText(String value) { control.setText(value); }
     void setInvalid(boolean value) { control.setInvalid(value); }
+    void setFocusListener(Runnable listener) { focusListener = listener; }
+    @Override public void gameTick() {
+        super.gameTick();
+        // Wurm dispatches field clicks directly to its final editing child.
+        // Observe native focus once, without intercepting caret/clipboard input.
+        boolean focused = editingChild != null && editingChild.hasKbFocus;
+        if (focused && !hadFocus && focusListener != null) focusListener.run();
+        hadFocus = focused;
+    }
     void setMaxInput(int maximum) {
         for (WurmComponent child : KeybinderUi.tree(control)) if (child instanceof WurmInputField)
             ((WurmInputField) child).setMaxInput(maximum);

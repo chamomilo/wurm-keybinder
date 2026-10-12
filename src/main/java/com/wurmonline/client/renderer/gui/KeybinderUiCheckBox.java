@@ -14,15 +14,19 @@ final class KeybinderUiCheckBox extends FlexComponent implements KeybinderLocali
     private LocalizedText tipSource;
     private final ChamomiloUiV1Canvas canvas = new ChamomiloUiV1Canvas(this);
     private final UiButtonMotion motion = new UiButtonMotion();
+    private final UiScale scale = KeybinderUi.DIALOG_SCALE;
     KeybinderUiCheckBox(String label) {
+        this(label, 32);
+    }
+    KeybinderUiCheckBox(String label, int nominalHeight) {
         super("keybinder.checkbox"); this.label = label;
         labelSource = LocalizedText.capture(label);
         KeybinderUi.fonts(this);
-        setSize(26 + text.getWidth(label), 32); sizeFlags = FIXED_HEIGHT;
+        setSize(scale.pixels(26) + text.getWidth(label), scale.pixels(nominalHeight)); sizeFlags = FIXED_HEIGHT;
     }
     public void setHoverString(String value) { tip = value; tipSource = LocalizedText.capture(value); }
     @Override public void relocalize() {
-        if (labelSource != null) { label = labelSource.resolve(); setSize(26 + text.getWidth(label), height); }
+        if (labelSource != null) { label = labelSource.resolve(); setSize(scale.pixels(26) + text.getWidth(label), height); }
         if (tipSource != null) tip = tipSource.resolve();
     }
     @Override protected void leftPressed(int mx, int my, int count) {
@@ -41,10 +45,11 @@ final class KeybinderUiCheckBox extends FlexComponent implements KeybinderLocali
     }
     @Override protected void renderComponent(Queue queue, float ignoredAlpha) {
         canvas.begin(queue); motion.update(enabled, hovered, false, System.nanoTime());
-        int top = y + (height - 22) / 2;
-        UiPainter.button(canvas, motion.brightness(), motion.depth(), motion.hover(), UiScale.BASE, 1f, x, top, 22, 22);
-        if (checked) UiIcon.CHECK.paint(canvas, enabled ? UiColor.TEXT : UiColor.MUTED, 1f, x + 3, top + 3, 16);
-        text.moveTo(x + 28, y + (height - text.getHeight()) / 2 + text.getAscent());
+        int size = scale.pixels(22), top = y + (height - size) / 2;
+        UiPainter.button(canvas, motion.brightness(), motion.depth(), motion.hover(), scale, 1f, x, top, size, size);
+        if (checked) UiIcon.CHECK.paint(canvas, enabled ? UiColor.TEXT : UiColor.MUTED, 1f,
+                x + scale.pixels(3), top + scale.pixels(3), scale.pixels(16));
+        text.moveTo(x + scale.pixels(28), y + (height - text.getHeight()) / 2 + text.getAscent());
         UiColor color = enabled ? UiColor.TEXT : UiColor.MUTED;
         text.paint(queue, label, color.red, color.green, color.blue, 1f);
     }

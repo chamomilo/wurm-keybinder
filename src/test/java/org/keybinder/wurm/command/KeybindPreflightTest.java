@@ -22,6 +22,15 @@ public class KeybindPreflightTest {
     @Test public void simulatesEmptyHandActivationWithoutChangingHudDuringPreflight() throws Throwable {
         run("activation");
     }
+    @Test public void rejectsUnavailableCommandsBeforeAnyActionIsSent() throws Throwable {
+        run("commands");
+    }
+    @Test public void sendsOnlyTheActionsThatFitTheQueue() throws Throwable {
+        run("capacity");
+    }
+    @Test public void accountsForAlreadyOccupiedQueueSlots() throws Throwable {
+        run("occupied");
+    }
     private static void run(String scenario) throws Throwable {
         ClassPool pool = new ClassPool(true);
         CtClass hud = pool.get("com.wurmonline.client.renderer.gui.HeadsUpDisplay");

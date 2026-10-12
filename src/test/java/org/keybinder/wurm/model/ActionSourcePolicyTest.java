@@ -70,6 +70,16 @@ public class ActionSourcePolicyTest {
     }
 
     @Test
+    public void analysisCollectionAndEatingKeepOnlyTheirChosenTarget() {
+        TargetSpec target = TargetSpec.exactObject(456L, "selected item");
+        for (short id : new short[]{536, 741, 182, 574, 59}) {
+            ActionStep step = new ActionStep(id, ItemSelector.toolbeltSlot(4), target, "");
+            assertEquals(ItemSelectorKind.EMPTY_HAND, step.getSource().getKind());
+            assertEquals(target, step.getTarget());
+        }
+    }
+
+    @Test
     public void auditedCatalogKeepsOnlyCommandsThatUseAnItemSource() {
         assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.PUSH.getId()));
         assertFalse(ActionSourcePolicy.acceptsSelectableTool(PlayerAction.PULL.getId()));

@@ -1,106 +1,130 @@
 <p align="center">
-  <img src="images/keybinder-banner.png" alt="Wurm Keybinder" width="800">
+  <img src="images/keybinder-banner.png" alt="Keybinder for Wurm Unlimited" width="800">
 </p>
 
-# Keybinder 0.11.6 for Wurm Unlimited
+# Keybinder 0.11.13
 
-Keybinder is a Wurm Unlimited client mod for creating, editing and sharing keybinds through Chamomilo UI. Build action chains, choose portable tools and targets, and manage commands from one HUD window.
+Create, edit and share Wurm Unlimited keybinds from a single HUD window. Combine actions and commands, select tools and targets, and give one key several useful variants.
 
-[Download the latest release](https://github.com/chamomilo/wurm-keybinder/releases/latest) · [Discuss Keybinder](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
+[Download Keybinder](https://github.com/chamomilo/wurm-keybinder/releases/latest) · [Forum and support](https://sklotopolis.freeforums.net/thread/8369/new-2026-mod-wurm-keybinder)
 
-## What's new
-
-- Updated the shared Chamomilo Updater to **1.2.7** and Chamomilo UI to **0.4.10**. The UI SDK is embedded once through the complete updater module.
-- English, Brazilian Portuguese, German and Russian interfaces. Select the shared language in the updater; existing Keybinder windows and drafts refresh without restarting the client.
-- **Quick** menus execute a selected variant immediately. **Multi** bindings remember a variant for later short key presses. Older HUD-mode records and exports remain compatible with Quick.
-- The default Value Pack contains eleven example bindings, including a Q Quick menu, E Multi binding, camera controls and an F sprout chain. New definitions arrive disabled for review; existing choices are retained.
-- The installation ZIP contains **README.txt** and license files. This README's banner stays separately in `images/keybinder-banner.png` in the source repository and is excluded from the ZIP and JAR.
-
-## Features
-
-- Create, edit, duplicate, merge, import and export managed keybinds.
-- Structured action chains, vanilla commands and raw vanilla commands.
-- Quick menus and Multi bindings with separate action sequences per variant.
-- Hovered, selected, inventory-filter, nearby, tile, area, toolbelt, equipment and current-ride targets.
-- Portable tool selectors for the active item, empty hand, toolbelt, equipment, inventory filters and captured items.
-- Smart Improve with automatic tool/resource selection and client-side chance estimates.
-- Archaeology Identify with automatic brush or stone-chisel selection.
-- Mouse-wheel bindings and command catalogs supplied by compatible client mods.
-- Passive shadow recording of actions you perform yourself.
-- Action queue monitor, queue-capacity checks, per-character enabled state and Event logging.
-- Review-based import of predecessor and vanilla bindings, with backups, ownership checks and restoration.
-
-## Installation and upgrade
+## Install
 
 Requires **Wurm Unlimited** and **Ago's Client Mod Launcher**.
 
-1. Download `keybinder-0.11.6.zip` from the release page.
-2. Close the client and extract the ZIP into your Wurm Unlimited client directory. It contains `mods/keybinder.properties` and `mods/keybinder/`.
-3. When upgrading, overwrite the existing Keybinder distribution files. Managed keybind data is stored separately and is not included in the ZIP.
-4. Start the client and enable **Keybinder** in **HUD Settings** if its window is hidden.
+1. Download `keybinder-0.11.13.zip` from the release page.
+2. Close the client. Extract the archive into the client directory so its `mods` folder joins the existing one.
+3. Start Wurm and enable **Keybinder** in **HUD Settings**.
 
-Keybinder replaces Custom Actions, Improved Improve and i2improve. Import their bindings through Keybinder's review workflow, then disable the predecessor mods for normal use.
+For an upgrade, replace the supplied Keybinder files. Your saved keybinds are separate from the distribution. Back up `mods/keybinder/keybinds.properties`, its account-state file and your existing `mods/keybinder.properties` before upgrading if you want to preserve a copy of your data and settings.
 
-## Getting started
+The archive contains the Keybinder JAR, mod descriptor, required HUD artwork, **README.txt** and license notices. Repository images and source files stay outside the installation archive.
 
-Open the keybind list and choose **Add new keybind**. Name the binding, capture its key or mouse-wheel chord, add actions, select tools and targets, then save. Search the current client action catalog or enter a numeric action ID. Use **Read instruction** for the detailed in-game guide and About information.
+Keybinder replaces **Custom Actions**, **Improved Improve** and **i2improve**. Review and import their bindings in Keybinder, then disable the predecessor mods for regular play.
 
-For inventory filters and nearby-type targets, choose a stable object type. Toolbelt and equipment capture store portable slot references. Shadow recording observes ordinary actions and asks you to resolve targets it cannot identify reliably. Captured personal items in imported examples need to be replaced with your own selections.
+## Your keybinds in one place
 
-Unavailable steps are explained in Event. Keybinder resolves sources and targets before dispatch and checks queue-consuming actions against available capacity. An over-limit chain does not partially execute; local tool activation costs no queue slots. Nearby and other multi-target actions are resolved at runtime.
+Add, edit, duplicate, reorder and merge bindings. Filter the list by player or server, enable the bindings you need, and import or export them as files. Enabled state is tracked per character.
 
-Use **Print all keybinds to Event** or `keybinder_list` to inspect managed bindings. Import and restore operations check the live binding before changing it and report ownership conflicts.
+![Keybinder keybind list](images/keybinds.png)
 
-### Quick and Multi
+The bundled **Value Pack** offers eleven starting examples, including a Q Quick menu, an E Multi binding, camera controls and a sprout chain. Examples arrive disabled for review. Set their keys, replace personal item selections and enable the ones you want.
 
-**Quick:** every key press opens the menu. Clicking a variant immediately executes that variant's sequence. Closing the menu executes nothing; the next press opens it again. For example, Q can offer Inventory, Backpack, Repair, Drink water and Pray.
+## Build an action sequence
 
-**Multi:** with at least two variants and Quick unchecked, hold the key for 0.2 seconds to open the selector. Choosing a variant remembers it without executing it. Later short taps run that variant until you hold the key and choose another. Closing the selector preserves the previous choice. With one variant and Quick unchecked, the binding runs directly.
+Choose **Add new keybind**, enter a name and capture a key or mouse-wheel chord. Add actions or commands in execution order, choose the source tool and target for each action, then select **Done**.
 
-Each variant keeps its own actions, tools, targets and queue cost. Menu selection adds no queue cost.
+![Keybind constructor with two variants](images/constructor.png)
 
-## Shared Chamomilo updates
+Keybinder supports:
 
-Keybinder embeds the complete shared Chamomilo updater and UI SDK. Participating mods use one updater window, available from the native **Mod updates** menu. Its startup visibility and shared language preference persist between launches.
+- Action chains, vanilla key actions and console commands.
+- Hovered and selected objects, inventory filters, nearby objects, current ride, tiles and areas.
+- Active tools, empty hand, toolbelt slots, equipment slots and portable item selectors.
+- **Smart Improve**, with automatic tool and resource selection and client-side chance estimates.
+- **Archaeology Identify**, with automatic brush or stone-chisel selection.
+- Command catalogs supplied by compatible client mods.
+- **Shadow recording**, which observes actions you perform and asks you to resolve ambiguous tools or targets before saving.
 
-The registry lists installed, disabled and available mods using [chamomilo-mods.properties](chamomilo-mods.properties). **Update**, **Install** and **Download** open the relevant GitHub release page after an explicit click. ZIP installation is manual.
+Search the client action catalog by name or numeric ID. Unknown server or mod action IDs require explicit acceptance. Actions that do not use a tool show their target directly.
 
-## Command catalog integration
+### Tile targets
 
-A compatible client mod can expose this public static method on its main class:
+Choose one tile relative to the player, or select the whole 3×3 area. **C** is the current tile. Choosing a target in the editor does not send an action.
+
+![Nine-cell tile target selector](images/tile-targets.png)
+
+### Quick menus and Multi bindings
+
+**Quick:** each key press opens a menu. Clicking a variant runs its sequence immediately. Closing the menu runs nothing.
+
+**Multi:** with Quick unchecked and at least two variants, hold the key for **0.2 seconds** to choose the active variant. Choosing it saves the selection; later short taps run it. Closing the selector keeps the previous choice. A binding with one variant runs directly.
+
+![Multi binding variant selector](images/multi-selector.png)
+
+Each variant has its own steps, tools and targets. Menu selection uses no action queue slots.
+
+## Queue and feedback
+
+Before executing a binding, Keybinder checks every step against the current tools, targets and action queue. It skips unavailable steps for that invocation and explains the reason in **Event**. Saved steps remain available for the next press.
+
+Available steps run in order and fill only the free queue capacity. Multi-target actions send the portion that fits. Local tool activation uses no queue slots. The queue monitor can sit at either screen edge.
+
+Use `keybinder_list` to print managed bindings to **Event**. The in-game instruction page explains additional settings, import, export and recording.
+
+## Import and restore
+
+**Import Wurm binds** opens a review of eligible custom bindings. Compatible legacy action commands become structured Keybinder steps; other commands retain their text. Imports keep backups and check that the live binding still matches before changing it.
+
+**Prepare mod removal** restores imported originals where ownership permits. A key occupied by a different binding is reported as a conflict.
+
+## Language and updates
+
+The interface supports **English, Brazilian Portuguese, German and Russian**. Choose the shared language in **Mod updates**; open Keybinder windows refresh without restarting.
+
+This release embeds **Chamomilo Updater 1.4.1** and **Chamomilo UI 0.4.11**. Compatible Chamomilo mods share one update window. The newest compatible embedded updater is selected at startup, including when older mod versions are installed alongside it.
+
+**Update**, **Install** and **Download** open the relevant GitHub release page after a click. Install release ZIPs manually.
+
+## Changes in 0.11.13
+
+- Updated the complete shared updater and UI module.
+- Refined list buttons, queue monitor scaling, text and click areas.
+- Improved constructor selection and scrolling when adding or reordering variants and steps.
+- Corrected tool availability for actions with explicit source requirements.
+- Added preflight checks for invalid native actions and nested Keybinder calls.
+- Updated the illustrated guide and kept the installation archive limited to mod files and required notices.
+
+## Build from source
+
+Use **JDK 8**, the included Gradle wrapper and the pinned libraries in `libs/`: `client-patched.jar`, `common.jar`, `javassist.jar` and `modlauncher.jar`.
+
+The build uses the shared updater project at `C:/projects/updater`. Set `CHAMOMILO_UPDATER_REFERENCE` or `-PchamomiloUpdaterReference` to use another checkout. The updater is rebuilt and its complete embedded contents and checksum are verified before packaging.
+
+```text
+gradlew.bat clean build dist --stacktrace
+```
+
+On other platforms, use `./gradlew`. If the native UI checks need an external JavaFX runtime, set `WURM_JFX` or `WURM_JAVAFX_JAR` to `jfxrt.jar`. The archive is written to `build/distributions/keybinder-0.11.13.zip`.
+
+The interface images above are previews rendered from Keybinder's production controls. Rendering and input checks run against the pinned client libraries; pointer movement, HUD fade, reconnect and gameplay require verification in Wurm after manual installation.
+
+### Command catalog for other mods
+
+A compatible mod can expose this method on its main class:
 
 ```java
 public static String[][] getKeybinderCommandCatalog()
 ```
 
-Each row contains a display label and one complete console command. Keybinder ignores malformed rows, duplicate commands and commands containing placeholder brackets. The category name comes from the provider's `updateName` property, with its mod-loader name as fallback. No Keybinder compile-time dependency is required.
-
-## Building from source
-
-Use **JDK 8** and the included Gradle wrapper. Supply the pinned client libraries in the local, ignored `libs/` directory: `client-patched.jar`, `common.jar`, `javassist.jar` and `modlauncher.jar`.
-
-The build also requires the canonical updater project at `C:/projects/updater`, or the path supplied through `CHAMOMILO_UPDATER_REFERENCE` or `-PchamomiloUpdaterReference`. It rebuilds that reference and verifies its complete embedded module, including the pinned Chamomilo UI version and checksum. The SDK source is maintained separately at `C:/projects/interface items`.
-
-If the native UI probes require an external JavaFX runtime, set `WURM_JFX` or `WURM_JAVAFX_JAR` to the existing `jfxrt.jar`.
-
-```text
-./gradlew clean build dist
-```
-
-On Windows, use `gradlew.bat`. The installable archive is `build/distributions/keybinder-0.11.6.zip`. Checks cover automated tests, production UI probes, versions, namespaces, exact updater embedding and archive contents. Keybinder previews are written to `build/chamomilo-preview`.
-
-The ZIP includes the mod descriptor, JAR, runtime HUD artwork, README.txt and license files. It contains no Markdown files or README banner. The build does not install files into a game directory. Live-game checks of pointer movement, hover, resizing, HUD fade, capture and reconnect remain manual.
-
-## Reporting issues
-
-Include the Keybinder version, relevant Event messages and a description of the affected binding when reporting a problem on the forum. Enable **Debug logging** when additional diagnostics are needed.
+Each row contains a display label and one complete console command. Malformed rows, duplicate commands and placeholder commands are ignored. The category uses the provider's `updateName` property, with its loader name as fallback.
 
 ## Credits and license
 
-Keybinder is derivative work based on [bdew's Custom Actions](https://github.com/bdew-wurm/action). Thanks to bdew for the original implementation. [Original Custom Actions releases](https://github.com/bdew-wurm/action/releases) remain available.
+Keybinder is derivative work based on [bdew's Custom Actions](https://github.com/bdew-wurm/action). Thanks to **bdew** for the original implementation. [Original releases](https://github.com/bdew-wurm/action/releases) remain available.
 
-Smart Improve is a clean-room reimplementation inspired by **Munsta0** (Improved Improve), **inniria** (i2improve) and **Snidor** (continued i2improve). No source code from those Improved Improve mods is bundled.
+Smart Improve is a clean-room reimplementation inspired by **Munsta0** (Improved Improve), **inniria** (i2improve) and **Snidor** (continued i2improve).
 
-Keybinder is licensed under **GNU LGPL 3.0 or later**. See [LICENSE](LICENSE) and [lgpl-3.0.txt](lgpl-3.0.txt). Bundled Alegreya Sans fonts retain their OFL license in the JAR.
+Licensed under **GNU LGPL 3.0 or later**. See [lgpl-3.0.txt](lgpl-3.0.txt) and the accompanying [GPL license](LICENSE). Bundled Alegreya Sans fonts retain their OFL notice in the JAR.
 
 **Chamomilo**

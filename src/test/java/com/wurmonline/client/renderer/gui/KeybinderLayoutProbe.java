@@ -85,6 +85,9 @@ public final class KeybinderLayoutProbe {
         monitor.gameTick(); preview("queue-expanded", monitor);
         verifyControls();
         verifyScrollAndRowRegressions();
+        verifyCompactRowsAndScaledMonitor();
+        verifyPrayUsesOnlyTarget();
+        verifyCatalogToolSelectors();
         for (String language : new String[]{"de", "pt-BR"}) {
             Messages.select(language);
             KeybinderWindow translated = new KeybinderWindow(controller);
@@ -103,7 +106,7 @@ public final class KeybinderLayoutProbe {
             independent.showKeybinds(); independent.setSize(1200,540);
             preview("native-font-" + nativeSize, independent);
         }
-        System.out.println("KEYBINDER_UI_OK: " + screenshots + " production previews; Russian windows/buttons/dropdowns, shared language round-trip, fonts, alpha, grouped buttons, native input, wheel/thumb/drag sync, shrinking lists, long constructor, centered glyphs, row spacing and help");
+        System.out.println("KEYBINDER_UI_OK: " + screenshots + " production previews; four-language COMPACT actions, 1080p/1440p/4K monitor text/hints/hit areas, Russian windows/buttons/dropdowns, shared language round-trip, fonts, alpha, grouped buttons, native input, wheel/thumb/drag sync, shrinking lists, constructor insertion scrolling, persistent variant selection/reordering, centered glyphs, row spacing and help");
         graphics.dispose();
     }
     private static void preview(String id, WurmComponent component) throws Exception {
@@ -113,6 +116,8 @@ public final class KeybinderLayoutProbe {
         drainUiOperations();
         for (WurmComponent node : KeybinderUi.tree(component)) {
             if (node instanceof KeybinderUiButton) ((KeybinderUiButton) node).motion.setAnimationsEnabled(false);
+            if (node instanceof ChamomiloUiV1CompactButton)
+                ((UiButtonMotion)field(ChamomiloUiV1CompactButton.class, "motion").get(node)).setAnimationsEnabled(false);
             if (node instanceof ContainerComponent) ((ContainerComponent) node).layout();
         }
         KeybinderUi.theme(component);
@@ -145,6 +150,144 @@ public final class KeybinderLayoutProbe {
                 }
             }
         }
+    }
+
+    private static void viewport(int width, int height) throws Exception {
+        field(HeadsUpDisplay.class, "width").setInt(WurmComponent.hud, width);
+        field(HeadsUpDisplay.class, "height").setInt(WurmComponent.hud, height);
+        WurmComponent.SCREEN_WIDTH = width; WurmComponent.SCREEN_HEIGHT = height;
+    }
+
+    private static void verifyCompactRowsAndScaledMonitor() throws Exception {
+        List<KeybindRecord> records = new ArrayList<>();
+        for (int i = 0; i < 24; i++) records.add(new KeybindRecord("compact-" + i, "Item " + i, "F" + i,
+                Collections.singletonList(new ConsoleCommandStep("toggleconsole"))));
+        KeybinderUiController delegate = controller(KeybinderUiController.class, records);
+        List<String> invoked = new ArrayList<>();
+        List<Long> cancelled = new ArrayList<>();
+        QueueMonitorSide[] side = {QueueMonitorSide.RIGHT};
+        KeybinderUiController controller = (KeybinderUiController)Proxy.newProxyInstance(
+                KeybinderUiController.class.getClassLoader(), new Class<?>[]{KeybinderUiController.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("editKeybind") || method.getName().equals("duplicateKeybind")) {
+                        invoked.add(method.getName() + ":" + args[0]); return null;
+                    }
+                    if (method.getName().equals("cancelMonitoredAction")) { cancelled.add((Long)args[0]); return null; }
+                    if (method.getName().equals("getQueueMonitorSide")) return side[0];
+                    return Proxy.getInvocationHandler(delegate).invoke(delegate, method, args);
+                });
+        try {
+            for (String language : new String[]{"en", "pt-BR", "de", "ru"}) {
+                Messages.select(language);
+                for (int[] resolution : new int[][]{{1920,1080},{2560,1440},{3840,2160}}) {
+                    viewport(resolution[0], resolution[1]);
+                    UiScale scale = KeybinderUi.viewportScale();
+                    KeybinderWindow window = new KeybinderWindow(controller);
+                    window.showKeybinds(); window.setSize(Math.max(1200, window.width), 540);
+                    List<?> rows = (List<?>)field(KeybinderWindow.class, "tableRows").get(window);
+                    int baseline = -1;
+                    for (Object row : rows) {
+                        if (field(row.getClass(), "recordId").get(row) == null) continue;
+                        for (String column : new String[]{"edit", "duplicate"}) {
+                            ChamomiloUiV1CompactButton button = (ChamomiloUiV1CompactButton)field(row.getClass(), column).get(row);
+                            UiCompactLayout plan = (UiCompactLayout)field(ChamomiloUiV1CompactButton.class, "layout").get(button);
+                            check(button.height == KeybinderUi.DIALOG_SCALE.pixels(24)
+                                    && plan.fontPixels == UiCompactLayout.fontPixels(KeybinderUi.DIALOG_SCALE),
+                                    "COMPACT metrics: " + language + " at " + resolution[1]);
+                            check(!plan.shortened, "Full translated row caption must fit: " + button.getLabel());
+                            if (baseline < 0) baseline = plan.baseline(0);
+                            check(plan.baseline(0) == baseline, "All repeated row actions share one baseline");
+                            for (boolean bold : new boolean[]{false,true}) {
+                                Rectangle ink = UiTypography.ink(button.getLabel(), plan.fontPixels, bold, UiDensity.HIGH);
+                                check(plan.baseline(0) + ink.y >= plan.insetY
+                                        && plan.baseline(0) + ink.y + ink.height <= plan.height - plan.insetY,
+                                        "Compact caption ink stays inside safe vertical bounds");
+                            }
+                        }
+                    }
+                    Object first = rows.get(1), last = rows.get(rows.size()-1);
+                    WButton edit = (WButton)field(first.getClass(), "edit").get(first);
+                    WButton duplicate = (WButton)field(last.getClass(), "duplicate").get(last);
+                    invoked.clear(); click(edit); click(duplicate);
+                    check(invoked.equals(Arrays.asList("editKeybind:compact-0", "duplicateKeybind:compact-23")),
+                            "Native compact clicks preserve record identity, including offscreen rows");
+                    edit.leftPressed(edit.x+5,edit.y+5,1); edit.mouseDragged(0,0); edit.leftReleased(0,0);
+                    edit.setEnabled(false); click(edit); edit.setEnabled(true);
+                    check(invoked.size() == 2, "Compact drag cancellation and disabled input must not execute");
+                    preview("compact-list-" + language + "-" + resolution[1], window);
+                    for (QueueMonitorSide value : QueueMonitorSide.values()) {
+                        side[0] = value;
+                        KeybinderActionQueueMonitor monitor = new KeybinderActionQueueMonitor(controller);
+                        monitor.gameTick();
+                        check(monitor.width == scale.pixels(28), "Collapsed monitor scales with viewport");
+                        int rowHeight = field(KeybinderActionQueueMonitor.class, "rowHeight").getInt(monitor);
+                        int toggleHeight = field(KeybinderActionQueueMonitor.class, "toggleHeight").getInt(monitor);
+                        TextFont action = (TextFont)field(KeybinderActionQueueMonitor.class, "actionFont").get(monitor);
+                        TextFont detail = (TextFont)field(KeybinderActionQueueMonitor.class, "detailFont").get(monitor);
+                        int actionPixels = resolution[1] == 1080 ? 16 : resolution[1] == 1440 ? 20 : 32;
+                        int detailPixels = resolution[1] == 1080 ? 14 : resolution[1] == 1440 ? 18 : 28;
+                        check(((Font)field(PaintFont.class,"font").get(action)).getSize() == actionPixels
+                                && ((Font)field(PaintFont.class,"font").get(detail)).getSize() == detailPixels,
+                                "Readable monitor font roles at " + resolution[1]);
+                        check(rowHeight >= action.getHeight() + detail.getHeight() + scale.pixels(4),
+                                "Monitor lines cannot overlap at any scale");
+                        int lampX = value == QueueMonitorSide.LEFT
+                                ? monitor.x + monitor.width - scale.pixels(4) - scale.pixels(10)
+                                : monitor.x + scale.pixels(4) + scale.pixels(10);
+                        int toggleY = monitor.y + scale.pixels(4) + toggleHeight / 2;
+                        monitor.leftPressed(lampX,toggleY,1); monitor.leftReleased(lampX,toggleY);
+                        monitor.gameTick();
+                        field(KeybinderActionQueueMonitor.class,"animationStarted").setLong(monitor,System.currentTimeMillis()-1000);
+                        monitor.gameTick();
+                        check(field(KeybinderActionQueueMonitor.class,"expanded").getBoolean(monitor), "Scaled arrow opens the monitor");
+                        lampX = value == QueueMonitorSide.LEFT
+                                ? monitor.x + monitor.width - scale.pixels(4) - scale.pixels(10)
+                                : monitor.x + scale.pixels(4) + scale.pixels(10);
+                        int lampY = monitor.y + scale.pixels(4) + toggleHeight + rowHeight + rowHeight / 2;
+                        cancelled.clear();
+                        monitor.leftPressed(lampX,lampY,1); monitor.leftReleased(lampX,lampY);
+                        check(cancelled.equals(Collections.singletonList(2L)), "Scaled second lamp cancels exactly its action");
+                        com.wurmonline.client.renderer.PickData hint = new com.wurmonline.client.renderer.PickData(WurmComponent.hud);
+                        monitor.pick(hint,lampX,lampY);
+                        check(hint.getText().size() == 2 && hint.getText().get(0).equals("Improve")
+                                && hint.getText().get(1).contains("Hammer") && hint.getText().get(1).contains("Large anvil"),
+                                "Monitor hint retains complete action, source and target");
+                        monitor.leftPressed(lampX,lampY,1); monitor.leftReleased(lampX+scale.pixels(8),lampY);
+                        check(cancelled.size() == 1, "Dragging away cannot cancel another action");
+                        preview("queue-" + value.name().toLowerCase(Locale.ROOT) + "-" + language + "-" + resolution[1], monitor);
+                    }
+                }
+            }
+            Messages.select("en"); viewport(1920,1080);
+            KeybinderWindow window = new KeybinderWindow(controller);
+            window.showKeybinds(); window.setSize(1200,540);
+            KeybinderUiScrollPanel scroll = (KeybinderUiScrollPanel)field(KeybinderWindow.class,"listScroll").get(window);
+            scroll.scrollDownTo(150);
+            field(KeybinderWindow.class,"selectedRowId").set(window,"compact-5");
+            String anchor = null; int top = 0;
+            for (Object row : (List<?>)field(KeybinderWindow.class,"tableRows").get(window)) {
+                String id = (String)field(row.getClass(),"recordId").get(row);
+                FlexComponent panel = (FlexComponent)field(row.getClass(),"panel").get(row);
+                if (id != null && panel.y + panel.height > scroll.y) { anchor=id;top=panel.y-scroll.y;break; }
+            }
+            viewport(3840,2160); window.gameTick(); drainUiOperations(); window.gameTick();
+            check(field(KeybinderWindow.class,"selectedRowId").get(window).equals("compact-5"), "Viewport change retains selected record");
+            boolean anchored = false;
+            for (Object row : (List<?>)field(KeybinderWindow.class,"tableRows").get(window)) {
+                if (anchor != null && anchor.equals(field(row.getClass(),"recordId").get(row))) {
+                    FlexComponent panel = (FlexComponent)field(row.getClass(),"panel").get(row);
+                    check(panel.y-scroll.y == top, "Viewport change retains the visible row anchor"); anchored=true;
+                }
+            }
+            check(anchored, "Scrolled list keeps a visible anchor");
+            window.relocalize(); window.gameTick();
+            check(field(KeybinderWindow.class,"selectedRowId").get(window).equals("compact-5"),
+                    "Refitting compact captions retains the selected record");
+            KeybinderActionQueueMonitor monitor = new KeybinderActionQueueMonitor(controller); monitor.gameTick();
+            viewport(1920,1080); monitor.gameTick();
+            check(((UiScale)field(KeybinderActionQueueMonitor.class,"scale").get(monitor)).factor == 1f,
+                    "Existing monitor responds to viewport changes");
+        } finally { viewport(1920,1080); Messages.select("en"); }
     }
 
     private static void verifyRussianWindows(KeybindRecord record, KeybindRecord second,
@@ -537,10 +680,204 @@ public final class KeybinderLayoutProbe {
         check(editorScroll != null, "Constructor scroll panel");
         wheelAndDrag(editorScroll, "long constructor");
         verifyGlyphCenters(editor, "scrolled constructor");
+        verifyEditorInsertScrolling(window, editor, editorScroll);
         String draft = ((KeybinderUiInputField)field(KeybinderEditorWindow.class,"nameField").get(editor)).getText();
         click((WButton)field(KeybinderEditorWindow.class,"instructions").get(editor));
         check(((KeybinderUiInputField)field(KeybinderEditorWindow.class,"nameField").get(editor)).getText().equals(draft), "Opening help must preserve the draft");
         KeybinderInstructionWindow.closeActive();
+        verifyVariantSelection();
+    }
+
+    private static void verifyPrayUsesOnlyTarget() throws Exception {
+        short prayId = com.wurmonline.shared.constants.PlayerAction.PRAY.getId();
+        TargetSpec charm = TargetSpec.exactObject(123L, "prayer charm of Fo, gold");
+        ActionStep pray = new ActionStep(prayId, ItemSelector.toolbeltSlot(4), charm, "Pray");
+        ActionStep improve = new ActionStep(
+                com.wurmonline.shared.constants.PlayerAction.IMPROVE.getId(),
+                ItemSelector.toolbeltSlot(4), charm, "Improve");
+        KeybindRecord record = new KeybindRecord("pray", "Pray to Fo", "Q",
+                Arrays.asList(pray, improve));
+        KeybinderEditorWindow editor = new KeybinderEditorWindow(
+                controller(KeybindEditorController.class, Collections.singletonList(record)),
+                record.getId());
+        editor.setSize(1240, 540);
+        List<?> rows = (List<?>) field(KeybinderEditorWindow.class, "rows").get(editor);
+        Object prayRow = rows.get(0);
+        Object capturedRow = rows.get(1);
+        WurmArrayPanel<?> prayPanel = (WurmArrayPanel<?>) field(prayRow.getClass(), "panel").get(prayRow);
+        check(!prayPanel.components.contains(field(prayRow.getClass(), "source").get(prayRow)),
+                "Loaded Pray must omit the tool selector");
+        check(prayPanel.components.contains(field(prayRow.getClass(), "target").get(prayRow)),
+                "Loaded Pray must retain the target selector");
+        Method setAction = capturedRow.getClass().getDeclaredMethod("setActionStep", ActionStep.class);
+        setAction.setAccessible(true);
+        setAction.invoke(capturedRow, pray);
+        WurmArrayPanel<?> capturedPanel = (WurmArrayPanel<?>) field(capturedRow.getClass(), "panel").get(capturedRow);
+        check(!capturedPanel.components.contains(field(capturedRow.getClass(), "source").get(capturedRow)),
+                "Capturing Pray must remove the previous action's tool selector");
+        check(capturedPanel.components.contains(field(capturedRow.getClass(), "target").get(capturedRow)),
+                "Capturing Pray must retain the target selector");
+        preview("pray-target-only", editor);
+    }
+
+    private static void verifyCatalogToolSelectors() throws Exception {
+        org.keybinder.wurm.catalog.VanillaKeybindCatalog catalog =
+                new org.keybinder.wurm.catalog.VanillaKeybindCatalog();
+        org.keybinder.wurm.catalog.VanillaCatalogStepFactory factory =
+                new org.keybinder.wurm.catalog.VanillaCatalogStepFactory();
+        int checked = 0;
+        for (org.keybinder.wurm.catalog.VanillaKeybindCatalog.Category category : catalog.getCategories()) {
+            for (org.keybinder.wurm.catalog.VanillaKeybindCatalog.Entry entry : category.getEntries()) {
+                if (!factory.usesStructuredAction(category, entry)) continue;
+                KeybindStep step = factory.create(category, entry, ItemSelector.toolbeltSlot(4),
+                        TargetSpec.simple(TargetKind.SELECTED));
+                KeybindRecord record = new KeybindRecord("source-audit", entry.getDisplayName(), "Q",
+                        Collections.singletonList(step));
+                KeybinderEditorWindow editor = new KeybinderEditorWindow(
+                        controller(KeybindEditorController.class, Collections.singletonList(record)), record.getId());
+                Object row = ((List<?>) field(KeybinderEditorWindow.class, "rows").get(editor)).get(0);
+                WurmArrayPanel<?> panel = (WurmArrayPanel<?>) field(row.getClass(), "panel").get(row);
+                check(panel.components.contains(field(row.getClass(), "source").get(row))
+                                == entry.usesSelectableTool(),
+                        entry.getCommand() + " tool selector must match its source capability");
+                check(panel.components.contains(field(row.getClass(), "target").get(row))
+                                == entry.usesSelectableTarget(),
+                        entry.getCommand() + " must preserve its target capability");
+                checked++;
+            }
+        }
+        check(checked > 200, "Production editor source audit must cover every gameplay category");
+    }
+
+    private static void verifyVariantSelection() throws Exception {
+        List<KeybindStep> steps = Collections.singletonList(new ConsoleCommandStep("toggleconsole"));
+        List<KeybindVariant> variants = Arrays.asList(
+                new KeybindVariant("default", "Default", steps),
+                new KeybindVariant("second", "Second", steps),
+                new KeybindVariant("third", "Third", steps));
+        KeybindRecord record = new KeybindRecord("selection", "Multi selection", "SPACE", variants, "default");
+        KeybinderEditorWindow editor = new KeybinderEditorWindow(
+                controller(KeybindEditorController.class, Collections.singletonList(record)), record.getId());
+        KeybinderWindow window = new KeybinderWindow(
+                controller(KeybinderUiController.class, Collections.singletonList(record)));
+        window.showEditor(editor); window.setSize(1240, 900); window.gameTick();
+        List<?> zones = (List<?>)field(KeybinderEditorWindow.class, "zones").get(editor);
+        Object second = zones.get(1), third = zones.get(2);
+        int neutral = variantBackground(snapshot(window, 1f), second);
+        WurmComponent title = (WurmComponent)field(second.getClass(), "title").get(second);
+        title.leftPressed(title.x + 5, title.y + 5, 1);
+        title.leftReleased(title.x + 5, title.y + 5);
+        int selected = variantBackground(snapshot(window, 1f), second);
+        check(brightness(selected) > brightness(neutral) + 30,
+                "Clicking a variant makes its whole background visibly lighter");
+        check(field(KeybinderEditorWindow.class, "selectedZone").get(editor) == second,
+                "Variant selection is independent of the runtime active variant");
+        check(field(KeybinderEditorWindow.class, "activeVariantId").get(editor).equals("default"),
+                "Editing another variant does not change the runtime active variant");
+        for (int tick = 0; tick < 3; tick++) window.gameTick();
+        window.mouseMoved(window.x + 3, window.y + 3);
+        check(variantBackground(snapshot(window, 1f), second) == selected,
+                "Variant selection remains after ticks and pointer exit");
+
+        List<?> thirdRows = (List<?>)field(third.getClass(), "rows").get(third);
+        Object thirdRow = thirdRows.get(0);
+        KeybinderUiInputField command = (KeybinderUiInputField)field(thirdRow.getClass(), "command").get(thirdRow);
+        WurmInputField input = null;
+        for (WurmComponent child : KeybinderUi.tree(command))
+            if (child instanceof WurmInputField) input = (WurmInputField)child;
+        check(input != null, "Variant command retains its real native editing child");
+        input.setKbFocus(true); input.leftPressed(input.x + 5, input.y + 5, 1);
+        window.gameTick();
+        check(field(KeybinderEditorWindow.class, "selectedZone").get(editor) == third,
+                "Focusing a native command field selects its owning variant");
+        check(variantBackground(snapshot(window, 1f), second) == neutral,
+                "Choosing another variant clears the previous background");
+        input.keyTyped('!'); input.setKbFocus(false); window.gameTick();
+        String draft = command.getText();
+
+        title = (WurmComponent)field(third.getClass(), "title").get(third);
+        FlexComponent before = (FlexComponent)field(second.getClass(), "panel").get(second);
+        title.leftPressed(title.x + 5, title.y + 5, 1);
+        title.mouseDragged(title.x + 5, before.y + 3);
+        title.leftReleased(title.x + 5, before.y + 3);
+        window.gameTick();
+        check(zones.get(1) == third && zones.get(2) == second, "Native header drag moves the variant");
+        check(field(KeybinderEditorWindow.class, "selectedZone").get(editor) == third
+                        && command.getText().equals(draft),
+                "Reordering retains the selected variant and its edited command");
+        check(variantBackground(snapshot(window, 1f), third) == selected,
+                "The lighter background follows the variant to its new position");
+        click((WButton)field(third.getClass(), "collapse").get(third));
+        check(field(KeybinderEditorWindow.class, "selectedZone").get(editor) == third,
+                "Collapsing keeps variant selection");
+        click((WButton)field(third.getClass(), "collapse").get(third));
+        window.gameTick();
+        preview("constructor-selected-variant", window);
+
+        Object first = zones.get(0);
+        Object firstRow = ((List<?>)field(first.getClass(), "rows").get(first)).get(0);
+        KeybinderUiDropDown type = (KeybinderUiDropDown)field(firstRow.getClass(), "type").get(firstRow);
+        type.leftPressed(type.x + 5, type.y + 5, 1);
+        check(field(KeybinderEditorWindow.class, "selectedZone").get(editor) == first,
+                "Opening an unchanged dropdown selects its variant immediately");
+        popups().clear();
+        click((WButton)field(third.getClass(), "remove").get(third));
+        check(field(KeybinderEditorWindow.class, "selectedZone").get(editor) != third,
+                "Removing a selected variant selects a surviving block");
+    }
+
+    private static int variantBackground(BufferedImage image, Object zone) throws Exception {
+        FlexComponent panel = (FlexComponent)field(zone.getClass(), "panel").get(zone);
+        WurmComponent limit = (WurmComponent)field(zone.getClass(), "actionLimit").get(zone);
+        return image.getRGB(panel.x + panel.width - 4, limit.y + limit.height / 2);
+    }
+
+    private static int brightness(int rgb) {
+        return (rgb >> 16 & 255) + (rgb >> 8 & 255) + (rgb & 255);
+    }
+
+    private static void verifyEditorInsertScrolling(KeybinderWindow window,
+            KeybinderEditorWindow editor, KeybinderUiScrollPanel scroll) throws Exception {
+        List<?> zones = (List<?>)field(KeybinderEditorWindow.class, "zones").get(editor);
+        for (int insertion = 0; insertion < 2; insertion++) {
+            scroll.scrollDownToBottom();
+            int count = zones.size();
+            check(scroll.yo > 0, "Variant insertion starts in a scrolled constructor");
+            click((WButton)field(KeybinderEditorWindow.class, "addVariant").get(editor));
+            window.gameTick();
+            check(zones.size() == count + 1, "Add alternative creates exactly one variant");
+            Object added = zones.get(zones.size() - 1);
+            checkEditorInsertionVisible(scroll, (FlexComponent)field(added.getClass(), "panel").get(added),
+                    "Added variant");
+        }
+        Object first = zones.get(0);
+        List<?> steps = (List<?>)field(first.getClass(), "rows").get(first);
+        Object row = steps.get(11);
+        FlexComponent rowPanel = (FlexComponent)field(row.getClass(), "panel").get(row);
+        scroll.scrollDownTo(rowPanel.y - scroll.content.y);
+        int count = steps.size();
+        click((WButton)field(row.getClass(), "add").get(row));
+        drainUiOperations(); window.gameTick();
+        check(steps.size() == count + 1, "Add step inserts exactly one row");
+        Object added = steps.get(12);
+        checkEditorInsertionVisible(scroll, (FlexComponent)field(added.getClass(), "panel").get(added),
+                "Inserted action step");
+        preview("constructor-added-step", window);
+    }
+
+    private static void checkEditorInsertionVisible(KeybinderUiScrollPanel scroll,
+            FlexComponent inserted, String label) {
+        for (int tick = 0; tick < 3; tick++) {
+            scroll.layout(); scroll.gameTick();
+            FlexComponent viewport = (FlexComponent)scroll.offs;
+            check(scroll.yo > 0, label + " must not reset the constructor to its beginning");
+            check(scroll.yo == scroll.verticalBar().value(), label + " keeps the scrollbar synchronized");
+            check(inserted.y >= viewport.y && inserted.y < viewport.y + viewport.height,
+                    label + " starts inside the viewport");
+            if (inserted.height <= viewport.height)
+                check(inserted.y + inserted.height <= viewport.y + viewport.height,
+                        label + " remains fully visible");
+        }
     }
     @SuppressWarnings("unchecked") private static List<WurmDropdownPopup> popups() throws Exception { return (List<WurmDropdownPopup>)field(HeadsUpDisplay.class,"dropdownPopups").get(WurmComponent.hud); }
     @SuppressWarnings("unchecked") private static <T> T controller(Class<T> type, List<KeybindRecord> records) {
@@ -557,7 +894,10 @@ public final class KeybinderLayoutProbe {
                     entry.setAccessible(true);
                     return Arrays.asList(entry.newInstance(1L,"Chop up","Hatchet","Birch tree",1L,false,true,false),
                             entry.newInstance(2L,"Improve","Hammer","Large anvil",2L,false,false,false));
-                case "getActionName": return "Chop up";
+                case "getActionName":
+                    return ((Number) args[0]).shortValue()
+                            == com.wurmonline.shared.constants.PlayerAction.PRAY.getId()
+                            ? "Pray" : "Chop up";
                 case "currentUser": return "Player";
                 case "currentServer": return "Freedom";
             }

@@ -33,6 +33,26 @@ public class VanillaCatalogStepFactoryTest {
     private final VanillaCatalogStepFactory factory = new VanillaCatalogStepFactory();
 
     @Test
+    public void everyToolFreeCatalogActionKeepsItsTargetAndDiscardsItsTool() {
+        VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
+        TargetSpec selected = TargetSpec.simple(TargetKind.SELECTED);
+        int checked = 0;
+        for (VanillaKeybindCatalog.Category category : catalog.getCategories()) {
+            for (VanillaKeybindCatalog.Entry entry : category.getEntries()) {
+                if (!factory.usesStructuredAction(category, entry)
+                        || !entry.usesSelectableTarget() || entry.usesSelectableTool()) continue;
+                ActionStep step = (ActionStep) factory.create(category, entry,
+                        ItemSelector.toolbeltSlot(4), selected);
+                assertEquals(entry.getCommand(), ItemSelectorKind.EMPTY_HAND,
+                        step.getSource().getKind());
+                assertSame(entry.getCommand(), selected, step.getTarget());
+                checked++;
+            }
+        }
+        assertTrue("Audit must cover all tool-free command categories", checked > 50);
+    }
+
+    @Test
     public void gameplaySelectionCreatesActionStepWithSelectedTarget() throws Exception {
         VanillaKeybindCatalog catalog = new VanillaKeybindCatalog();
         VanillaKeybindCatalog.Entry entry = catalog.find("EXAMINE");

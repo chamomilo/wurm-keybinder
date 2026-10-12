@@ -1,7 +1,7 @@
 apply plugin: 'java'
 
 group "org.keybinder.wurm"
-version "0.11.6"
+version "0.11.13"
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
@@ -30,6 +30,8 @@ dependencies {
 jar {
     archiveName "${project.name}.jar"
     exclude 'keybinder/*.png'
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
 }
 
 
@@ -57,6 +59,12 @@ task verifyVersion {
                 !file('readme.md').getText('UTF-8').contains('images/keybinder-banner.png')) {
             throw new GradleException('GitHub README must reference the separate project banner')
         }
+        ['keybinds.png', 'constructor.png', 'tile-targets.png', 'multi-selector.png'].each { image ->
+            if (!file('images/' + image).isFile() ||
+                    !file('readme.md').getText('UTF-8').contains('images/' + image)) {
+                throw new GradleException('GitHub README image is missing: ' + image)
+            }
+        }
     }
 }
 
@@ -80,7 +88,8 @@ task verifyJarNamespace(dependsOn: jar) {
          'keybinder/i18n/messages_pt-BR.properties',
          'keybinder/i18n/messages_de.properties',
          'keybinder/i18n/messages_ru.properties',
-         'keybinder/value-pack.keybinder'].each { resource ->
+         'keybinder/value-pack.keybinder',
+         'keybinder/action-source-metadata.properties'].each { resource ->
             if (tree.matching { include resource }.files.empty) {
                 throw new GradleException("Required resource is missing from keybinder.jar: ${resource}")
             }
@@ -102,7 +111,6 @@ task dist(type: Zip, dependsOn: [test, verifyVersion, verifyJarNamespace]) {
             into('assets/keybinder') {
                 from 'src/main/resources/keybinder'
                 include '*.png'
-                exclude 'tile-selector.png' // Retired raster UI; the selector uses branded native buttons.
             }
         })
         from 'mods/keybinder.properties'
@@ -153,7 +161,8 @@ task verifyDistArchive(dependsOn: dist) {
          'keybinder/i18n/messages_pt-BR.properties',
          'keybinder/i18n/messages_de.properties',
          'keybinder/i18n/messages_ru.properties',
-         'keybinder/value-pack.keybinder'].each { resource ->
+         'keybinder/value-pack.keybinder',
+         'keybinder/action-source-metadata.properties'].each { resource ->
             if (nested.matching { include resource }.files.empty) {
                 throw new GradleException(
                         "Required resource is missing from distribution JAR: ${resource}")
